@@ -2,6 +2,15 @@
     "name": "koishi-plugin-chatluna-model-hub-adapter",
     "description": "Multi-provider OpenAI-compatible model hub adapter for ChatLuna",
     "version": "1.0.0",
+    "homepage": "https://github.com/qinfeng365/koishi-plugin-chatluna-adapter/tree/main/packages/adapter-model-hub#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/qinfeng365/koishi-plugin-chatluna-adapter.git",
+        "directory": "packages/adapter-model-hub"
+    },
+    "bugs": {
+        "url": "https://github.com/qinfeng365/koishi-plugin-chatluna-adapter/issues"
+    },
     "main": "lib/index.cjs",
     "module": "lib/index.mjs",
     "typings": "lib/index.d.ts",
