@@ -1,0 +1,14 @@
+{
+    "extends": "./tsconfig.base",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "koishi-plugin-chatluna-model-hub-adapter": [
+                "packages/adapter-model-hub/src"
+            ],
+            "koishi-plugin-chatluna-model-hub-adapter/*": [
+                "packages/adapter-model-hub/src/*"
+            ]
+        }
+    }
+}

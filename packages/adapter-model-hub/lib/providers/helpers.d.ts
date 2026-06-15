@@ -1,0 +1,15 @@
+import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types';
+import type { ProviderModelPreset, ProviderPreset } from '../types';
+export declare const DEFAULT_ICON_CDN = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons";
+export declare const tool = ModelCapabilities.ToolCall;
+export declare const image = ModelCapabilities.ImageInput;
+export declare const audio = ModelCapabilities.AudioInput;
+export declare const thinking = ModelCapabilities.Thinking;
+export declare const video = ModelCapabilities.VideoInput;
+export declare const file = ModelCapabilities.FileInput;
+export declare function llm(name: string, maxTokens: number, capabilities?: readonly ModelCapabilities[]): ProviderModelPreset;
+export declare function embedding(name: string, maxTokens: number): ProviderModelPreset;
+export declare function reranker(name: string, maxTokens: number): ProviderModelPreset;
+export declare function openAIChatProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;
+export declare function openAIProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;
+export declare function geminiProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;

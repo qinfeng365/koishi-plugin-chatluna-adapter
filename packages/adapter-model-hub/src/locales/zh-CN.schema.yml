@@ -1,0 +1,8 @@
+$inner:
+    webui: 启用独立 WebUI。供应商、模型、请求参数和密钥都在 WebUI 中管理。
+    frontendMode: 前端显示模式。性能模式保持低动效；精致模式启用更细腻的动效和高级样式。
+    iconCdn: LobeHub 图标静态资源地址。
+    settingsPath: WebUI 配置文件路径。相对路径会基于 Koishi 实例目录解析。
+    metadataUrl: 模型元数据缓存源。只用于补全上下文大小和能力，不作为可用模型列表。
+    metadataCachePath: 模型元数据本地缓存文件路径。相对路径会基于 Koishi 实例目录解析。
+    metadataUpdateHours: 模型元数据定时更新间隔，单位小时。

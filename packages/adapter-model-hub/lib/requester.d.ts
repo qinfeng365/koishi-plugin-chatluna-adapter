@@ -1,0 +1,30 @@
+import { ChatGeneration, ChatGenerationChunk } from '@langchain/core/outputs';
+import { RunnableConfig } from '@langchain/core/runnables';
+import { Context } from 'koishi';
+import { EmbeddingsRequester, EmbeddingsRequestParams, EmbeddingsResult, ModelRequester, ModelRequestParams, RerankerRequester, RerankerRequestParams, RerankerResult, RerankerUsageResult } from 'koishi-plugin-chatluna/llm-core/platform/api';
+import type { ResponseBuiltinTool, ResponseImageProvider } from '@chatluna/v1-shared-adapter';
+import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/config';
+import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
+import type { ModelHubClientConfig, ModelHubResolvedConfig, ProviderModelEntry } from './types';
+export declare class ModelHubRequester extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig> implements EmbeddingsRequester, RerankerRequester {
+    constructor(ctx: Context, configPool: ClientConfigPool<ModelHubClientConfig>, pluginConfig: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>);
+    completion(params: ModelRequestParams): Promise<ChatGeneration>;
+    completionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk>;
+    completionStreamInternal(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk>;
+    embeddings(params: EmbeddingsRequestParams): Promise<EmbeddingsResult>;
+    rerank(params: RerankerRequestParams): Promise<RerankerResult[] | RerankerUsageResult>;
+    getModels(config?: RunnableConfig): Promise<ProviderModelEntry[]>;
+    buildHeaders(): Record<string, string>;
+    post(url: string, body: Record<string, unknown>, options?: any): Promise<import("undici/types/fetch").Response>;
+    get logger(): import("reggol");
+    get pluginConfig(): ModelHubResolvedConfig;
+    requestContext(): any;
+    currentProviderPreset(): import("./types").ProviderPreset;
+    currentConfig(): ModelHubClientConfig;
+    responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[];
+    responseImageProvider(): ResponseImageProvider;
+    defaultCompletion(params: ModelRequestParams): Promise<ChatGeneration>;
+    defaultCompletionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk, any, any>;
+    private _adapter;
+    concatUrl(url: string): string;
+}

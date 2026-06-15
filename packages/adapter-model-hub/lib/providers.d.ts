@@ -1,0 +1,12 @@
+import type { AdditionalModelEntry, ModelFilterEntry, ProviderEntry, ProviderPreset, RuntimeProvider } from './types';
+export declare const DEFAULT_ICON_CDN = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons";
+export declare const PROVIDER_PRESETS: readonly ProviderPreset[];
+export declare const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[];
+export declare function normalizeId(value: string | undefined, fallback?: string): string;
+export declare function normalizePlatformName(value: string | undefined, fallback: string): string;
+export declare function getProviderPreset(id: string | undefined): ProviderPreset;
+export declare function getEndpoint(entry: ProviderEntry, preset: ProviderPreset): string;
+export declare function targetMatches(target: string | undefined, platform: string, provider: string): boolean;
+export declare function resolveRuntimeProviders(entries: readonly ProviderEntry[] | undefined): RuntimeProvider[];
+export declare function getTargetedAdditionalModels(models: readonly AdditionalModelEntry[] | undefined, platform: string, provider: string): AdditionalModelEntry[];
+export declare function getTargetedBlacklist(filters: readonly ModelFilterEntry[] | undefined, platform: string, provider: string): string[];

@@ -1,0 +1,18 @@
+- id: build
+  name: yakumo
+  config:
+    pipeline:
+      build:
+        - esbuild
+        - tsc
+        - client
+      clean:
+        - tsc --clean
+- id: esbuild
+  name: yakumo-esbuild
+- id: tsc
+  name: yakumo-tsc
+- id: client
+  name: '@koishijs/client/lib/yakumo.js'
+- id: 92fgid
+  name: yakumo/run
