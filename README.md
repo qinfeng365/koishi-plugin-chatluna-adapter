@@ -24,7 +24,7 @@ yarn build
 
 ## 发布
 
-发布工作流位于 `.github/workflows/publish-npm.yml`。推送形如 `adapter-model-hub-v1.2.0` 的 tag 后，GitHub Actions 会构建并发布 `packages/adapter-model-hub`。
+发布工作流位于 `.github/workflows/publish.yml`。推送形如 `adapter-model-hub-v1.2.0` 的 tag 后，GitHub Actions 会构建并发布 `packages/adapter-model-hub`。
 
 手动发布可在包目录执行：
 
