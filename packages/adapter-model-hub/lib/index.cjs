@@ -1,6 +1,8 @@
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 var __commonJS = (cb, mod) => function __require() {
@@ -18,6 +20,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/locales/zh-CN.schema.yml
@@ -48,26 +58,26 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 var import_plugin_console = require("@koishijs/plugin-console");
-var import_path3 = require("path");
+var import_path4 = require("path");
 var import_koishi = require("koishi");
 var import_chat = require("koishi-plugin-chatluna/services/chat");
-var import_types7 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types8 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_logger = require("koishi-plugin-chatluna/utils/logger");
 
 // src/client.ts
 var import_client = require("koishi-plugin-chatluna/llm-core/platform/client");
 var import_model = require("koishi-plugin-chatluna/llm-core/platform/model");
 var import_rerank = require("koishi-plugin-chatluna/llm-core/platform/rerank");
-var import_types4 = require("koishi-plugin-chatluna/llm-core/platform/types");
-var import_error2 = require("koishi-plugin-chatluna/utils/error");
-var import_v1_shared_adapter7 = require("@chatluna/v1-shared-adapter");
+var import_types5 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_error3 = require("koishi-plugin-chatluna/utils/error");
+var import_v1_shared_adapter8 = require("@chatluna/v1-shared-adapter");
 
 // src/requester.ts
-var import_messages2 = require("@langchain/core/messages");
-var import_outputs4 = require("@langchain/core/outputs");
+var import_messages3 = require("@langchain/core/messages");
+var import_outputs5 = require("@langchain/core/outputs");
 var import_api = require("koishi-plugin-chatluna/llm-core/platform/api");
-var import_v1_shared_adapter5 = require("@chatluna/v1-shared-adapter");
 var import_v1_shared_adapter6 = require("@chatluna/v1-shared-adapter");
+var import_v1_shared_adapter7 = require("@chatluna/v1-shared-adapter");
 
 // src/providers/helpers.ts
 var import_types = require("koishi-plugin-chatluna/llm-core/platform/types");
@@ -99,6 +109,13 @@ function geminiProvider(preset) {
   };
 }
 __name(geminiProvider, "geminiProvider");
+function difyProvider(preset) {
+  return {
+    ...preset,
+    adapter: "dify"
+  };
+}
+__name(difyProvider, "difyProvider");
 
 // src/providers/openai-compatible.ts
 var openai_compatible_default = openAIChatProvider({
@@ -412,6 +429,18 @@ var localai_default = openAIChatProvider({
   models: []
 });
 
+// src/providers/dify.ts
+var dify_default = difyProvider({
+  id: "dify",
+  name: "Dify",
+  icon: "dify",
+  kind: "cloud",
+  defaultPlatform: "hub-dify",
+  defaultEndpoint: "https://api.dify.ai/v1",
+  website: "https://dify.ai",
+  models: []
+});
+
 // src/providers/index.ts
 var PROVIDER_PRESETS = [
   openai_compatible_default,
@@ -423,6 +452,7 @@ var PROVIDER_PRESETS = [
   zhipu_default,
   moonshot_default,
   siliconflow_default,
+  dify_default,
   groq_default,
   mistral_default,
   together_default,
@@ -1391,11 +1421,1147 @@ function isFileLikePart(part) {
 }
 __name(isFileLikePart, "isFileLikePart");
 
+// src/adapters/dify.ts
+var import_messages2 = require("@langchain/core/messages");
+var import_outputs4 = require("@langchain/core/outputs");
+var import_fs = __toESM(require("fs"), 1);
+var import_path = __toESM(require("path"), 1);
+var import_promises = require("fs/promises");
+var import_url = require("url");
+var import_sse4 = require("koishi-plugin-chatluna/utils/sse");
+var import_string2 = require("koishi-plugin-chatluna/utils/string");
+var import_error2 = require("koishi-plugin-chatluna/utils/error");
+var import_v1_shared_adapter5 = require("@chatluna/v1-shared-adapter");
+var import_types4 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var difyAdapter = {
+  id: "dify",
+  async completion(requester, params) {
+    let generation = new import_outputs4.ChatGenerationChunk({
+      message: new import_messages2.AIMessageChunk({ content: "" }),
+      text: ""
+    });
+    for await (const chunk of difyCompletionStream(requester, params)) {
+      generation = generation.concat(chunk);
+    }
+    return generation;
+  },
+  async *completionStream(requester, params) {
+    yield* difyCompletionStream(requester, params);
+  },
+  async *completionStreamInternal(requester, params) {
+    yield* difyCompletionStream(requester, params);
+  },
+  async embeddings(requester, params) {
+    throw new import_error2.ChatLunaError(
+      import_error2.ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(`Dify does not provide embeddings for ${params.model}.`)
+    );
+  },
+  async rerank(requester, params) {
+    throw new import_error2.ChatLunaError(
+      import_error2.ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(`Dify does not provide rerank for ${params.model}.`)
+    );
+  },
+  async getModels(requester, config) {
+    return await difyModels(requester, config?.signal);
+  },
+  async dispose(requester, model, id) {
+    await disposeDifyConversation(requester, model, id);
+  }
+};
+async function* difyCompletionStream(requester, params) {
+  const config = resolveDifyApp(requester, params.model);
+  const conversationId = resolveChatLunaConversationId(params);
+  if (!conversationId) {
+    throw new import_error2.ChatLunaError(
+      import_error2.ChatLunaErrorCode.UNKNOWN_ERROR,
+      new Error("Dify adapter only supports ChatLuna conversation mode.")
+    );
+  }
+  const difyUser = resolveDifyUser(requester, params);
+  const difyConversationId = config.appType === "workflow" ? void 0 : await getDifyConversationId(requester, conversationId, config);
+  const response = await callDify(requester, params, config, {
+    chatLunaConversationId: conversationId,
+    difyConversationId,
+    difyUser
+  });
+  await (0, import_sse4.checkResponse)(response);
+  let updatedDifyConversationId;
+  let usage2;
+  for await (const event of (0, import_sse4.sseIterable)(response)) {
+    if (!event.data || event.data === "[DONE]") continue;
+    const data = parseDifyEvent(event.data);
+    if (isDifyErrorEvent(data)) {
+      throw new import_error2.ChatLunaError(
+        import_error2.ChatLunaErrorCode.API_REQUEST_FAILED,
+        new Error(formatDifyError(data, event.data))
+      );
+    }
+    updatedDifyConversationId = data.conversation_id ?? updatedDifyConversationId;
+    usage2 = usageFromDify(data.metadata?.usage ?? data.data?.usage) ?? usageFromWorkflowData(data.data) ?? usage2;
+    const content = textFromDifyEvent(data, config);
+    if (content) {
+      yield createDifyChunk(content, usage2);
+    }
+    if (isDifyTerminalEvent(data.event, config.appType)) {
+      break;
+    }
+  }
+  if (updatedDifyConversationId && config.appType !== "workflow" && config.appType !== "completion") {
+    await updateDifyConversationId(
+      requester,
+      conversationId,
+      config,
+      updatedDifyConversationId,
+      difyUser
+    );
+  }
+  if (usage2) {
+    yield createDifyChunk("", usage2);
+  }
+}
+__name(difyCompletionStream, "difyCompletionStream");
+async function callDify(requester, params, config, context) {
+  const lastMessage = params.input?.[params.input.length - 1];
+  const { files, chatlunaMultimodal } = await prepareDifyFiles(
+    requester,
+    params,
+    lastMessage,
+    config,
+    context.difyUser
+  );
+  const inputs = buildDifyInputs(
+    params,
+    context.chatLunaConversationId,
+    lastMessage,
+    config,
+    chatlunaMultimodal
+  );
+  if (config.appType === "workflow") {
+    const workflowInputs = withWorkflowFileInputs(inputs, files, config);
+    const body2 = filterEmpty2({
+      inputs: workflowInputs,
+      response_mode: "streaming",
+      user: context.difyUser,
+      files: files.length > 0 ? files : void 0
+    });
+    const path2 = config.workflowId ? `/workflows/${encodeURIComponent(config.workflowId)}/run` : "/workflows/run";
+    return postDify(requester, config, path2, body2, params.signal);
+  }
+  if (config.appType === "completion") {
+    const query2 = (0, import_string2.getMessageContent)(lastMessage?.content ?? "") ?? "";
+    const body2 = filterEmpty2({
+      inputs,
+      query: query2,
+      response_mode: "streaming",
+      user: context.difyUser,
+      files: files.length > 0 ? files : void 0
+    });
+    return postDify(
+      requester,
+      config,
+      "/completion-messages",
+      body2,
+      params.signal
+    );
+  }
+  const query = (0, import_string2.getMessageContent)(lastMessage?.content ?? "") ?? "";
+  const body = filterEmpty2({
+    query,
+    inputs,
+    response_mode: "streaming",
+    user: context.difyUser,
+    conversation_id: context.difyConversationId ?? "",
+    files: files.length > 0 ? files : void 0
+  });
+  return postDify(requester, config, "/chat-messages", body, params.signal);
+}
+__name(callDify, "callDify");
+async function difyModels(requester, signal) {
+  const apps = await resolveDifyAppsWithParameters(requester, signal);
+  const result = apps.map((app) => ({
+    name: app.modelName,
+    type: void 0,
+    maxTokens: app.contextSize,
+    capabilities: difyCapabilities(app)
+  }));
+  if (result.length > 0) return result;
+  const current = await enrichDifyAppParameters(
+    requester,
+    resolveDifyApp(requester, void 0),
+    signal
+  );
+  const modelName = resolveDifyModelName(current);
+  return [
+    {
+      name: modelName,
+      maxTokens: current.contextSize,
+      capabilities: difyCapabilities(current)
+    }
+  ];
+}
+__name(difyModels, "difyModels");
+function resolveDifyApp(requester, model) {
+  const apps = requester.currentConfig().difyApps ?? {};
+  const key = model?.trim() ?? "";
+  const app = key ? apps[key] : Object.values(apps)[0];
+  if (app) return app;
+  if (key && Object.keys(apps).length > 0) {
+    throw new import_error2.ChatLunaError(
+      import_error2.ChatLunaErrorCode.MODEL_NOT_FOUND,
+      new Error(`Dify app not found for model: ${key}`)
+    );
+  }
+  const current = requester.currentConfig();
+  return {
+    apiKey: current.apiKey,
+    apiEndpoint: current.apiEndpoint ?? "",
+    platform: current.platform ?? "hub-dify",
+    providerName: current.providerName,
+    modelName: resolveDifyModelName(current),
+    appType: current.difyAppType ?? "chat",
+    workflowId: current.difyWorkflowId,
+    outputVariable: current.difyOutputVariable,
+    enableFileUpload: current.difyEnableFileUpload !== false,
+    contextSize: current.difyContextSize ?? 128e3
+  };
+}
+__name(resolveDifyApp, "resolveDifyApp");
+async function resolveDifyAppsWithParameters(requester, signal) {
+  const config = requester.currentConfig();
+  const apps = Object.values(config.difyApps ?? {});
+  const normalized = apps.length > 0 ? apps : [resolveDifyApp(requester, void 0)];
+  const seen = /* @__PURE__ */ new Map();
+  const result = [];
+  for (const app of normalized) {
+    const next = await enrichDifyAppParameters(requester, app, signal);
+    const baseName = next.modelName;
+    const index = seen.get(baseName) ?? 0;
+    seen.set(baseName, index + 1);
+    const unique = {
+      ...next,
+      modelName: index === 0 ? baseName : `${baseName}-${index + 1}`
+    };
+    result.push(unique);
+    if (config.difyApps != null) {
+      delete config.difyApps[app.modelName];
+      config.difyApps[unique.modelName] = unique;
+    }
+  }
+  return result;
+}
+__name(resolveDifyAppsWithParameters, "resolveDifyAppsWithParameters");
+async function enrichDifyAppParameters(requester, config, signal) {
+  const parameters = await getDifyAppParameters(requester, config, signal);
+  if (!parameters) return config;
+  return {
+    ...config,
+    parameters: {
+      inputControls: parseDifyInputControls(parameters),
+      fileHandling: parseDifyFileHandling(parameters)
+    }
+  };
+}
+__name(enrichDifyAppParameters, "enrichDifyAppParameters");
+async function getDifyAppParameters(requester, config, signal) {
+  try {
+    const response = await requester.requestContext().plugin.fetch(
+      concatDifyUrl(config.apiEndpoint, "/parameters"),
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`
+        },
+        signal
+      }
+    );
+    if (!response.ok) {
+      requester.logger.warn(
+        `Dify parameters fetch failed for ${config.modelName}: ${response.status} ${response.statusText}`
+      );
+      return void 0;
+    }
+    return await response.json();
+  } catch (error) {
+    requester.logger.warn(error);
+    return void 0;
+  }
+}
+__name(getDifyAppParameters, "getDifyAppParameters");
+function parseDifyInputControls(parameters) {
+  const result = [];
+  for (const item of parameters.user_input_form ?? []) {
+    const [type, control] = Object.entries(item)[0] ?? [];
+    if (!type || !control?.variable) continue;
+    result.push({
+      variable: control.variable,
+      type,
+      required: control.required,
+      defaultValue: control.default
+    });
+  }
+  return result;
+}
+__name(parseDifyInputControls, "parseDifyInputControls");
+function isDifyFileControlType(type) {
+  return type != null && /file/i.test(type);
+}
+__name(isDifyFileControlType, "isDifyFileControlType");
+function parseDifyFileHandling(parameters) {
+  const system = parameters.system_parameters;
+  const imageUpload = parameters.file_upload?.image;
+  const imageEnabled = imageUpload?.enabled === true && (imageUpload.transfer_methods == null || imageUpload.transfer_methods.some(
+    (method) => method === "local_file" || method === "remote_url"
+  ));
+  const supportedMimeTypes = /* @__PURE__ */ new Set();
+  const allowedFileTypes = [];
+  const allowedTransferMethods = /* @__PURE__ */ new Set();
+  const declaredFileControls = parameters.user_input_form?.map((item) => Object.entries(item)[0]).filter(([type]) => isDifyFileControlType(type)).map(([, control]) => control) ?? [];
+  const controlFileTypes = /* @__PURE__ */ new Set();
+  for (const control of declaredFileControls) {
+    for (const type of control?.allowed_file_types ?? []) {
+      controlFileTypes.add(type);
+    }
+    for (const method of control?.allowed_file_upload_methods ?? []) {
+      addDifyTransferMethod(allowedTransferMethods, method);
+    }
+  }
+  const workflowFileEnabled = declaredFileControls.length > 0 || configHasWorkflowFileLimit(parameters) && controlFileTypes.size > 0;
+  if (workflowFileEnabled) {
+    const types = controlFileTypes.size > 0 ? [...controlFileTypes] : ["document", "image", "audio", "video"];
+    for (const type of types) {
+      addDifyFileType(supportedMimeTypes, allowedFileTypes, type);
+    }
+  }
+  if (imageEnabled) {
+    addDifyFileType(supportedMimeTypes, allowedFileTypes, "image");
+    for (const method of imageUpload?.transfer_methods ?? []) {
+      addDifyTransferMethod(allowedTransferMethods, method);
+    }
+  }
+  if (supportedMimeTypes.size > 0 && allowedTransferMethods.size < 1) {
+    allowedTransferMethods.add("local_file");
+  }
+  if (supportedMimeTypes.size < 1) return void 0;
+  const fallbackLimit = mbToBytes(system?.file_size_limit, 15);
+  const imageLimit = mbToBytes(
+    system?.image_file_size_limit,
+    fallbackLimit / 1024 / 1024
+  );
+  const audioLimit = mbToBytes(
+    system?.audio_file_size_limit,
+    fallbackLimit / 1024 / 1024
+  );
+  const videoLimit = mbToBytes(
+    system?.video_file_size_limit,
+    fallbackLimit / 1024 / 1024
+  );
+  const maxFileSizeBytes = Math.max(
+    fallbackLimit,
+    imageLimit,
+    audioLimit,
+    videoLimit
+  );
+  const maxFileCount = system?.workflow_file_upload_limit ?? imageUpload?.number_limits ?? 10;
+  return {
+    supportedMimeTypes: [...supportedMimeTypes],
+    maxFileSizeBytes,
+    maxTotalSizeBytes: maxFileSizeBytes * Math.max(1, maxFileCount),
+    maxFileSizeBytesOverrides: {
+      "image/png": imageLimit,
+      "image/jpeg": imageLimit,
+      "image/gif": imageLimit,
+      "image/webp": imageLimit,
+      "image/svg+xml": imageLimit,
+      "audio/mpeg": audioLimit,
+      "audio/mp4": audioLimit,
+      "audio/wav": audioLimit,
+      "audio/ogg": audioLimit,
+      "video/mp4": videoLimit,
+      "video/quicktime": videoLimit,
+      "video/webm": videoLimit
+    },
+    maxFileCount,
+    allowedFileTypes,
+    allowedTransferMethods: [...allowedTransferMethods]
+  };
+}
+__name(parseDifyFileHandling, "parseDifyFileHandling");
+function addDifyTransferMethod(target, value) {
+  if (value === "remote_url" || value === "local_file") target.add(value);
+}
+__name(addDifyTransferMethod, "addDifyTransferMethod");
+function addDifyFileType(supportedMimeTypes, allowedFileTypes, type) {
+  if (type === "custom") return;
+  addMimeGroup(supportedMimeTypes, type);
+  if (!allowedFileTypes.includes(type)) allowedFileTypes.push(type);
+}
+__name(addDifyFileType, "addDifyFileType");
+function configHasWorkflowFileLimit(parameters) {
+  const value = parameters.system_parameters?.workflow_file_upload_limit;
+  return typeof value === "number" && value > 0;
+}
+__name(configHasWorkflowFileLimit, "configHasWorkflowFileLimit");
+function addMimeGroup(target, type) {
+  const groups = {
+    image: [
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp",
+      "image/svg+xml"
+    ],
+    document: [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "text/plain",
+      "text/markdown",
+      "text/csv"
+    ],
+    audio: ["audio/mpeg", "audio/mp4", "audio/wav", "audio/ogg", "audio/webm"],
+    video: ["video/mp4", "video/quicktime", "video/webm"],
+    custom: []
+  };
+  for (const mime of groups[type]) target.add(mime);
+}
+__name(addMimeGroup, "addMimeGroup");
+function mbToBytes(value, fallback) {
+  const number = Number(value);
+  const mb = Number.isFinite(number) ? number : fallback;
+  return Math.max(1, mb) * 1024 * 1024;
+}
+__name(mbToBytes, "mbToBytes");
+function difyCapabilities(config) {
+  if (!config.enableFileUpload) return [];
+  const allowed = config.parameters?.fileHandling?.allowedFileTypes;
+  if (allowed == null || allowed.length < 1) return [];
+  const result = /* @__PURE__ */ new Set();
+  if (allowed.includes("image")) result.add(import_types4.ModelCapabilities.ImageInput);
+  if (allowed.some((item) => item !== "image")) {
+    result.add(import_types4.ModelCapabilities.FileInput);
+  }
+  if (allowed.includes("audio")) result.add(import_types4.ModelCapabilities.AudioInput);
+  if (allowed.includes("video")) result.add(import_types4.ModelCapabilities.VideoInput);
+  return [...result];
+}
+__name(difyCapabilities, "difyCapabilities");
+function resolveDifyModelName(config) {
+  return config.difyModelName?.trim() || config.providerName?.trim() || config.platform?.trim() || "dify-app";
+}
+__name(resolveDifyModelName, "resolveDifyModelName");
+function parseDifyEvent(data) {
+  try {
+    return JSON.parse(data);
+  } catch (error) {
+    throw new import_error2.ChatLunaError(
+      import_error2.ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(`Failed to parse Dify stream event: ${data}`)
+    );
+  }
+}
+__name(parseDifyEvent, "parseDifyEvent");
+function textFromDifyEvent(data, config) {
+  if (typeof data.answer === "string") return data.answer;
+  if (typeof data.data?.text === "string") return data.data.text;
+  if (config.appType === "workflow" && data.event != null && data.event !== "workflow_finished") {
+    return "";
+  }
+  const outputs = data.data?.outputs;
+  if (!outputs || typeof outputs !== "object") return "";
+  const key = config.outputVariable?.trim();
+  if (key && outputs[key] != null) return outputToText(outputs[key]);
+  for (const candidate of ["answer", "text", "output", "result"]) {
+    if (outputs[candidate] != null) return outputToText(outputs[candidate]);
+  }
+  return outputToText(outputs);
+}
+__name(textFromDifyEvent, "textFromDifyEvent");
+function outputToText(value) {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+__name(outputToText, "outputToText");
+function isDifyTerminalEvent(event, type) {
+  if (event === "message_end") return true;
+  if (event === "workflow_finished") return true;
+  if (event === "tts_message_end") return false;
+  return type === "completion" && event === "message_end";
+}
+__name(isDifyTerminalEvent, "isDifyTerminalEvent");
+function isDifyErrorEvent(data) {
+  return data.event === "error" || data.status === 400 || data.status === 500 || data.data?.status === "failed" || data.data?.status === "stopped";
+}
+__name(isDifyErrorEvent, "isDifyErrorEvent");
+function formatDifyError(data, raw) {
+  return data.message || data.error || data.data?.error || (data.code ? `${data.code}: ${raw}` : `Dify request failed: ${raw}`);
+}
+__name(formatDifyError, "formatDifyError");
+function createDifyChunk(content, usage2) {
+  const message = new import_messages2.AIMessageChunk({
+    content,
+    usage_metadata: usage2
+  });
+  return new import_outputs4.ChatGenerationChunk({
+    generationInfo: usage2 ? { usage_metadata: usage2 } : void 0,
+    message,
+    text: content
+  });
+}
+__name(createDifyChunk, "createDifyChunk");
+function usageFromDify(usage2) {
+  if (!usage2) return void 0;
+  const inputTokens = numberOrUndefined(usage2.prompt_tokens) ?? 0;
+  const outputTokens = numberOrUndefined(usage2.completion_tokens) ?? 0;
+  const totalTokens = numberOrUndefined(usage2.total_tokens) ?? inputTokens + outputTokens;
+  if (totalTokens < 1 && inputTokens < 1 && outputTokens < 1) return void 0;
+  return (0, import_v1_shared_adapter5.createUsageMetadata)({
+    inputTokens,
+    outputTokens,
+    totalTokens
+  });
+}
+__name(usageFromDify, "usageFromDify");
+function usageFromWorkflowData(data) {
+  const totalTokens = numberOrUndefined(data?.total_tokens) ?? numberOrUndefined(data?.execution_metadata?.total_tokens);
+  if (totalTokens == null) return void 0;
+  return (0, import_v1_shared_adapter5.createUsageMetadata)({
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens
+  });
+}
+__name(usageFromWorkflowData, "usageFromWorkflowData");
+function numberOrUndefined(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : void 0;
+}
+__name(numberOrUndefined, "numberOrUndefined");
+function resolveChatLunaConversationId(params) {
+  return params.id ?? params.variables?.built?.conversationId ?? params.variables?.chatluna_conversation_id ?? resolveConversationIdFromMessages(params.input);
+}
+__name(resolveChatLunaConversationId, "resolveChatLunaConversationId");
+function resolveConversationIdFromMessages(messages = []) {
+  for (const message of messages) {
+    const id = message.additional_kwargs?.chatluna_conversation_id ?? message.additional_kwargs?.conversationId ?? message.additional_kwargs?.conversation_id;
+    if (typeof id === "string" && id.length > 0) return id;
+  }
+}
+__name(resolveConversationIdFromMessages, "resolveConversationIdFromMessages");
+function resolveDifyUser(requester, params) {
+  if (requester.koishiContext().chatluna.config.defaultGroupRouteMode === "personal") {
+    return params.variables?.user_id || params.variables?.user || params.user || "chatluna";
+  }
+  return "chatluna";
+}
+__name(resolveDifyUser, "resolveDifyUser");
+function buildDifyInputs(params, conversationId, lastMessage, config, chatlunaMultimodal) {
+  const variables = params.variables ?? {};
+  const promptParts = promptPartsFromMessages(params.input ?? []);
+  const query = (0, import_string2.getMessageContent)(lastMessage?.content ?? "");
+  const character = resolveChatLunaCharacter(variables);
+  const inputs = {
+    input: query,
+    query,
+    prompt: query,
+    system: promptParts.system,
+    chatluna_system_prompt: promptParts.system,
+    chatluna_history: buildChatlunaHistory(params.input ?? []),
+    chatluna_conversation_id: conversationId,
+    chatluna_user_id: variables.user_id ?? variables.built?.userId,
+    chatluna_bot_id: variables.bot_id ?? variables.built?.botId,
+    chatluna_group_id: variables.group_id ?? variables.built?.guildId,
+    chatluna_channel_id: variables.channel_id ?? variables.built?.channelId,
+    chatluna_request_id: variables.request_id ?? variables.built?.requestId,
+    chatluna_chat_platform: variables.built?.chatPlatform,
+    chatluna_user_name: variables.user,
+    chatluna_preset: variables.preset ?? variables.built?.preset,
+    chatluna_character: serializeDifyInputValue(character),
+    chatluna_character_name: firstDefined(
+      variables.character_name,
+      variables.characterName,
+      variables.name,
+      variables.built?.characterName
+    ),
+    chatluna_persona: serializeDifyInputValue(
+      firstDefined(
+        variables.persona,
+        variables.role,
+        variables.description,
+        variables.built?.persona
+      )
+    ),
+    chatluna_authors_note: serializeDifyInputValue(variables.authors_note),
+    chatluna_lore_books: serializeDifyInputValue(variables.lore_books),
+    chatluna_source: variables.source ?? variables.built?.source,
+    chatluna_multimodal: chatlunaMultimodal
+  };
+  for (const key of Object.keys(variables)) {
+    const alias = `chatluna_${key}`;
+    if (inputs[alias] === void 0) inputs[alias] = variables[key];
+  }
+  for (const control of config?.parameters?.inputControls ?? []) {
+    if (inputs[control.variable] !== void 0) continue;
+    const resolved = resolveDifyControlValue(control, variables, query, inputs);
+    if (resolved !== void 0) inputs[control.variable] = resolved;
+  }
+  return stripUndefined(inputs);
+}
+__name(buildDifyInputs, "buildDifyInputs");
+function firstDefined(...values) {
+  return values.find((value) => value !== void 0 && value !== null);
+}
+__name(firstDefined, "firstDefined");
+function resolveChatLunaCharacter(variables) {
+  return firstDefined(
+    variables.character,
+    variables.character_card,
+    variables.characterCard,
+    variables.characterData,
+    variables.character_data,
+    variables.persona,
+    variables.role,
+    variables.built?.character,
+    variables.built?.characterCard,
+    variables.built?.characterData,
+    variables.built?.persona
+  );
+}
+__name(resolveChatLunaCharacter, "resolveChatLunaCharacter");
+function promptPartsFromMessages(messages = []) {
+  const system = [];
+  for (const message of messages) {
+    if (message.getType() !== "system") continue;
+    const content = extractTextFromMessageContent(message.content);
+    if (content) system.push(content);
+  }
+  return {
+    system: system.join("\n\n")
+  };
+}
+__name(promptPartsFromMessages, "promptPartsFromMessages");
+function resolveDifyControlValue(control, variables, query, inputs) {
+  if (variables[control.variable] !== void 0) {
+    return variables[control.variable];
+  }
+  if (inputs[`chatluna_${control.variable}`] !== void 0) {
+    return inputs[`chatluna_${control.variable}`];
+  }
+  if (control.variable === "query" || control.variable === "input") {
+    return query;
+  }
+  if (control.defaultValue !== void 0) return control.defaultValue;
+  if (!control.required) return void 0;
+  if (control.type === "number") return 0;
+  if (control.type === "checkbox") return false;
+  return "";
+}
+__name(resolveDifyControlValue, "resolveDifyControlValue");
+function serializeDifyInputValue(value) {
+  if (value == null || typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+__name(serializeDifyInputValue, "serializeDifyInputValue");
+function withWorkflowFileInputs(inputs, files, config) {
+  if (files.length < 1) return inputs;
+  const result = { ...inputs };
+  const fileControls = config.parameters?.inputControls.filter(
+    (control) => isDifyFileControlType(control.type)
+  ) ?? [];
+  const target = fileControls[0]?.variable;
+  if (target && result[target] == null) {
+    result[target] = files;
+  }
+  return result;
+}
+__name(withWorkflowFileInputs, "withWorkflowFileInputs");
+function buildChatlunaHistory(messages = []) {
+  const historyLimit = 13e4;
+  const history = [];
+  let totalLength = 0;
+  for (const message of messages) {
+    const content = extractTextFromMessageContent(message.content);
+    if (!content) continue;
+    const entry = {
+      role: message.getType(),
+      content
+    };
+    history.push(entry);
+    totalLength += entry.content.length;
+    while (totalLength > historyLimit) {
+      if (history.length === 1) {
+        entry.content = entry.content.slice(-historyLimit);
+        totalLength = entry.content.length;
+        break;
+      }
+      const removed = history.shift();
+      if (!removed) break;
+      totalLength -= removed.content.length;
+    }
+  }
+  return JSON.stringify(history);
+}
+__name(buildChatlunaHistory, "buildChatlunaHistory");
+function extractTextFromMessageContent(content) {
+  if (typeof content === "string") return content;
+  if (!content) return void 0;
+  const parts = [];
+  for (const part of content) {
+    if ((0, import_string2.isMessageContentText)(part)) parts.push(part.text);
+  }
+  return parts.length > 0 ? parts.join("") : void 0;
+}
+__name(extractTextFromMessageContent, "extractTextFromMessageContent");
+async function prepareDifyFiles(requester, params, lastMessage, config, difyUser) {
+  const candidates = extractUploadCandidates(lastMessage);
+  const chatlunaMultimodal = safeSerializeMultimodal(lastMessage, candidates);
+  if (!config.enableFileUpload || candidates.length === 0) {
+    return { files: [], chatlunaMultimodal };
+  }
+  const files = [];
+  const maxCount = config.parameters?.fileHandling?.maxFileCount;
+  const selected = maxCount != null && maxCount > 0 ? candidates.slice(0, maxCount) : candidates;
+  if (selected.length < candidates.length) {
+    requester.logger.warn(
+      `Dify upload truncated to ${selected.length} files for ${config.modelName}.`
+    );
+  }
+  for (const candidate of selected) {
+    const file2 = await multimodalToDifyFile(
+      requester,
+      candidate,
+      difyUser,
+      config,
+      params.signal
+    );
+    if (file2) files.push(file2);
+  }
+  return { files, chatlunaMultimodal };
+}
+__name(prepareDifyFiles, "prepareDifyFiles");
+function extractUploadCandidates(lastMessage) {
+  if (!lastMessage) return [];
+  const candidates = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = /* @__PURE__ */ __name((source, type) => {
+    const key = typeof source === "string" ? `${type}:${source}` : void 0;
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    candidates.push({ source, type });
+  }, "add");
+  const content = lastMessage.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if ((0, import_string2.isMessageContentImageUrl)(part)) {
+        const imageUrl = part.image_url;
+        const url = typeof imageUrl === "string" ? imageUrl : imageUrl?.url;
+        if (url) add(url, "image");
+      } else if (isFileLikePart2(part)) {
+        const filePart = part;
+        const url = filePart.file_url?.url ?? filePart.audio_url?.url ?? filePart.video_url?.url;
+        const type = fileTypeFromPart(part.type);
+        if (url) add(url, type);
+      }
+    }
+  }
+  return candidates;
+}
+__name(extractUploadCandidates, "extractUploadCandidates");
+function isFileLikePart2(part) {
+  return part != null && typeof part === "object" && ["file_url", "audio_url", "video_url"].includes(part.type);
+}
+__name(isFileLikePart2, "isFileLikePart");
+function fileTypeFromPart(type) {
+  if (type === "audio_url") return "audio";
+  if (type === "video_url") return "video";
+  return "document";
+}
+__name(fileTypeFromPart, "fileTypeFromPart");
+async function multimodalToDifyFile(requester, candidate, difyUser, config, signal) {
+  const remote = candidateToRemoteDifyFile(candidate, config);
+  if (remote) return remote;
+  if (!isDifyLocalFileTransferAllowed(config)) {
+    requester.logger.warn(
+      `Dify upload skipped local_file because ${config.modelName} does not allow local_file transfer.`
+    );
+    return null;
+  }
+  const payload = await resolveFilePayload(requester, candidate, signal);
+  if (!payload) return null;
+  if (!isDifyPayloadAllowed(requester, payload, candidate, config)) return null;
+  const uploadFileId = await uploadFileToDify(
+    requester,
+    payload,
+    difyUser,
+    config,
+    signal
+  );
+  if (!uploadFileId) return null;
+  return {
+    type: resolveDifyPayloadType(payload.mimeType, candidate.type),
+    transfer_method: "local_file",
+    upload_file_id: uploadFileId
+  };
+}
+__name(multimodalToDifyFile, "multimodalToDifyFile");
+function candidateToRemoteDifyFile(candidate, config) {
+  if (typeof candidate.source !== "string") return null;
+  if (!candidate.source.startsWith("http://") && !candidate.source.startsWith("https://")) {
+    return null;
+  }
+  const methods = config.parameters?.fileHandling?.allowedTransferMethods;
+  if (methods != null && !methods.includes("remote_url")) return null;
+  return {
+    type: candidate.type,
+    transfer_method: "remote_url",
+    url: candidate.source
+  };
+}
+__name(candidateToRemoteDifyFile, "candidateToRemoteDifyFile");
+function isDifyLocalFileTransferAllowed(config) {
+  const methods = config.parameters?.fileHandling?.allowedTransferMethods;
+  return methods == null || methods.includes("local_file");
+}
+__name(isDifyLocalFileTransferAllowed, "isDifyLocalFileTransferAllowed");
+function isDifyPayloadAllowed(requester, payload, candidate, config) {
+  const limits = config.parameters?.fileHandling;
+  if (!limits) return true;
+  const type = resolveDifyPayloadType(payload.mimeType, candidate.type);
+  if (limits.allowedFileTypes != null && limits.allowedFileTypes.length > 0 && !limits.allowedFileTypes.includes(type)) {
+    requester.logger.warn(
+      `Dify upload skipped unsupported ${type} file for ${config.modelName}.`
+    );
+    return false;
+  }
+  const mimeType = payload.mimeType;
+  if (mimeType && limits.supportedMimeTypes.length > 0 && !limits.supportedMimeTypes.includes(mimeType)) {
+    requester.logger.warn(
+      `Dify upload skipped unsupported mime type ${mimeType} for ${config.modelName}.`
+    );
+    return false;
+  }
+  const maxFileSize = (mimeType ? limits.maxFileSizeBytesOverrides?.[mimeType] : void 0) ?? limits.maxFileSizeBytes;
+  if (payload.buffer.byteLength > maxFileSize) {
+    requester.logger.warn(
+      `Dify upload skipped oversized file ${payload.fileName} for ${config.modelName}.`
+    );
+    return false;
+  }
+  return true;
+}
+__name(isDifyPayloadAllowed, "isDifyPayloadAllowed");
+function resolveDifyPayloadType(mimeType, fallback) {
+  return mapMimeToFileType(mimeType) ?? fallback;
+}
+__name(resolveDifyPayloadType, "resolveDifyPayloadType");
+async function resolveFilePayload(requester, candidate, signal) {
+  const { source, fileName, mimeType } = candidate;
+  if (typeof source === "string") {
+    const dataUrlPayload = tryParseDataUrl(source, fileName, mimeType);
+    if (dataUrlPayload) return dataUrlPayload;
+    if (source.startsWith("http://") || source.startsWith("https://")) {
+      return fetchRemoteFile(requester, source, fileName, mimeType, signal);
+    }
+    return readLocalFile(requester, source, fileName, mimeType);
+  }
+  const buffer = convertToBuffer(source);
+  if (!buffer) return null;
+  return {
+    buffer,
+    fileName: fileName ?? buildFallbackFileName(mimeType),
+    mimeType
+  };
+}
+__name(resolveFilePayload, "resolveFilePayload");
+function tryParseDataUrl(source, preferredName, preferredMime) {
+  const match = source.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = preferredMime ?? match[1];
+  return {
+    buffer: Buffer.from(match[2], "base64"),
+    fileName: preferredName ?? buildFallbackFileName(mimeType),
+    mimeType
+  };
+}
+__name(tryParseDataUrl, "tryParseDataUrl");
+async function readLocalFile(requester, source, preferredName, preferredMime) {
+  try {
+    const filePath = source.startsWith("file://") ? (0, import_url.fileURLToPath)(source) : source;
+    if (!import_fs.default.existsSync(filePath)) return null;
+    const buffer = await (0, import_promises.readFile)(filePath);
+    const mimeType = preferredMime ?? guessMimeTypeFromPath(filePath);
+    const rawName = import_path.default.basename(filePath);
+    return {
+      buffer,
+      fileName: preferredName || (rawName.length > 0 ? rawName : buildFallbackFileName(mimeType)),
+      mimeType
+    };
+  } catch (error) {
+    requester.logger.warn(error);
+    return null;
+  }
+}
+__name(readLocalFile, "readLocalFile");
+async function fetchRemoteFile(requester, source, preferredName, preferredMime, signal) {
+  try {
+    const response = await requester.requestContext().plugin.fetch(source, {
+      method: "GET",
+      signal
+    });
+    if (!response.ok) return null;
+    const contentType = response.headers.get("content-type")?.split(";")?.[0];
+    const fileName = preferredName ?? fileNameFromUrl(source, contentType);
+    return {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      fileName,
+      mimeType: preferredMime ?? contentType
+    };
+  } catch (error) {
+    requester.logger.warn(error);
+    return null;
+  }
+}
+__name(fetchRemoteFile, "fetchRemoteFile");
+async function uploadFileToDify(requester, file2, difyUser, config, signal) {
+  const formData = new FormData();
+  const mimeType = file2.mimeType ?? "application/octet-stream";
+  formData.set(
+    "file",
+    new Blob([new Uint8Array(file2.buffer)], { type: mimeType }),
+    file2.fileName
+  );
+  formData.set("user", difyUser);
+  const response = await requester.requestContext().plugin.fetch(
+    concatDifyUrl(config.apiEndpoint, "/files/upload"),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      body: formData,
+      signal
+    }
+  );
+  if (!response.ok) {
+    requester.logger.warn(
+      `Failed to upload file to Dify: ${response.status} ${response.statusText}`
+    );
+    return null;
+  }
+  const result = await response.json().catch(async () => response.text());
+  return typeof result === "object" && result != null ? result.data?.id ?? result.id : void 0;
+}
+__name(uploadFileToDify, "uploadFileToDify");
+function postDify(requester, config, path2, body, signal) {
+  return requester.requestContext().plugin.fetch(
+    concatDifyUrl(config.apiEndpoint, path2),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(stripUndefined(body)),
+      signal
+    }
+  );
+}
+__name(postDify, "postDify");
+function concatDifyUrl(endpoint, path2) {
+  const base = endpoint.replace(/\/+$/, "");
+  const next = path2.startsWith("/") ? path2 : `/${path2}`;
+  return `${base}${next}`;
+}
+__name(concatDifyUrl, "concatDifyUrl");
+async function getDifyConversationId(requester, conversationId, config) {
+  const cached = await requester.koishiContext().chatluna.cache.get(
+    "chatluna/keys",
+    difyCacheKey(conversationId, config)
+  );
+  if (cached == null) return void 0;
+  try {
+    return JSON.parse(cached).id;
+  } catch {
+    return cached;
+  }
+}
+__name(getDifyConversationId, "getDifyConversationId");
+async function updateDifyConversationId(requester, conversationId, config, difyConversationId, user) {
+  await requester.koishiContext().chatluna.cache.set(
+    "chatluna/keys",
+    difyCacheKey(conversationId, config),
+    JSON.stringify({
+      id: difyConversationId,
+      user
+    })
+  );
+}
+__name(updateDifyConversationId, "updateDifyConversationId");
+async function disposeDifyConversation(requester, model, id) {
+  if (!model || !id) return;
+  const config = resolveDifyApp(requester, model);
+  if (config.appType === "workflow" || config.appType === "completion") {
+    return;
+  }
+  const key = difyCacheKey(id, config);
+  const cached = await requester.koishiContext().chatluna.cache.get("chatluna/keys", key);
+  const difyConversationId = await getDifyConversationId(requester, id, config);
+  if (!difyConversationId) return;
+  let user = "chatluna";
+  if (cached != null) {
+    try {
+      user = JSON.parse(cached).user ?? user;
+    } catch {
+    }
+  }
+  const response = await requester.requestContext().plugin.fetch(
+    concatDifyUrl(config.apiEndpoint, `/conversations/${difyConversationId}`),
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ user })
+    }
+  );
+  if (response.ok) {
+    await requester.koishiContext().chatluna.cache.delete("chatluna/keys", key);
+  } else {
+    requester.logger.warn(`Dify clear failed: ${await response.text()}`);
+  }
+}
+__name(disposeDifyConversation, "disposeDifyConversation");
+function difyCacheKey(conversationId, config) {
+  return `dify/${conversationId}/${config.platform}/${config.modelName}`;
+}
+__name(difyCacheKey, "difyCacheKey");
+function safeSerializeMultimodal(lastMessage, candidates = []) {
+  if (!lastMessage) return void 0;
+  try {
+    return JSON.stringify({
+      has_files: candidates.length > 0,
+      file_count: candidates.length,
+      files: candidates.slice(0, 5).map((item, index) => ({
+        idx: index,
+        type: item.type,
+        source: typeof item.source === "string" ? item.source.slice(0, 64) : void 0
+      }))
+    }).slice(0, 256);
+  } catch {
+    return void 0;
+  }
+}
+__name(safeSerializeMultimodal, "safeSerializeMultimodal");
+function stripUndefined(value) {
+  for (const key of Object.keys(value)) {
+    if (value[key] === void 0) delete value[key];
+    if (value[key] != null && typeof value[key] === "object" && !Array.isArray(value[key])) {
+      stripUndefined(value[key]);
+    }
+  }
+  return value;
+}
+__name(stripUndefined, "stripUndefined");
+function filterEmpty2(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== void 0)
+  );
+}
+__name(filterEmpty2, "filterEmpty");
+function convertToBuffer(source) {
+  if (source instanceof Buffer) return source;
+  if (source instanceof ArrayBuffer) return Buffer.from(source);
+  if (ArrayBuffer.isView(source)) {
+    return Buffer.from(source.buffer, source.byteOffset, source.byteLength);
+  }
+  return null;
+}
+__name(convertToBuffer, "convertToBuffer");
+function mapMimeToFileType(mimeType) {
+  if (!mimeType) return void 0;
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("audio/")) return "audio";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("text/") || mimeType === "application/pdf" || mimeType === "application/msword" || mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return "document";
+  }
+  return "custom";
+}
+__name(mapMimeToFileType, "mapMimeToFileType");
+function buildFallbackFileName(mimeType) {
+  return `chatluna_file.${guessExtensionFromMime(mimeType)}`;
+}
+__name(buildFallbackFileName, "buildFallbackFileName");
+function guessMimeTypeFromPath(filePath) {
+  const extension = import_path.default.extname(filePath).replace(/^\./, "").toLowerCase();
+  const mapping = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+    txt: "text/plain",
+    md: "text/markdown",
+    csv: "text/csv",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    mp3: "audio/mpeg",
+    m4a: "audio/mp4",
+    wav: "audio/wav",
+    ogg: "audio/ogg",
+    webm: "video/webm",
+    mp4: "video/mp4",
+    mov: "video/quicktime"
+  };
+  return mapping[extension] ?? "application/octet-stream";
+}
+__name(guessMimeTypeFromPath, "guessMimeTypeFromPath");
+function guessExtensionFromMime(mimeType) {
+  if (!mimeType) return "bin";
+  if (mimeType === "image/jpeg") return "jpg";
+  const [, subtype] = mimeType.split("/");
+  return subtype?.replace(/[^a-z0-9]+/gi, "") || "bin";
+}
+__name(guessExtensionFromMime, "guessExtensionFromMime");
+function fileNameFromUrl(source, mimeType) {
+  try {
+    const parsed = new URL(source);
+    const name2 = parsed.pathname.split("/").filter(Boolean).pop();
+    return name2 || buildFallbackFileName(mimeType);
+  } catch {
+    return buildFallbackFileName(mimeType);
+  }
+}
+__name(fileNameFromUrl, "fileNameFromUrl");
+
 // src/adapters/registry.ts
 var adapters = /* @__PURE__ */ new Map([
   [openAIChatAdapter.id, openAIChatAdapter],
   [openAIAdapter.id, openAIAdapter],
-  [geminiAdapter.id, geminiAdapter]
+  [geminiAdapter.id, geminiAdapter],
+  [difyAdapter.id, difyAdapter]
 ]);
 function getProviderAdapter(id) {
   return adapters.get(id) ?? openAIChatAdapter;
@@ -1434,8 +2600,8 @@ var ModelHubRequester = class extends import_api.ModelRequester {
       yield chunk;
     }
     yield tracker.attachTo(
-      new import_outputs4.ChatGenerationChunk({
-        message: new import_messages2.AIMessageChunk({ content: "" }),
+      new import_outputs5.ChatGenerationChunk({
+        message: new import_messages3.AIMessageChunk({ content: "" }),
         text: ""
       })
     );
@@ -1451,6 +2617,9 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   }
   async rerank(params) {
     return await this._adapter().rerank(this, params);
+  }
+  async dispose(model, id) {
+    await this._adapter().dispose?.(this, model, id);
   }
   async getModels(config) {
     return await this._adapter().getModels(this, config);
@@ -1479,7 +2648,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
     if (url === "chat/completions") {
       const current = this._config.value;
       const preset = getProviderPreset(current.provider);
-      const parsedModel = (0, import_v1_shared_adapter5.parseOpenAIModelNameWithReasoningEffort)(
+      const parsedModel = (0, import_v1_shared_adapter6.parseOpenAIModelNameWithReasoningEffort)(
         String(body.model ?? "")
       );
       applyReasoningEffortStrategy(
@@ -1498,7 +2667,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
     return this._pluginConfig;
   }
   requestContext() {
-    return (0, import_v1_shared_adapter6.createRequestContext)(
+    return (0, import_v1_shared_adapter7.createRequestContext)(
       this.ctx,
       this._config.value,
       this._pluginConfig,
@@ -1511,6 +2680,9 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   }
   currentConfig() {
     return this._config.value;
+  }
+  koishiContext() {
+    return this.ctx;
   }
   responseBuiltinTools(params) {
     const current = this._config.value;
@@ -1565,7 +2737,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   }
   _prepareParams(params) {
     if (!params.model) return params;
-    const { model, reasoningEffort } = (0, import_v1_shared_adapter5.parseOpenAIModelNameWithReasoningEffort)(params.model);
+    const { model, reasoningEffort } = (0, import_v1_shared_adapter6.parseOpenAIModelNameWithReasoningEffort)(params.model);
     if (model === params.model && reasoningEffort == null) return params;
     return {
       ...params,
@@ -1702,7 +2874,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   async refreshModels(config) {
     try {
       const current = this.config;
-      const rawModels = current?.pullModels === true ? await this._requester.getModels(config) : [];
+      const rawModels = current?.pullModels === true || this._runtime.provider.adapter === "dify" ? await this._requester.getModels(config) : [];
       const enhancedModels = rawModels.map(
         (model) => this._metadata.enhance(this._runtime.provider.id, model)
       );
@@ -1711,7 +2883,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         enhancedModels
       ) : enhancedModels;
       const apiModels = providerModels.filter(
-        (model) => !(0, import_v1_shared_adapter7.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter7.isImageGenerationModel)(model.name)
+        (model) => !(0, import_v1_shared_adapter8.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter8.isImageGenerationModel)(model.name)
       ).map((model) => this._inferModelInfo(model));
       const additionalModels = getTargetedAdditionalModels(
         this._config.additionalModels,
@@ -1731,15 +2903,53 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         return !blacklist.some((keyword) => id.includes(keyword));
       });
     } catch (e) {
-      if (e instanceof import_error2.ChatLunaError) {
+      if (e instanceof import_error3.ChatLunaError) {
         throw e;
       }
-      throw new import_error2.ChatLunaError(import_error2.ChatLunaErrorCode.MODEL_INIT_ERROR, e);
+      throw new import_error3.ChatLunaError(import_error3.ChatLunaErrorCode.MODEL_INIT_ERROR, e);
     }
   }
   async reloadModels(config) {
     this._modelInfos = {};
     return await this.getModels(config);
+  }
+  getFileHandlingConfig() {
+    if (this._runtime.provider.adapter !== "dify") {
+      return null;
+    }
+    const configs = Object.keys(this.config.difyApps ?? {}).map((model) => this._difyFileHandlingConfig(model)).filter((item) => item != null);
+    if (configs.length < 1) return null;
+    const supportedMimeTypes = /* @__PURE__ */ new Set();
+    const maxFileSizeBytesOverrides = {};
+    let maxTotalSizeBytes = 0;
+    let maxFileSizeBytes = 0;
+    for (const config of configs) {
+      for (const mimeType of config.supportedMimeTypes) {
+        supportedMimeTypes.add(mimeType);
+      }
+      maxTotalSizeBytes = Math.max(
+        maxTotalSizeBytes,
+        config.maxTotalSizeBytes
+      );
+      maxFileSizeBytes = Math.max(
+        maxFileSizeBytes,
+        config.maxFileSizeBytes
+      );
+      for (const [mimeType, size] of Object.entries(
+        config.maxFileSizeBytesOverrides ?? {}
+      )) {
+        maxFileSizeBytesOverrides[mimeType] = Math.max(
+          maxFileSizeBytesOverrides[mimeType] ?? 0,
+          size
+        );
+      }
+    }
+    return {
+      supportedMimeTypes,
+      maxTotalSizeBytes,
+      maxFileSizeBytes,
+      maxFileSizeBytesOverrides
+    };
   }
   _createModel(model, report) {
     const info = this._modelInfos[model];
@@ -1748,15 +2958,15 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         `Model ${model} not found`,
         JSON.stringify(this._modelInfos)
       );
-      throw new import_error2.ChatLunaError(
-        import_error2.ChatLunaErrorCode.MODEL_NOT_FOUND,
+      throw new import_error3.ChatLunaError(
+        import_error3.ChatLunaErrorCode.MODEL_NOT_FOUND,
         new Error(
           `The model ${model} is not found in ${this.platform}`
         )
       );
     }
-    if (info.type === import_types4.ModelType.llm) {
-      const modelMaxContextSize = (0, import_v1_shared_adapter7.getModelMaxContextSize)(info);
+    if (info.type === import_types5.ModelType.llm) {
+      const modelMaxContextSize = (0, import_v1_shared_adapter8.getModelMaxContextSize)(info);
       return new import_model.ChatLunaChatModel({
         usageReporter: report,
         modelInfo: info,
@@ -1772,11 +2982,11 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         temperature: this._config.temperature,
         maxRetries: this._config.maxRetries,
         llmType: this._runtime.provider.id,
-        fileHandlingConfig: (0, import_v1_shared_adapter7.getOpenAIFileHandlingConfig)(model),
+        fileHandlingConfig: this._fileHandlingConfig(model, info),
         isThinkModel: this._isThinkModel(model, info)
       });
     }
-    if (info.type === import_types4.ModelType.reranker) {
+    if (info.type === import_types5.ModelType.reranker) {
       return new import_rerank.ChatLunaReranker({
         usageReporter: report,
         client: this._requester,
@@ -1795,13 +3005,13 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   _inferModelInfo(model) {
     const name2 = model.name;
     const lower = name2.toLowerCase();
-    const type = model.type ?? ((0, import_v1_shared_adapter7.isRerankerModel)(lower) ? import_types4.ModelType.reranker : (0, import_v1_shared_adapter7.isEmbeddingModel)(lower) ? import_types4.ModelType.embeddings : import_types4.ModelType.llm);
-    if ((0, import_v1_shared_adapter7.isImageGenerationModel)(lower)) {
+    const type = model.type ?? ((0, import_v1_shared_adapter8.isRerankerModel)(lower) ? import_types5.ModelType.reranker : (0, import_v1_shared_adapter8.isEmbeddingModel)(lower) ? import_types5.ModelType.embeddings : import_types5.ModelType.llm);
+    if ((0, import_v1_shared_adapter8.isImageGenerationModel)(lower)) {
       return {
         name: name2,
-        type: import_types4.ModelType.llm,
+        type: import_types5.ModelType.llm,
         maxTokens: model.maxTokens ?? 4096,
-        capabilities: [import_types4.ModelCapabilities.ImageGeneration]
+        capabilities: [import_types5.ModelCapabilities.ImageGeneration]
       };
     }
     const info = {
@@ -1809,19 +3019,19 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       type,
       ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
       maxTokens: model.maxTokens ?? this._metadata.getMaxTokens(this._runtime.provider.id, name2) ?? 0,
-      capabilities: type === import_types4.ModelType.llm ? this._mergeCapabilities(name2, model.capabilities) : []
+      capabilities: type === import_types5.ModelType.llm ? this._mergeCapabilities(name2, model.capabilities) : []
     };
-    info.maxTokens = type === import_types4.ModelType.llm ? info.maxTokens || (0, import_v1_shared_adapter7.getModelMaxContextSize)(info) : info.maxTokens || 8192;
+    info.maxTokens = type === import_types5.ModelType.llm ? info.maxTokens || (0, import_v1_shared_adapter8.getModelMaxContextSize)(info) : info.maxTokens || 8192;
     return info;
   }
   _additionalModelInfo(model) {
-    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types4.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types4.ModelType.reranker : import_types4.ModelType.llm;
+    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types5.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types5.ModelType.reranker : import_types5.ModelType.llm;
     return {
       name: model.model,
       type,
       maxTokens: model.contextSize ?? 4096,
-      capabilities: type === import_types4.ModelType.llm ? model.modelCapabilities : model.modelCapabilities.filter(
-        (cap) => cap !== import_types4.ModelCapabilities.ToolCall
+      capabilities: type === import_types5.ModelType.llm ? model.modelCapabilities : model.modelCapabilities.filter(
+        (cap) => cap !== import_types5.ModelCapabilities.ToolCall
       )
     };
   }
@@ -1835,26 +3045,74 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   }
   _mergeCapabilities(model, capabilities) {
     const result = new Set(capabilities ?? []);
-    result.add(import_types4.ModelCapabilities.ToolCall);
-    if ((0, import_v1_shared_adapter7.supportImageInput)(model)) result.add(import_types4.ModelCapabilities.ImageInput);
-    if ((0, import_v1_shared_adapter7.supportAudioInput)(model)) result.add(import_types4.ModelCapabilities.AudioInput);
+    if (this._runtime.provider.adapter === "dify") {
+      return [...result];
+    }
+    result.add(import_types5.ModelCapabilities.ToolCall);
+    if ((0, import_v1_shared_adapter8.supportImageInput)(model)) result.add(import_types5.ModelCapabilities.ImageInput);
+    if ((0, import_v1_shared_adapter8.supportAudioInput)(model)) result.add(import_types5.ModelCapabilities.AudioInput);
     return [...result];
+  }
+  _fileHandlingConfig(model, info) {
+    if (this._runtime.provider.adapter !== "dify") {
+      return (0, import_v1_shared_adapter8.getOpenAIFileHandlingConfig)(model);
+    }
+    if (!info.capabilities.includes(import_types5.ModelCapabilities.FileInput)) {
+      return void 0;
+    }
+    const difyFileHandling = this._difyFileHandlingConfig(model);
+    if (difyFileHandling != null) return difyFileHandling;
+    return {
+      supportedMimeTypes: /* @__PURE__ */ new Set([
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "audio/mpeg",
+        "audio/wav",
+        "audio/ogg",
+        "video/mp4",
+        "video/quicktime"
+      ]),
+      maxTotalSizeBytes: 100 * 1024 * 1024,
+      maxFileSizeBytes: 50 * 1024 * 1024,
+      maxFileSizeBytesOverrides: {
+        "application/pdf": 50 * 1024 * 1024,
+        "video/mp4": 100 * 1024 * 1024,
+        "video/quicktime": 100 * 1024 * 1024
+      }
+    };
+  }
+  _difyFileHandlingConfig(model) {
+    const app = this.config.difyApps?.[model];
+    const limits = app?.parameters?.fileHandling;
+    if (limits == null) return void 0;
+    return {
+      supportedMimeTypes: new Set(limits.supportedMimeTypes),
+      maxTotalSizeBytes: limits.maxTotalSizeBytes,
+      maxFileSizeBytes: limits.maxFileSizeBytes,
+      maxFileSizeBytesOverrides: limits.maxFileSizeBytesOverrides
+    };
   }
   _isThinkModel(model, info) {
     const lower = model.toLowerCase();
-    return info.capabilities.includes(import_types4.ModelCapabilities.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
+    return info.capabilities.includes(import_types5.ModelCapabilities.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
   }
 };
 
 // src/metadata.ts
-var import_promises = require("fs/promises");
-var import_path = require("path");
-var import_types5 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_promises2 = require("fs/promises");
+var import_path2 = require("path");
+var import_types6 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
     this.ctx = ctx;
     this.options = options;
-    this.path = (0, import_path.resolve)(
+    this.path = (0, import_path2.resolve)(
       ctx.baseDir,
       options.cachePath || "data/chatluna-model-hub/models.dev.models.json"
     );
@@ -1879,7 +3137,7 @@ var ModelMetadataStore = class {
   }
   async load() {
     try {
-      const raw = await (0, import_promises.readFile)(this.path, "utf8");
+      const raw = await (0, import_promises2.readFile)(this.path, "utf8");
       this.apply(JSON.parse(raw));
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
@@ -1894,8 +3152,8 @@ var ModelMetadataStore = class {
     }
     const catalog = await response.json();
     this.apply(catalog);
-    await (0, import_promises.mkdir)((0, import_path.dirname)(this.path), { recursive: true });
-    await (0, import_promises.writeFile)(this.path, `${JSON.stringify(catalog)}
+    await (0, import_promises2.mkdir)((0, import_path2.dirname)(this.path), { recursive: true });
+    await (0, import_promises2.writeFile)(this.path, `${JSON.stringify(catalog)}
 `, "utf8");
   }
   enhance(provider, model) {
@@ -1986,13 +3244,13 @@ function capabilitiesFromMetadata(model) {
   const capabilities = [];
   const input = new Set(model.modalities?.input ?? []);
   const output = new Set(model.modalities?.output ?? []);
-  if (model.tool_call) capabilities.push(import_types5.ModelCapabilities.ToolCall);
-  if (model.reasoning) capabilities.push(import_types5.ModelCapabilities.Thinking);
-  if (input.has("image")) capabilities.push(import_types5.ModelCapabilities.ImageInput);
-  if (input.has("audio")) capabilities.push(import_types5.ModelCapabilities.AudioInput);
-  if (input.has("video")) capabilities.push(import_types5.ModelCapabilities.VideoInput);
-  if (input.has("pdf")) capabilities.push(import_types5.ModelCapabilities.FileInput);
-  if (output.has("image")) capabilities.push(import_types5.ModelCapabilities.ImageGeneration);
+  if (model.tool_call) capabilities.push(import_types6.ModelCapabilities.ToolCall);
+  if (model.reasoning) capabilities.push(import_types6.ModelCapabilities.Thinking);
+  if (input.has("image")) capabilities.push(import_types6.ModelCapabilities.ImageInput);
+  if (input.has("audio")) capabilities.push(import_types6.ModelCapabilities.AudioInput);
+  if (input.has("video")) capabilities.push(import_types6.ModelCapabilities.VideoInput);
+  if (input.has("pdf")) capabilities.push(import_types6.ModelCapabilities.FileInput);
+  if (output.has("image")) capabilities.push(import_types6.ModelCapabilities.ImageGeneration);
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
@@ -2003,9 +3261,9 @@ function mergeCapabilities2(preferred, fallback) {
 __name(mergeCapabilities2, "mergeCapabilities");
 
 // src/settings.ts
-var import_promises2 = require("fs/promises");
-var import_path2 = require("path");
-var import_types6 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_promises3 = require("fs/promises");
+var import_path3 = require("path");
+var import_types7 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var DEFAULT_SETTINGS_PATH = "data/chatluna-model-hub/config.json";
 var DEFAULT_PROVIDER_ADVANCED_SETTINGS = {
   customHeaders: [],
@@ -2040,7 +3298,7 @@ var ModelHubSettingsStore = class {
   }
   async load(legacy) {
     try {
-      const raw = await (0, import_promises2.readFile)(this.path, "utf8");
+      const raw = await (0, import_promises3.readFile)(this.path, "utf8");
       return normalizeSettings(JSON.parse(raw));
     } catch (error) {
       if (error.code !== "ENOENT") {
@@ -2053,8 +3311,8 @@ var ModelHubSettingsStore = class {
     return settings;
   }
   async save(settings) {
-    await (0, import_promises2.mkdir)((0, import_path2.dirname)(this.path), { recursive: true });
-    await (0, import_promises2.writeFile)(
+    await (0, import_promises3.mkdir)((0, import_path3.dirname)(this.path), { recursive: true });
+    await (0, import_promises3.writeFile)(
       this.path,
       `${JSON.stringify(normalizeSettings(settings), null, 2)}
 `,
@@ -2064,7 +3322,7 @@ var ModelHubSettingsStore = class {
 };
 function resolveSettingsPath(ctx, settingsPath) {
   const value = (settingsPath || DEFAULT_SETTINGS_PATH).trim();
-  return (0, import_path2.isAbsolute)(value) ? value : (0, import_path2.resolve)(ctx.baseDir, value);
+  return (0, import_path3.isAbsolute)(value) ? value : (0, import_path3.resolve)(ctx.baseDir, value);
 }
 __name(resolveSettingsPath, "resolveSettingsPath");
 function createResolvedConfig(config, settings, advanced = DEFAULT_PROVIDER_ADVANCED_SETTINGS) {
@@ -2221,19 +3479,44 @@ function normalizeProviderSpecific(input, previous, provider) {
       groundingContentDisplay: booleanOrUndefined(input.groundingContentDisplay) ?? previous?.groundingContentDisplay ?? false
     };
   }
+  if (provider === "dify") {
+    return {
+      difyAppType: normalizeDifyAppType(
+        input.difyAppType ?? previous?.difyAppType
+      ),
+      difyModelName: stringOf(
+        input.difyModelName,
+        previous?.difyModelName
+      ).trim(),
+      difyWorkflowId: stringOf(
+        input.difyWorkflowId,
+        previous?.difyWorkflowId
+      ).trim(),
+      difyOutputVariable: stringOf(
+        input.difyOutputVariable,
+        previous?.difyOutputVariable
+      ).trim(),
+      difyEnableFileUpload: booleanOrUndefined(input.difyEnableFileUpload) ?? previous?.difyEnableFileUpload ?? true,
+      difyContextSize: clampNumber(
+        input.difyContextSize ?? previous?.difyContextSize,
+        128e3,
+        1
+      )
+    };
+  }
   return {};
 }
 __name(normalizeProviderSpecific, "normalizeProviderSpecific");
 function normalizeAdditionalModel(input) {
   const value = isRecord(input) ? input : {};
-  const capabilities = new Set(Object.values(import_types6.ModelCapabilities));
+  const capabilities = new Set(Object.values(import_types7.ModelCapabilities));
   return {
     target: stringOf(value.target, "*"),
     model: stringOf(value.model).trim(),
     modelType: stringOf(value.modelType, "LLM 大语言模型"),
     modelCapabilities: stringArrayOf(value.modelCapabilities, [
-      import_types6.ModelCapabilities.TextInput,
-      import_types6.ModelCapabilities.ToolCall
+      import_types7.ModelCapabilities.TextInput,
+      import_types7.ModelCapabilities.ToolCall
     ]).filter(
       (item) => capabilities.has(item)
     ),
@@ -2327,6 +3610,10 @@ function booleanOrUndefined(value) {
   return typeof value === "boolean" ? value : void 0;
 }
 __name(booleanOrUndefined, "booleanOrUndefined");
+function normalizeDifyAppType(value) {
+  return value === "agent" || value === "workflow" || value === "completion" ? value : "chat";
+}
+__name(normalizeDifyAppType, "normalizeDifyAppType");
 function isMeaningfulLegacyProvider(input) {
   if (!isRecord(input)) return false;
   const provider = stringOf(input.provider);
@@ -2401,7 +3688,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       const loaded = this._runtime.clients.has(platform);
       const models2 = this.ctx.chatluna.platform.listPlatformModels(
         platform,
-        import_types7.ModelType.all
+        import_types8.ModelType.all
       ).value;
       return {
         id: preset.id,
@@ -2482,7 +3769,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
       runtime.platform,
-      import_types7.ModelType.all
+      import_types8.ModelType.all
     ).value;
     const additional = settings.additionalModels.filter(
       (item) => targetMatches(item.target, runtime.platform, runtime.provider.id)
@@ -2493,7 +3780,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         platform: runtime.platform,
         provider: runtime.provider.name,
         name: model.name,
-        type: import_types7.ModelType[model.type],
+        type: import_types8.ModelType[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
         source: custom ? "custom" : "api"
@@ -2548,7 +3835,8 @@ function apply(ctx, config) {
           chatLimit: entry.chatTimeLimit,
           timeout: entry.timeout,
           maxRetries: entry.maxRetries,
-          concurrentMaxSize: entry.chatConcurrentMaxSize
+          concurrentMaxSize: entry.chatConcurrentMaxSize,
+          difyApps: provider.provider.adapter === "dify" ? createDifyApps(provider.entries) : void 0
         }))
       );
       plugin.registerClient(() => {
@@ -2627,8 +3915,8 @@ function apply(ctx, config) {
       { authority: 1 }
     );
     ctx2.console.addEntry({
-      dev: (0, import_path3.resolve)(__dirname, "../client/index.ts"),
-      prod: (0, import_path3.resolve)(__dirname, "../dist")
+      dev: (0, import_path4.resolve)(__dirname, "../client/index.ts"),
+      prod: (0, import_path4.resolve)(__dirname, "../dist")
     });
   });
 }
@@ -2696,6 +3984,33 @@ function unregisterRuntime(ctx, runtime) {
   runtime.errors.clear();
 }
 __name(unregisterRuntime, "unregisterRuntime");
+function createDifyApps(entries) {
+  const seen = /* @__PURE__ */ new Map();
+  return Object.fromEntries(
+    entries.map((item) => {
+      const baseModelName = item.difyModelName?.trim() || item.providerName || item.platform;
+      const index = seen.get(baseModelName) ?? 0;
+      seen.set(baseModelName, index + 1);
+      const modelName = index === 0 ? baseModelName : `${baseModelName}-${index + 1}`;
+      return [
+        modelName,
+        {
+          apiKey: item.apiKey,
+          apiEndpoint: item.apiEndpoint,
+          platform: item.platform,
+          providerName: item.providerName,
+          modelName,
+          appType: item.difyAppType ?? "chat",
+          workflowId: item.difyWorkflowId?.trim() || void 0,
+          outputVariable: item.difyOutputVariable?.trim() || void 0,
+          enableFileUpload: item.difyEnableFileUpload !== false,
+          contextSize: item.difyContextSize ?? 128e3
+        }
+      ];
+    })
+  );
+}
+__name(createDifyApps, "createDifyApps");
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }

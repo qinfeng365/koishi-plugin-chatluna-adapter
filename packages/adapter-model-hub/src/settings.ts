@@ -314,6 +314,35 @@ function normalizeProviderSpecific(
         }
     }
 
+    if (provider === 'dify') {
+        return {
+            difyAppType: normalizeDifyAppType(
+                input.difyAppType ?? previous?.difyAppType
+            ),
+            difyModelName: stringOf(
+                input.difyModelName,
+                previous?.difyModelName
+            ).trim(),
+            difyWorkflowId: stringOf(
+                input.difyWorkflowId,
+                previous?.difyWorkflowId
+            ).trim(),
+            difyOutputVariable: stringOf(
+                input.difyOutputVariable,
+                previous?.difyOutputVariable
+            ).trim(),
+            difyEnableFileUpload:
+                booleanOrUndefined(input.difyEnableFileUpload) ??
+                previous?.difyEnableFileUpload ??
+                true,
+            difyContextSize: clampNumber(
+                input.difyContextSize ?? previous?.difyContextSize,
+                128_000,
+                1
+            )
+        }
+    }
+
     return {}
 }
 
@@ -447,6 +476,14 @@ function isResponseBuiltinTool(
 
 function booleanOrUndefined(value: unknown) {
     return typeof value === 'boolean' ? value : undefined
+}
+
+function normalizeDifyAppType(value: unknown) {
+    return value === 'agent' ||
+        value === 'workflow' ||
+        value === 'completion'
+        ? value
+        : 'chat'
 }
 
 function isMeaningfulLegacyProvider(input: unknown) {

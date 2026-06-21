@@ -231,7 +231,64 @@
                                 </label>
                                 <label>
                                     <span>拉取 /models</span>
-                                    <el-switch v-model="selectedProvider.pullModels" />
+                                    <el-switch
+                                        v-model="selectedProvider.pullModels"
+                                        :disabled="selectedProvider.provider === 'dify'"
+                                    />
+                                </label>
+                            </div>
+                        </section>
+
+                        <section v-if="selectedProvider.provider === 'dify'" class="section">
+                            <div class="section-head">
+                                <h3>Dify App</h3>
+                            </div>
+
+                            <div class="grid two">
+                                <label>
+                                    <span>应用类型</span>
+                                    <el-select v-model="selectedProvider.difyAppType">
+                                        <el-option label="ChatBot" value="chat" />
+                                        <el-option label="Agent" value="agent" />
+                                        <el-option label="Workflow" value="workflow" />
+                                        <el-option label="Completion" value="completion" />
+                                    </el-select>
+                                </label>
+                                <label>
+                                    <span>模型名</span>
+                                    <el-input
+                                        v-model="selectedProvider.difyModelName"
+                                        placeholder="默认使用服务商名称"
+                                    />
+                                </label>
+                                <label v-if="selectedProvider.difyAppType === 'workflow'">
+                                    <span>Workflow ID</span>
+                                    <el-input
+                                        v-model="selectedProvider.difyWorkflowId"
+                                        placeholder="可选"
+                                    />
+                                </label>
+                                <label v-if="selectedProvider.difyAppType === 'workflow'">
+                                    <span>输出变量</span>
+                                    <el-input
+                                        v-model="selectedProvider.difyOutputVariable"
+                                        placeholder="answer / text / output"
+                                    />
+                                </label>
+                                <label>
+                                    <span>上下文大小</span>
+                                    <el-input-number
+                                        v-model="selectedProvider.difyContextSize"
+                                        :min="1"
+                                        controls-position="right"
+                                    />
+                                </label>
+                            </div>
+
+                            <div class="switch-grid">
+                                <label>
+                                    <span>文件上传</span>
+                                    <el-switch v-model="selectedProvider.difyEnableFileUpload" />
                                 </label>
                             </div>
                         </section>
@@ -707,7 +764,10 @@
                                 </label>
                                 <label>
                                     <span>拉取 /models</span>
-                                    <el-switch v-model="newProvider.pullModels" />
+                                    <el-switch
+                                        v-model="newProvider.pullModels"
+                                        :disabled="selectedPreset?.id === 'dify'"
+                                    />
                                 </label>
                             </div>
                         </div>
@@ -941,7 +1001,13 @@ function createProviderDefaults() {
         imageGeneration: false,
         thinkingBudget: -1,
         includeThoughts: false,
-        groundingContentDisplay: false
+        groundingContentDisplay: false,
+        difyAppType: 'chat' as const,
+        difyModelName: '',
+        difyWorkflowId: '',
+        difyOutputVariable: '',
+        difyEnableFileUpload: true,
+        difyContextSize: 128000
     }
 }
 
@@ -986,7 +1052,7 @@ function selectPreset(preset: ModelHubConsolePreset) {
         hasApiKey: false,
         clearApiKey: false,
         enabled: true,
-        pullModels: true
+        pullModels: preset.id !== 'dify'
     }
 }
 
@@ -1206,6 +1272,7 @@ const iconAliases: Record<string, string[]> = {
 const colorIcons = new Set([
     'baichuan',
     'deepseek',
+    'dify',
     'gemini',
     'minimax',
     'mistral',

@@ -104,6 +104,10 @@ export class ModelHubRequester
         return await this._adapter().rerank(this, params)
     }
 
+    async dispose(model?: string, id?: string): Promise<void> {
+        await this._adapter().dispose?.(this, model, id)
+    }
+
     async getModels(config?: RunnableConfig): Promise<ProviderModelEntry[]> {
         return await this._adapter().getModels(this, config)
     }
@@ -175,6 +179,10 @@ export class ModelHubRequester
 
     currentConfig() {
         return this._config.value
+    }
+
+    koishiContext() {
+        return this.ctx
     }
 
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[] {

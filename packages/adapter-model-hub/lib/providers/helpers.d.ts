@@ -13,3 +13,4 @@ export declare function reranker(name: string, maxTokens: number): ProviderModel
 export declare function openAIChatProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;
 export declare function openAIProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;
 export declare function geminiProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;
+export declare function difyProvider(preset: Omit<ProviderPreset, 'adapter'>): ProviderPreset;

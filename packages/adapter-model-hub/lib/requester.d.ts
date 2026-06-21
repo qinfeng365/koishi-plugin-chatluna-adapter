@@ -13,6 +13,7 @@ export declare class ModelHubRequester extends ModelRequester<ModelHubClientConf
     completionStreamInternal(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk>;
     embeddings(params: EmbeddingsRequestParams): Promise<EmbeddingsResult>;
     rerank(params: RerankerRequestParams): Promise<RerankerResult[] | RerankerUsageResult>;
+    dispose(model?: string, id?: string): Promise<void>;
     getModels(config?: RunnableConfig): Promise<ProviderModelEntry[]>;
     buildHeaders(): Record<string, string>;
     post(url: string, body: Record<string, unknown>, options?: any): Promise<import("undici/types/fetch").Response>;
@@ -21,6 +22,7 @@ export declare class ModelHubRequester extends ModelRequester<ModelHubClientConf
     requestContext(): any;
     currentProviderPreset(): import("./types").ProviderPreset;
     currentConfig(): ModelHubClientConfig;
+    koishiContext(): Context;
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[];
     responseImageProvider(): ResponseImageProvider;
     defaultCompletion(params: ModelRequestParams): Promise<ChatGeneration>;

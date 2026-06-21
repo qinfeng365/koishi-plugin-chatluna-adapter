@@ -260,7 +260,11 @@ export function apply(ctx: Context, config: Config) {
                     chatLimit: entry.chatTimeLimit,
                     timeout: entry.timeout,
                     maxRetries: entry.maxRetries,
-                    concurrentMaxSize: entry.chatConcurrentMaxSize
+                    concurrentMaxSize: entry.chatConcurrentMaxSize,
+                    difyApps:
+                        provider.provider.adapter === 'dify'
+                            ? createDifyApps(provider.entries)
+                            : undefined
                 }))
             )
 
@@ -440,6 +444,36 @@ function unregisterRuntime(ctx: Context, runtime: ModelHubRuntimeState) {
     runtime.clients.clear()
     runtime.plugins.clear()
     runtime.errors.clear()
+}
+
+function createDifyApps(entries: RuntimeProvider['entries']) {
+    const seen = new Map<string, number>()
+    return Object.fromEntries(
+        entries.map((item) => {
+            const baseModelName =
+                item.difyModelName?.trim() || item.providerName || item.platform
+            const index = seen.get(baseModelName) ?? 0
+            seen.set(baseModelName, index + 1)
+            const modelName =
+                index === 0 ? baseModelName : `${baseModelName}-${index + 1}`
+
+            return [
+                modelName,
+                {
+                    apiKey: item.apiKey,
+                    apiEndpoint: item.apiEndpoint,
+                    platform: item.platform,
+                    providerName: item.providerName,
+                    modelName,
+                    appType: item.difyAppType ?? 'chat',
+                    workflowId: item.difyWorkflowId?.trim() || undefined,
+                    outputVariable: item.difyOutputVariable?.trim() || undefined,
+                    enableFileUpload: item.difyEnableFileUpload !== false,
+                    contextSize: item.difyContextSize ?? 128_000
+                }
+            ]
+        })
+    )
 }
 
 function errorMessage(error: unknown) {

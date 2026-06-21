@@ -3,7 +3,7 @@ import { Context } from 'koishi';
 import { PlatformModelEmbeddingsAndRerankerClient } from 'koishi-plugin-chatluna/llm-core/platform/client';
 import { ChatLunaBaseEmbeddings, ChatLunaChatModel } from 'koishi-plugin-chatluna/llm-core/platform/model';
 import { ChatLunaReranker } from 'koishi-plugin-chatluna/llm-core/platform/rerank';
-import { ModelInfo } from 'koishi-plugin-chatluna/llm-core/platform/types';
+import { FileHandlingConfig, ModelInfo } from 'koishi-plugin-chatluna/llm-core/platform/types';
 import type { ModelUsageReporter } from 'koishi-plugin-chatluna/llm-core/platform/usage';
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import { ModelMetadataStore } from './metadata';
@@ -18,10 +18,13 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     constructor(ctx: Context, _config: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>, _runtime: RuntimeProvider, _metadata: ModelMetadataStore);
     refreshModels(config?: RunnableConfig): Promise<ModelInfo[]>;
     reloadModels(config?: RunnableConfig): Promise<ModelInfo[]>;
+    getFileHandlingConfig(): FileHandlingConfig | null;
     protected _createModel(model: string, report: ModelUsageReporter): ChatLunaChatModel | ChatLunaBaseEmbeddings | ChatLunaReranker;
     private _inferModelInfo;
     private _additionalModelInfo;
     private _dedupeModels;
     private _mergeCapabilities;
+    private _fileHandlingConfig;
+    private _difyFileHandlingConfig;
     private _isThinkModel;
 }

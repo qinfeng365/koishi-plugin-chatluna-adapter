@@ -38,4 +38,9 @@ export interface ProviderAdapter {
         requester: ModelHubRequester,
         config?: RunnableConfig
     ): Promise<ProviderModelEntry[]>
+    dispose?(
+        requester: ModelHubRequester,
+        model?: string,
+        id?: string
+    ): Promise<void>
 }

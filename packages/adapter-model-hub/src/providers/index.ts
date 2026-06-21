@@ -29,10 +29,12 @@ import vllm from './vllm'
 import llamacpp from './llamacpp'
 import xinference from './xinference'
 import localai from './localai'
+import dify from './dify'
 
 export {
     DEFAULT_ICON_CDN,
     audio,
+    difyProvider,
     embedding,
     file,
     geminiProvider,
@@ -56,6 +58,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     zhipu,
     moonshot,
     siliconflow,
+    dify,
     groq,
     mistral,
     together,

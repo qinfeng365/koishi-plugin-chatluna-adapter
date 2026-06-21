@@ -1,5 +1,5 @@
 import type { AdditionalModelEntry, ModelFilterEntry, ProviderEntry, ProviderPreset, RuntimeProvider } from '../types';
-export { DEFAULT_ICON_CDN, audio, embedding, file, geminiProvider, image, llm, openAIChatProvider, openAIProvider, reranker, thinking, tool, video } from './helpers';
+export { DEFAULT_ICON_CDN, audio, difyProvider, embedding, file, geminiProvider, image, llm, openAIChatProvider, openAIProvider, reranker, thinking, tool, video } from './helpers';
 export declare const PROVIDER_PRESETS: readonly ProviderPreset[];
 export declare const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[];
 export declare function normalizeId(value: string | undefined, fallback?: string): string;

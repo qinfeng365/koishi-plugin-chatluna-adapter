@@ -6,7 +6,7 @@ import type {
 import type { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import type { ModelHubClient } from './client'
 
-export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini'
+export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini' | 'dify'
 
 export type ModelHubProviderStatus =
     | 'loaded'
@@ -85,6 +85,56 @@ export interface GeminiProviderSettings {
     groundingContentDisplay?: boolean
 }
 
+export type DifyAppType = 'chat' | 'agent' | 'workflow' | 'completion'
+
+export interface DifyProviderSettings {
+    difyAppType?: DifyAppType
+    difyModelName?: string
+    difyWorkflowId?: string
+    difyOutputVariable?: string
+    difyEnableFileUpload?: boolean
+    difyContextSize?: number
+}
+
+export interface DifyInputControl {
+    variable: string
+    type: string
+    required?: boolean
+    defaultValue?: unknown
+}
+
+export interface DifyFileHandlingLimits {
+    supportedMimeTypes: string[]
+    maxTotalSizeBytes: number
+    maxFileSizeBytes: number
+    maxFileSizeBytesOverrides?: Record<string, number>
+    maxFileCount?: number
+    allowedFileTypes?: DifyFileType[]
+    allowedTransferMethods?: DifyTransferMethod[]
+}
+
+export type DifyFileType = 'image' | 'document' | 'audio' | 'video' | 'custom'
+export type DifyTransferMethod = 'remote_url' | 'local_file'
+
+export interface DifyAppParameters {
+    inputControls: DifyInputControl[]
+    fileHandling?: DifyFileHandlingLimits
+}
+
+export interface DifyRuntimeAppConfig {
+    apiKey: string
+    apiEndpoint: string
+    platform: string
+    providerName: string
+    modelName: string
+    appType: DifyAppType
+    workflowId?: string
+    outputVariable?: string
+    enableFileUpload: boolean
+    contextSize: number
+    parameters?: DifyAppParameters
+}
+
 export interface ModelHubSettings {
     providers: ProviderEntry[]
     additionalModels: AdditionalModelEntry[]
@@ -94,7 +144,8 @@ export interface ModelHubSettings {
 export interface ProviderEntry
     extends ProviderAdvancedSettings,
         OpenAIProviderSettings,
-        GeminiProviderSettings {
+        GeminiProviderSettings,
+        DifyProviderSettings {
     provider: string
     name?: string
     platform: string
@@ -130,6 +181,7 @@ export type ModelHubResolvedConfig = ModelHubKoishiConfig &
     ProviderAdvancedSettings &
     OpenAIProviderSettings &
     GeminiProviderSettings &
+    DifyProviderSettings &
     ChatLunaPlugin.Config
 
 export interface ProviderModelPreset {
@@ -181,11 +233,13 @@ export interface ModelHubClientConfig
     extends ClientConfig,
         ProviderAdvancedSettings,
         OpenAIProviderSettings,
-        GeminiProviderSettings {
+        GeminiProviderSettings,
+        DifyProviderSettings {
     provider: string
     providerName: string
     icon: string
     pullModels: boolean
+    difyApps?: Record<string, DifyRuntimeAppConfig>
 }
 
 export type ModelHubPlugin = ChatLunaPlugin<

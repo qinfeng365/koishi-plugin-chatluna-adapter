@@ -2,7 +2,7 @@ import type { ClientConfig } from 'koishi-plugin-chatluna/llm-core/platform/conf
 import type { ModelCapabilities, ModelType } from 'koishi-plugin-chatluna/llm-core/platform/types';
 import type { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import type { ModelHubClient } from './client';
-export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini';
+export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini' | 'dify';
 export type ModelHubProviderStatus = 'loaded' | 'configured' | 'missing-key' | 'disabled' | 'error' | 'preset';
 export interface ModelHubKoishiConfig {
     webui: boolean;
@@ -61,12 +61,55 @@ export interface GeminiProviderSettings {
     includeThoughts?: boolean;
     groundingContentDisplay?: boolean;
 }
+export type DifyAppType = 'chat' | 'agent' | 'workflow' | 'completion';
+export interface DifyProviderSettings {
+    difyAppType?: DifyAppType;
+    difyModelName?: string;
+    difyWorkflowId?: string;
+    difyOutputVariable?: string;
+    difyEnableFileUpload?: boolean;
+    difyContextSize?: number;
+}
+export interface DifyInputControl {
+    variable: string;
+    type: string;
+    required?: boolean;
+    defaultValue?: unknown;
+}
+export interface DifyFileHandlingLimits {
+    supportedMimeTypes: string[];
+    maxTotalSizeBytes: number;
+    maxFileSizeBytes: number;
+    maxFileSizeBytesOverrides?: Record<string, number>;
+    maxFileCount?: number;
+    allowedFileTypes?: DifyFileType[];
+    allowedTransferMethods?: DifyTransferMethod[];
+}
+export type DifyFileType = 'image' | 'document' | 'audio' | 'video' | 'custom';
+export type DifyTransferMethod = 'remote_url' | 'local_file';
+export interface DifyAppParameters {
+    inputControls: DifyInputControl[];
+    fileHandling?: DifyFileHandlingLimits;
+}
+export interface DifyRuntimeAppConfig {
+    apiKey: string;
+    apiEndpoint: string;
+    platform: string;
+    providerName: string;
+    modelName: string;
+    appType: DifyAppType;
+    workflowId?: string;
+    outputVariable?: string;
+    enableFileUpload: boolean;
+    contextSize: number;
+    parameters?: DifyAppParameters;
+}
 export interface ModelHubSettings {
     providers: ProviderEntry[];
     additionalModels: AdditionalModelEntry[];
     blacklistModels: ModelFilterEntry[];
 }
-export interface ProviderEntry extends ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings {
+export interface ProviderEntry extends ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings, DifyProviderSettings {
     provider: string;
     name?: string;
     platform: string;
@@ -91,7 +134,7 @@ export interface ConsoleHeaderEntry extends Omit<HeaderEntry, 'value'> {
 export interface ModelHubConsoleSettings extends Omit<ModelHubSettings, 'providers'> {
     providers: ConsoleProviderEntry[];
 }
-export type ModelHubResolvedConfig = ModelHubKoishiConfig & ModelHubSettings & ProviderAdvancedSettings & OpenAIProviderSettings & GeminiProviderSettings & ChatLunaPlugin.Config;
+export type ModelHubResolvedConfig = ModelHubKoishiConfig & ModelHubSettings & ProviderAdvancedSettings & OpenAIProviderSettings & GeminiProviderSettings & DifyProviderSettings & ChatLunaPlugin.Config;
 export interface ProviderModelPreset {
     name: string;
     type: ModelType;
@@ -132,11 +175,12 @@ export interface RuntimeProvider {
     platform: string;
     entries: RuntimeProviderEntry[];
 }
-export interface ModelHubClientConfig extends ClientConfig, ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings {
+export interface ModelHubClientConfig extends ClientConfig, ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings, DifyProviderSettings {
     provider: string;
     providerName: string;
     icon: string;
     pullModels: boolean;
+    difyApps?: Record<string, DifyRuntimeAppConfig>;
 }
 export type ModelHubPlugin = ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>;
 export interface ModelHubRuntimeState {

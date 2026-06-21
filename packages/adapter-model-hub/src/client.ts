@@ -8,6 +8,7 @@ import {
 } from 'koishi-plugin-chatluna/llm-core/platform/model'
 import { ChatLunaReranker } from 'koishi-plugin-chatluna/llm-core/platform/rerank'
 import {
+    FileHandlingConfig,
     ModelCapabilities,
     ModelInfo,
     ModelType
@@ -72,7 +73,8 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         try {
             const current = this.config
             const rawModels =
-                current?.pullModels === true
+                current?.pullModels === true ||
+                this._runtime.provider.adapter === 'dify'
                     ? await this._requester.getModels(config)
                     : []
 
@@ -127,6 +129,52 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         return await this.getModels(config)
     }
 
+    getFileHandlingConfig(): FileHandlingConfig | null {
+        if (this._runtime.provider.adapter !== 'dify') {
+            return null
+        }
+
+        const configs = Object.keys(this.config.difyApps ?? {})
+            .map((model) => this._difyFileHandlingConfig(model))
+            .filter((item): item is FileHandlingConfig => item != null)
+
+        if (configs.length < 1) return null
+
+        const supportedMimeTypes = new Set<string>()
+        const maxFileSizeBytesOverrides: Record<string, number> = {}
+        let maxTotalSizeBytes = 0
+        let maxFileSizeBytes = 0
+
+        for (const config of configs) {
+            for (const mimeType of config.supportedMimeTypes) {
+                supportedMimeTypes.add(mimeType)
+            }
+            maxTotalSizeBytes = Math.max(
+                maxTotalSizeBytes,
+                config.maxTotalSizeBytes
+            )
+            maxFileSizeBytes = Math.max(
+                maxFileSizeBytes,
+                config.maxFileSizeBytes
+            )
+            for (const [mimeType, size] of Object.entries(
+                config.maxFileSizeBytesOverrides ?? {}
+            )) {
+                maxFileSizeBytesOverrides[mimeType] = Math.max(
+                    maxFileSizeBytesOverrides[mimeType] ?? 0,
+                    size
+                )
+            }
+        }
+
+        return {
+            supportedMimeTypes,
+            maxTotalSizeBytes,
+            maxFileSizeBytes,
+            maxFileSizeBytesOverrides
+        }
+    }
+
     protected _createModel(
         model: string,
         report: ModelUsageReporter
@@ -164,7 +212,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 temperature: this._config.temperature,
                 maxRetries: this._config.maxRetries,
                 llmType: this._runtime.provider.id,
-                fileHandlingConfig: getOpenAIFileHandlingConfig(model),
+                fileHandlingConfig: this._fileHandlingConfig(model, info),
                 isThinkModel: this._isThinkModel(model, info)
             })
         }
@@ -274,10 +322,66 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         capabilities: ModelCapabilities[] | undefined
     ) {
         const result = new Set<ModelCapabilities>(capabilities ?? [])
+        if (this._runtime.provider.adapter === 'dify') {
+            return [...result]
+        }
+
         result.add(ModelCapabilities.ToolCall)
         if (supportImageInput(model)) result.add(ModelCapabilities.ImageInput)
         if (supportAudioInput(model)) result.add(ModelCapabilities.AudioInput)
         return [...result]
+    }
+
+    private _fileHandlingConfig(
+        model: string,
+        info: ModelInfo
+    ): FileHandlingConfig | undefined {
+        if (this._runtime.provider.adapter !== 'dify') {
+            return getOpenAIFileHandlingConfig(model)
+        }
+        if (!info.capabilities.includes(ModelCapabilities.FileInput)) {
+            return undefined
+        }
+        const difyFileHandling = this._difyFileHandlingConfig(model)
+        if (difyFileHandling != null) return difyFileHandling
+
+        return {
+            supportedMimeTypes: new Set([
+                'image/png',
+                'image/jpeg',
+                'image/gif',
+                'image/webp',
+                'image/svg+xml',
+                'application/pdf',
+                'text/plain',
+                'text/markdown',
+                'audio/mpeg',
+                'audio/wav',
+                'audio/ogg',
+                'video/mp4',
+                'video/quicktime'
+            ]),
+            maxTotalSizeBytes: 100 * 1024 * 1024,
+            maxFileSizeBytes: 50 * 1024 * 1024,
+            maxFileSizeBytesOverrides: {
+                'application/pdf': 50 * 1024 * 1024,
+                'video/mp4': 100 * 1024 * 1024,
+                'video/quicktime': 100 * 1024 * 1024
+            }
+        }
+    }
+
+    private _difyFileHandlingConfig(model: string): FileHandlingConfig | undefined {
+        const app = this.config.difyApps?.[model]
+        const limits = app?.parameters?.fileHandling
+        if (limits == null) return undefined
+
+        return {
+            supportedMimeTypes: new Set(limits.supportedMimeTypes),
+            maxTotalSizeBytes: limits.maxTotalSizeBytes,
+            maxFileSizeBytes: limits.maxFileSizeBytes,
+            maxFileSizeBytesOverrides: limits.maxFileSizeBytesOverrides
+        }
     }
 
     private _isThinkModel(model: string, info: ModelInfo) {

@@ -3,16 +3,18 @@ import type { ProviderAdapter } from './types'
 import { openAIChatAdapter } from './openai-chat'
 import { openAIAdapter } from './openai'
 import { geminiAdapter } from './gemini'
+import { difyAdapter } from './dify'
 
 const adapters = new Map<ProviderAdapterId, ProviderAdapter>([
     [openAIChatAdapter.id, openAIChatAdapter],
     [openAIAdapter.id, openAIAdapter],
-    [geminiAdapter.id, geminiAdapter]
+    [geminiAdapter.id, geminiAdapter],
+    [difyAdapter.id, difyAdapter]
 ])
 
 export function getProviderAdapter(id: ProviderAdapterId): ProviderAdapter {
     return adapters.get(id) ?? openAIChatAdapter
 }
 
-export { geminiAdapter, openAIAdapter, openAIChatAdapter }
+export { difyAdapter, geminiAdapter, openAIAdapter, openAIChatAdapter }
 export type { ProviderAdapter }

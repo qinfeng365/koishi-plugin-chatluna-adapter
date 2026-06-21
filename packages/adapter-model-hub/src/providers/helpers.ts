@@ -77,3 +77,12 @@ export function geminiProvider(
         adapter: 'gemini'
     }
 }
+
+export function difyProvider(
+    preset: Omit<ProviderPreset, 'adapter'>
+): ProviderPreset {
+    return {
+        ...preset,
+        adapter: 'dify'
+    }
+}

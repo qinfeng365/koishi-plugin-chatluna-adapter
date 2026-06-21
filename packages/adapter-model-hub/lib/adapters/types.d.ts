@@ -12,4 +12,5 @@ export interface ProviderAdapter {
     embeddings(requester: ModelHubRequester, params: EmbeddingsRequestParams): Promise<EmbeddingsResult>;
     rerank(requester: ModelHubRequester, params: RerankerRequestParams): Promise<RerankerResult[] | RerankerUsageResult>;
     getModels(requester: ModelHubRequester, config?: RunnableConfig): Promise<ProviderModelEntry[]>;
+    dispose?(requester: ModelHubRequester, model?: string, id?: string): Promise<void>;
 }
