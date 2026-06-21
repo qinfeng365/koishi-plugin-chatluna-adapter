@@ -194,7 +194,10 @@
                                 </label>
                                 <label>
                                     <span>ChatLuna 平台 ID</span>
-                                    <el-input v-model="selectedProvider.platform" />
+                                    <el-input
+                                        :model-value="selectedProvider.platform"
+                                        @update:model-value="updateProviderPlatform(selectedProvider, String($event))"
+                                    />
                                 </label>
                                 <label class="wide">
                                     <span>API 地址</span>
@@ -370,6 +373,75 @@
                                     <span>强制非流式</span>
                                     <el-switch v-model="selectedProvider.nonStreaming" />
                                 </label>
+                                <label>
+                                    <span>展开思考等级</span>
+                                    <el-switch v-model="selectedProvider.expandReasoningVariants" />
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="section">
+                            <div class="section-head">
+                                <h3>自定义模型</h3>
+                                <el-button
+                                    size="small"
+                                    :disabled="!selectedProvider.platform.trim()"
+                                    @click="addCustomModel(selectedProvider)"
+                                >
+                                    添加
+                                </el-button>
+                            </div>
+
+                            <div class="model-list">
+                                <div
+                                    v-for="(model, index) in selectedCustomModels"
+                                    :key="`${model.target}:${model.model}:${index}`"
+                                    class="model-row"
+                                >
+                                    <el-input
+                                        v-model="model.model"
+                                        placeholder="模型名"
+                                    />
+                                    <el-select v-model="model.modelType">
+                                        <el-option
+                                            v-for="option in modelTypeOptions"
+                                            :key="option.value"
+                                            :label="option.label"
+                                            :value="option.value"
+                                        />
+                                    </el-select>
+                                    <el-input-number
+                                        v-model="model.contextSize"
+                                        :min="1"
+                                        :step="4096"
+                                        controls-position="right"
+                                    />
+                                    <el-select
+                                        v-model="model.modelCapabilities"
+                                        multiple
+                                        collapse-tags
+                                        collapse-tags-tooltip
+                                    >
+                                        <el-option
+                                            v-for="option in capabilityOptions"
+                                            :key="option.value"
+                                            :label="option.label"
+                                            :value="option.value"
+                                        />
+                                    </el-select>
+                                    <el-button
+                                        type="danger"
+                                        @click="removeCustomModel(model)"
+                                    >
+                                        删除
+                                    </el-button>
+                                </div>
+                                <p
+                                    v-if="selectedCustomModels.length === 0"
+                                    class="empty-text compact"
+                                >
+                                    暂无自定义模型
+                                </p>
                             </div>
                         </section>
 
@@ -661,6 +733,7 @@
 import { computed, ref, watch } from 'vue'
 import { send, store } from '@koishijs/client'
 import type {
+    AdditionalModelEntry,
     ConsoleHeaderEntry,
     ConsoleProviderEntry,
     ModelHubActionResult,
@@ -669,7 +742,7 @@ import type {
     ModelHubConsoleSettings,
     ModelHubProviderStatus
 } from 'koishi-plugin-chatluna-model-hub-adapter'
-import type { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
+import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 
 const tabs = [
     { label: '服务商', value: 'providers' },
@@ -680,6 +753,23 @@ const kindOptions = [
     { label: '全部', value: 'all' },
     { label: '云端', value: 'cloud' },
     { label: '本地', value: 'local' }
+] as const
+
+const modelTypeOptions = [
+    { label: 'LLM', value: 'LLM 大语言模型' },
+    { label: 'Embeddings', value: 'Embeddings 嵌入模型' },
+    { label: 'Reranker', value: 'Reranker 重排序模型' }
+] as const
+
+const capabilityOptions = [
+    { label: 'Text Input', value: ModelCapabilities.TextInput },
+    { label: 'Tool Call', value: ModelCapabilities.ToolCall },
+    { label: 'Image Input', value: ModelCapabilities.ImageInput },
+    { label: 'Thinking', value: ModelCapabilities.Thinking },
+    { label: 'Image Generation', value: ModelCapabilities.ImageGeneration },
+    { label: 'Audio Input', value: ModelCapabilities.AudioInput },
+    { label: 'Video Input', value: ModelCapabilities.VideoInput },
+    { label: 'File Input', value: ModelCapabilities.FileInput }
 ] as const
 
 const data = computed(() => store.chatluna_model_hub as ModelHubConsoleData)
@@ -775,6 +865,14 @@ const selectedRuntimeProvider = computed(() =>
     selectedProvider.value ? runtimeProvider(selectedProvider.value) : undefined
 )
 
+const selectedCustomModels = computed(() => {
+    const provider = selectedProvider.value
+    if (!provider) return []
+    return form.value.additionalModels.filter((model) =>
+        modelTargetsSelectedProvider(model, provider)
+    )
+})
+
 const responseSupportModelsText = computed({
     get: () => selectedProvider.value?.responseBuiltinToolSupportModel?.join(', ') ?? '',
     set: (value: string) => {
@@ -832,6 +930,7 @@ function createProviderDefaults() {
         presencePenalty: 0,
         frequencyPenalty: 0,
         nonStreaming: false,
+        expandReasoningVariants: false,
         responseApi: false,
         responseBuiltinTools: [],
         responseBuiltinToolSupportModel: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'o3', 'o4'],
@@ -924,6 +1023,63 @@ function runtimeProvider(provider: ConsoleProviderEntry) {
     return data.value?.providers?.find((item) => item.platform === provider.platform)
 }
 
+function modelTargetsSelectedProvider(
+    model: AdditionalModelEntry,
+    provider: ConsoleProviderEntry
+) {
+    const target = model.target?.trim()
+    const platform = provider.platform.trim()
+    return (
+        target.length > 0 &&
+        platform.length > 0 &&
+        normalizeTarget(target) === normalizeTarget(platform)
+    )
+}
+
+function updateProviderPlatform(provider: ConsoleProviderEntry, platform: string) {
+    const previous = provider.platform
+    provider.platform = platform
+    if (!platform.trim()) return
+    retargetCustomModels(previous, platform)
+}
+
+function addCustomModel(provider: ConsoleProviderEntry) {
+    form.value.additionalModels.push({
+        target: provider.platform,
+        model: '',
+        modelType: 'LLM 大语言模型',
+        modelCapabilities: [
+            ModelCapabilities.TextInput,
+            ModelCapabilities.ToolCall
+        ],
+        contextSize: 128000
+    })
+}
+
+function removeCustomModel(model: AdditionalModelEntry) {
+    const index = form.value.additionalModels.indexOf(model)
+    if (index >= 0) form.value.additionalModels.splice(index, 1)
+}
+
+function retargetCustomModels(from: string, to: string) {
+    const source = normalizeTarget(from)
+    const target = to.trim()
+    if (!target || source === '*') return
+    for (const model of form.value.additionalModels) {
+        if (normalizeTarget(model.target) === source) {
+            model.target = target
+        }
+    }
+}
+
+function normalizeTarget(value: string) {
+    return (value || '*')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || '*'
+}
+
 function clearProviderKey(provider: ConsoleProviderEntry) {
     provider.apiKey = ''
     provider.apiKeyPreview = ''
@@ -934,9 +1090,10 @@ function clearProviderKey(provider: ConsoleProviderEntry) {
 function duplicateProvider(index: number) {
     const source = form.value.providers[index]
     if (!source) return
+    const nextPlatform = uniquePlatform(source.platform)
     form.value.providers.splice(index + 1, 0, {
         ...clone(source),
-        platform: uniquePlatform(source.platform),
+        platform: nextPlatform,
         apiKey: '',
         apiKeyPreview: '',
         hasApiKey: false,
@@ -949,12 +1106,33 @@ function duplicateProvider(index: number) {
             clearValue: false
         }))
     })
+    const sourceTarget = normalizeTarget(source.platform)
+    form.value.additionalModels.push(
+        ...form.value.additionalModels
+            .filter((model) => normalizeTarget(model.target) === sourceTarget)
+            .map((model) => ({
+                ...clone(model),
+                target: nextPlatform
+            }))
+    )
     selectedProviderIndex.value = index + 1
 }
 
 function removeProvider(index: number) {
     if (index < 0) return
+    const source = form.value.providers[index]
+    const removedTarget = source ? normalizeTarget(source.platform) : ''
     form.value.providers.splice(index, 1)
+    if (
+        removedTarget &&
+        !form.value.providers.some(
+            (provider) => normalizeTarget(provider.platform) === removedTarget
+        )
+    ) {
+        form.value.additionalModels = form.value.additionalModels.filter(
+            (model) => normalizeTarget(model.target) !== removedTarget
+        )
+    }
     selectedProviderIndex.value = Math.min(index, form.value.providers.length - 1)
     normalizeSelectedProvider()
 }
@@ -1677,11 +1855,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
 .model-row {
     grid-template-columns:
-        minmax(7rem, 0.8fr)
-        minmax(10rem, 1.2fr)
-        minmax(9rem, 0.9fr)
-        minmax(8rem, 0.8fr)
-        minmax(12rem, 1.4fr)
+        minmax(12rem, 1.3fr)
+        minmax(10rem, 0.9fr)
+        minmax(10rem, 0.8fr)
+        minmax(12rem, 1.2fr)
         auto;
 }
 

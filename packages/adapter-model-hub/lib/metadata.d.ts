@@ -4,6 +4,7 @@ export declare class ModelMetadataStore {
     private ctx;
     private options;
     private _models;
+    private _aliases;
     private _timer?;
     readonly path: string;
     constructor(ctx: Context, options?: {
@@ -18,4 +19,5 @@ export declare class ModelMetadataStore {
     getMaxTokens(provider: string, model: string): number;
     private apply;
     private find;
+    private setAlias;
 }

@@ -8,5 +8,6 @@ export default openAIProvider({
     defaultPlatform: 'hub-openai',
     defaultEndpoint: 'https://api.openai.com/v1',
     website: 'https://platform.openai.com',
+    reasoningEffort: 'passthrough',
     models: []
 })

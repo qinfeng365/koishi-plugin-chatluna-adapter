@@ -6,7 +6,7 @@ export default openAIChatProvider({
     icon: 'minimax',
     kind: 'cloud',
     defaultPlatform: 'hub-minimax',
-    defaultEndpoint: 'https://api.minimaxi.com/v1',
-    website: 'https://platform.minimaxi.com',
+    defaultEndpoint: 'https://api.minimax.io/v1',
+    website: 'https://platform.minimax.io',
     models: []
 })

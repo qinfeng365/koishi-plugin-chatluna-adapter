@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-openai-compatible',
     defaultEndpoint: 'https://api.example.com/v1',
     website: '',
+    reasoningEffort: 'passthrough',
     models: []
 })

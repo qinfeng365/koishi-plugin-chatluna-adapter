@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-qwen',
     defaultEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     website: 'https://dashscope.aliyun.com',
+    reasoningEffort: 'qwen',
     models: []
 })

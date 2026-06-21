@@ -8,13 +8,15 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-deepseek',
     defaultEndpoint: 'https://api.deepseek.com',
     website: 'https://platform.deepseek.com',
+    reasoningEffort: 'deepseek',
     models: [],
     patchCompletionBody(body, model) {
         const lower = model.toLowerCase()
-        if (!lower.includes('reasoner') && !lower.includes('r1')) return
-        delete body.temperature
-        delete body.presence_penalty
-        delete body.frequency_penalty
-        delete body.top_p
+        if (lower.includes('reasoner') || lower.includes('r1')) {
+            delete body.temperature
+            delete body.presence_penalty
+            delete body.frequency_penalty
+            delete body.top_p
+        }
     }
 })

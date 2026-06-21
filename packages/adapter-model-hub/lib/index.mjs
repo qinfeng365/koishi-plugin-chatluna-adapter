@@ -8,14 +8,14 @@ var __commonJS = (cb, mod) => function __require() {
 // src/locales/zh-CN.schema.yml
 var require_zh_CN_schema = __commonJS({
   "src/locales/zh-CN.schema.yml"(exports, module) {
-    module.exports = { $inner: { webui: "启用独立 WebUI。供应商、模型、请求参数和密钥都在 WebUI 中管理。", frontendMode: "前端显示模式。性能模式保持低动效；精致模式启用更细腻的动效和高级样式。", iconCdn: "LobeHub 图标静态资源地址。", settingsPath: "WebUI 配置文件路径。相对路径会基于 Koishi 实例目录解析。", metadataUrl: "模型元数据缓存源。只用于补全上下文大小和能力，不作为可用模型列表。", metadataCachePath: "模型元数据本地缓存文件路径。相对路径会基于 Koishi 实例目录解析。", metadataUpdateHours: "模型元数据定时更新间隔，单位小时。" } };
+    module.exports = { $inner: { webui: "启用独立 WebUI。供应商、模型、请求参数和密钥都在 WebUI 中管理。", frontendMode: "前端显示模式。性能模式保持低动效；精致模式启用更细腻的动效和高级样式。", iconCdn: "LobeHub 图标静态资源地址。", settingsPath: "WebUI 配置文件路径。相对路径会基于 Koishi 实例目录解析。", metadataUrl: "models.dev 模型元数据缓存源。只用于补全上下文大小和思考能力，不作为可用模型列表。", metadataCachePath: "模型元数据本地缓存文件路径。相对路径会基于 Koishi 实例目录解析。", metadataUpdateHours: "models.dev 本地缓存定时更新间隔，单位小时。" } };
   }
 });
 
 // src/locales/en-US.schema.yml
 var require_en_US_schema = __commonJS({
   "src/locales/en-US.schema.yml"(exports, module) {
-    module.exports = { $inner: { webui: "Enable the independent Web UI. Providers, models, request parameters, and secrets are managed there.", frontendMode: "Frontend display mode. Performance mode keeps low motion; Polished mode enables finer animation and advanced styles.", iconCdn: "LobeHub icon static asset base URL.", settingsPath: "Web UI settings file path. Relative paths are resolved from the Koishi instance directory.", metadataUrl: "Model metadata cache source. It only enriches context size and capabilities, not the available model list.", metadataCachePath: "Local model metadata cache file path. Relative paths are resolved from the Koishi instance directory.", metadataUpdateHours: "Model metadata refresh interval in hours." } };
+    module.exports = { $inner: { webui: "Enable the independent Web UI. Providers, models, request parameters, and secrets are managed there.", frontendMode: "Frontend display mode. Performance mode keeps low motion; Polished mode enables finer animation and advanced styles.", iconCdn: "LobeHub icon static asset base URL.", settingsPath: "Web UI settings file path. Relative paths are resolved from the Koishi instance directory.", metadataUrl: "models.dev metadata cache source. It only enriches context size and reasoning capability, not the available model list.", metadataCachePath: "Local model metadata cache file path. Relative paths are resolved from the Koishi instance directory.", metadataUpdateHours: "models.dev local cache refresh interval in hours." } };
   }
 });
 
@@ -24,7 +24,7 @@ import { DataService } from "@koishijs/plugin-console";
 import { resolve as resolve3 } from "path";
 import { Schema } from "koishi";
 import { ChatLunaPlugin } from "koishi-plugin-chatluna/services/chat";
-import { ModelType as ModelType3 } from "koishi-plugin-chatluna/llm-core/platform/types";
+import { ModelType as ModelType4 } from "koishi-plugin-chatluna/llm-core/platform/types";
 import { createLogger } from "koishi-plugin-chatluna/utils/logger";
 
 // src/client.ts
@@ -35,28 +35,35 @@ import {
 } from "koishi-plugin-chatluna/llm-core/platform/model";
 import { ChatLunaReranker } from "koishi-plugin-chatluna/llm-core/platform/rerank";
 import {
-  ModelCapabilities as ModelCapabilities2,
-  ModelType as ModelType2
+  ModelCapabilities as ModelCapabilities3,
+  ModelType as ModelType3
 } from "koishi-plugin-chatluna/llm-core/platform/types";
 import {
-  ChatLunaError,
-  ChatLunaErrorCode
+  ChatLunaError as ChatLunaError2,
+  ChatLunaErrorCode as ChatLunaErrorCode2
 } from "koishi-plugin-chatluna/utils/error";
 import {
   getModelMaxContextSize,
   getOpenAIFileHandlingConfig,
-  isEmbeddingModel,
-  isImageGenerationModel,
+  isEmbeddingModel as isEmbeddingModel2,
+  isImageGenerationModel as isImageGenerationModel2,
   isNonLLMModel,
-  isRerankerModel,
+  isRerankerModel as isRerankerModel2,
   supportAudioInput,
   supportImageInput
 } from "@chatluna/v1-shared-adapter";
 
 // src/requester.ts
 import {
-  ModelRequester
+  AIMessageChunk as AIMessageChunk2
+} from "@langchain/core/messages";
+import { ChatGenerationChunk as ChatGenerationChunk4 } from "@langchain/core/outputs";
+import {
+  attachInvocationMetrics,
+  ModelRequester,
+  readInvocationMetrics
 } from "koishi-plugin-chatluna/llm-core/platform/api";
+import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort3 } from "@chatluna/v1-shared-adapter";
 import { createRequestContext } from "@chatluna/v1-shared-adapter";
 
 // src/providers/helpers.ts
@@ -102,6 +109,7 @@ var openai_compatible_default = openAIChatProvider({
   defaultPlatform: "hub-openai-compatible",
   defaultEndpoint: "https://api.example.com/v1",
   website: "",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -114,6 +122,7 @@ var openai_default = openAIProvider({
   defaultPlatform: "hub-openai",
   defaultEndpoint: "https://api.openai.com/v1",
   website: "https://platform.openai.com",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -126,6 +135,7 @@ var gemini_default = geminiProvider({
   defaultPlatform: "hub-gemini",
   defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
   website: "https://ai.google.dev/gemini-api",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -138,6 +148,7 @@ var openrouter_default = openAIChatProvider({
   defaultPlatform: "hub-openrouter",
   defaultEndpoint: "https://openrouter.ai/api/v1",
   website: "https://openrouter.ai",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -150,14 +161,16 @@ var deepseek_default = openAIChatProvider({
   defaultPlatform: "hub-deepseek",
   defaultEndpoint: "https://api.deepseek.com",
   website: "https://platform.deepseek.com",
+  reasoningEffort: "deepseek",
   models: [],
   patchCompletionBody(body, model) {
     const lower = model.toLowerCase();
-    if (!lower.includes("reasoner") && !lower.includes("r1")) return;
-    delete body.temperature;
-    delete body.presence_penalty;
-    delete body.frequency_penalty;
-    delete body.top_p;
+    if (lower.includes("reasoner") || lower.includes("r1")) {
+      delete body.temperature;
+      delete body.presence_penalty;
+      delete body.frequency_penalty;
+      delete body.top_p;
+    }
   }
 });
 
@@ -170,6 +183,7 @@ var qwen_default = openAIChatProvider({
   defaultPlatform: "hub-qwen",
   defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1",
   website: "https://dashscope.aliyun.com",
+  reasoningEffort: "qwen",
   models: []
 });
 
@@ -206,6 +220,7 @@ var siliconflow_default = openAIChatProvider({
   defaultPlatform: "hub-siliconflow",
   defaultEndpoint: "https://api.siliconflow.cn/v1",
   website: "https://siliconflow.cn",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -240,8 +255,8 @@ var together_default = openAIChatProvider({
   icon: "together",
   kind: "cloud",
   defaultPlatform: "hub-together",
-  defaultEndpoint: "https://api.together.xyz/v1",
-  website: "https://api.together.xyz",
+  defaultEndpoint: "https://api.together.ai/v1",
+  website: "https://docs.together.ai",
   models: []
 });
 
@@ -264,8 +279,8 @@ var minimax_default = openAIChatProvider({
   icon: "minimax",
   kind: "cloud",
   defaultPlatform: "hub-minimax",
-  defaultEndpoint: "https://api.minimaxi.com/v1",
-  website: "https://platform.minimaxi.com",
+  defaultEndpoint: "https://api.minimax.io/v1",
+  website: "https://platform.minimax.io",
   models: []
 });
 
@@ -315,6 +330,7 @@ var newapi_default = openAIChatProvider({
   defaultEndpoint: "http://127.0.0.1:3000/v1",
   website: "https://github.com/QuantumNous/new-api",
   allowEmptyApiKey: true,
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -361,11 +377,11 @@ var vllm_default = openAIChatProvider({
 var llamacpp_default = openAIChatProvider({
   id: "llamacpp",
   name: "llama.cpp",
-  icon: "llamacpp",
+  icon: "openai",
   kind: "local",
   defaultPlatform: "hub-llamacpp",
   defaultEndpoint: "http://127.0.0.1:8080/v1",
-  website: "https://github.com/ggerganov/llama.cpp",
+  website: "https://github.com/ggml-org/llama.cpp",
   allowEmptyApiKey: true,
   models: []
 });
@@ -387,7 +403,7 @@ var xinference_default = openAIChatProvider({
 var localai_default = openAIChatProvider({
   id: "localai",
   name: "LocalAI",
-  icon: "localai",
+  icon: "openai",
   kind: "local",
   defaultPlatform: "hub-localai",
   defaultEndpoint: "http://127.0.0.1:8080/v1",
@@ -453,7 +469,8 @@ var DEFAULT_PROVIDER_CONFIGS = [
     temperature: 1,
     presencePenalty: 0,
     frequencyPenalty: 0,
-    nonStreaming: false
+    nonStreaming: false,
+    expandReasoningVariants: false
   };
 });
 function normalizeId(value, fallback = "custom") {
@@ -543,13 +560,23 @@ import {
   completion,
   completionStream,
   createEmbeddings,
-  createRerank
+  createRerank,
+  parseOpenAIModelNameWithReasoningEffort
 } from "@chatluna/v1-shared-adapter";
 import { checkResponse } from "koishi-plugin-chatluna/utils/sse";
 
 // src/adapters/model-list.ts
-import { expandReasoningEffortModelVariants } from "@chatluna/v1-shared-adapter";
-function parseOpenAIModels(payload) {
+import {
+  expandReasoningEffortModelVariants,
+  isEmbeddingModel,
+  isImageGenerationModel,
+  isRerankerModel
+} from "@chatluna/v1-shared-adapter";
+import {
+  ModelCapabilities as ModelCapabilities2,
+  ModelType as ModelType2
+} from "koishi-plugin-chatluna/llm-core/platform/types";
+function parseOpenAIModels(payload, provider) {
   const items = Array.isArray(payload.data) ? payload.data ?? [] : [];
   const result = [];
   const seen = /* @__PURE__ */ new Set();
@@ -558,36 +585,208 @@ function parseOpenAIModels(payload) {
     if (!id) continue;
     const base = makeOpenAIEntry(id, item);
     pushUnique(result, seen, base);
-    for (const variant of expandReasoningEffortModelVariants(id)) {
+    if (!shouldExpandReasoningVariants(provider, base)) continue;
+    for (const variant of expandReasoningEffortModelVariants(
+      id,
+      reasoningVariantSuffixes(provider, id)
+    )) {
       pushUnique(result, seen, {
         name: variant,
+        type: ModelType2.llm,
         maxTokens: base.maxTokens,
-        capabilities: base.capabilities
+        capabilities: mergeCapabilities(base.capabilities, [
+          ModelCapabilities2.Thinking
+        ]),
+        reasoningVariantOf: id
       });
     }
   }
   return result;
 }
 __name(parseOpenAIModels, "parseOpenAIModels");
+function shouldExpandReasoningVariants(provider, model) {
+  if (!provider?.reasoningEffort || provider.reasoningEffort === "disabled") {
+    return false;
+  }
+  if (model.capabilities?.includes(ModelCapabilities2.Thinking)) {
+    return isChatModel(model);
+  }
+  return modelSupportsReasoning(provider.id, model);
+}
+__name(shouldExpandReasoningVariants, "shouldExpandReasoningVariants");
+function expandReasoningVariantsForProvider(provider, models) {
+  const result = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const model of models) {
+    pushUnique(result, seen, model);
+    if (model.reasoningVariantOf) continue;
+    if (!shouldExpandReasoningVariants(provider, model)) continue;
+    for (const variant of expandReasoningEffortModelVariants(
+      model.name,
+      reasoningVariantSuffixes(provider, model.name)
+    )) {
+      pushUnique(result, seen, {
+        name: variant,
+        type: ModelType2.llm,
+        maxTokens: model.maxTokens,
+        capabilities: mergeCapabilities(model.capabilities, [
+          ModelCapabilities2.Thinking
+        ]),
+        reasoningVariantOf: model.name
+      });
+    }
+  }
+  return result;
+}
+__name(expandReasoningVariantsForProvider, "expandReasoningVariantsForProvider");
+function isChatModel(model) {
+  if (model.type != null) return model.type === ModelType2.llm;
+  const lower = model.name.toLowerCase();
+  return !isEmbeddingModel(lower) && !isRerankerModel(lower) && !isImageGenerationModel(lower);
+}
+__name(isChatModel, "isChatModel");
+function modelSupportsReasoning(provider, model) {
+  const id = model.name.toLowerCase();
+  if (provider === "openai") {
+    return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4") || id.startsWith("gpt-5");
+  }
+  if (provider === "deepseek") {
+    return id.includes("reasoner") || id.includes("r1") || id.includes("deepseek-v4");
+  }
+  if (provider === "qwen") {
+    return id.includes("qwen3");
+  }
+  if (provider === "siliconflow") {
+    return id.includes("deepseek-v4") || id.includes("deepseek") && id.includes("reason");
+  }
+  return false;
+}
+__name(modelSupportsReasoning, "modelSupportsReasoning");
+var DEEPSEEK_REASONING_SUFFIXES = ["high-thinking", "max-thinking"];
+var NO_REASONING_SUFFIXES = [];
+var GEMINI_REASONING_SUFFIXES = [
+  "minimal-thinking",
+  "low-thinking",
+  "medium-thinking",
+  "high-thinking"
+];
+var GEMINI_FLASH_REASONING_SUFFIXES = [
+  "non-thinking",
+  ...GEMINI_REASONING_SUFFIXES
+];
+var GEMMA_REASONING_SUFFIXES = ["minimal-thinking", "high-thinking"];
+function reasoningVariantSuffixes(provider, model) {
+  const id = model.toLowerCase();
+  if (provider?.id === "deepseek" || id.includes("deepseek-v4")) {
+    return DEEPSEEK_REASONING_SUFFIXES;
+  }
+  if (provider?.id === "minimax" || id.includes("minimax-m")) {
+    return NO_REASONING_SUFFIXES;
+  }
+  if (id.includes("gemma-4")) return GEMMA_REASONING_SUFFIXES;
+  if (id.includes("gemini-2.5-flash") || id.includes("gemini-flash-lite-latest")) {
+    return GEMINI_FLASH_REASONING_SUFFIXES;
+  }
+  if (id.includes("gemini-2.5") || id.includes("gemini-3") || id.includes("gemini-pro-latest")) {
+    return GEMINI_REASONING_SUFFIXES;
+  }
+  return void 0;
+}
+__name(reasoningVariantSuffixes, "reasoningVariantSuffixes");
+function mergeCapabilities(preferred, extra) {
+  return [.../* @__PURE__ */ new Set([...preferred ?? [], ...extra])];
+}
+__name(mergeCapabilities, "mergeCapabilities");
 function parseGeminiModels(payload) {
   const items = Array.isArray(payload.models) ? payload.models ?? [] : [];
   return items.map((item) => {
     const name2 = item.name?.replace(/^models\//, "").trim();
     if (!name2) return void 0;
+    const methods = new Set(item.supportedGenerationMethods ?? []);
+    const isEmbedding = item.embedding === true || item.batchEmbedContents === true || methods.has("embedContent") || methods.has("batchEmbedContents");
+    const isGenerative = methods.size < 1 || methods.has("generateContent") || methods.has("streamGenerateContent");
+    if (!isGenerative && !isEmbedding) return void 0;
     return {
       name: name2,
-      maxTokens: item.inputTokenLimit ?? item.metadata?.inputTokenLimit ?? item.outputTokenLimit ?? item.metadata?.outputTokenLimit
+      maxTokens: item.inputTokenLimit ?? item.metadata?.inputTokenLimit ?? item.outputTokenLimit ?? item.metadata?.outputTokenLimit,
+      type: isEmbedding ? ModelType2.embeddings : void 0,
+      capabilities: isEmbedding ? [] : geminiCapabilities(name2)
     };
   }).filter(Boolean);
 }
 __name(parseGeminiModels, "parseGeminiModels");
+function geminiCapabilities(name2) {
+  const lower = name2.toLowerCase();
+  const result = /* @__PURE__ */ new Set([ModelCapabilities2.ToolCall]);
+  if (lower.includes("vision") || lower.includes("gemini-1.5") || lower.includes("gemini-2") || lower.includes("gemini-3") || lower.includes("gemini-pro-latest") || lower.includes("gemini-flash-latest")) {
+    result.add(ModelCapabilities2.ImageInput);
+  }
+  if (lower.includes("thinking") || lower.includes("gemini-2.5") || lower.includes("gemini-3") || lower.includes("gemini-pro-latest") || lower.includes("gemini-flash-latest") || lower.includes("gemini-flash-lite-latest")) {
+    result.add(ModelCapabilities2.Thinking);
+  }
+  if (lower.includes("image")) {
+    result.add(ModelCapabilities2.ImageGeneration);
+  }
+  return [...result];
+}
+__name(geminiCapabilities, "geminiCapabilities");
 function makeOpenAIEntry(id, item) {
   return {
     name: id,
-    maxTokens: item.context_length ?? item.max_context_length ?? item.input_token_limit ?? item.limit?.context ?? item.limit?.input ?? item.token_limit
+    type: inferOpenAIModelType(id, item),
+    maxTokens: item.context_length ?? item.max_context_length ?? item.input_token_limit ?? item.limit?.context ?? item.limit?.input ?? item.token_limit ?? item.top_provider?.context_length ?? item.meta?.n_ctx_train ?? item.meta?.n_ctx,
+    capabilities: openAICapabilities(item)
   };
 }
 __name(makeOpenAIEntry, "makeOpenAIEntry");
+function inferOpenAIModelType(id, item) {
+  const type = item.type?.toLowerCase();
+  if (type === "embedding" || type === "embeddings") {
+    return ModelType2.embeddings;
+  }
+  if (type === "rerank" || type === "reranker") {
+    return ModelType2.reranker;
+  }
+  const lower = id.toLowerCase();
+  if (isRerankerModel(lower)) return ModelType2.reranker;
+  if (isEmbeddingModel(lower)) return ModelType2.embeddings;
+  return void 0;
+}
+__name(inferOpenAIModelType, "inferOpenAIModelType");
+function openAICapabilities(item) {
+  const result = /* @__PURE__ */ new Set();
+  const input = new Set([
+    ...item.architecture?.input_modalities ?? [],
+    ...item.modalities ?? []
+  ].map((value) => value.toLowerCase()));
+  const output = new Set(
+    (item.architecture?.output_modalities ?? []).map(
+      (value) => value.toLowerCase()
+    )
+  );
+  const parameters = new Set(
+    (item.supported_parameters ?? []).map((value) => value.toLowerCase())
+  );
+  if (item.tool_call === true || parameters.has("tools") || parameters.has("tool_choice")) {
+    result.add(ModelCapabilities2.ToolCall);
+  }
+  if (item.reasoning === true || item.supports_reasoning === true || parameters.has("reasoning") || parameters.has("reasoning_effort")) {
+    result.add(ModelCapabilities2.Thinking);
+  }
+  if (input.has("image") || item.supports_image_in === true) {
+    result.add(ModelCapabilities2.ImageInput);
+  }
+  if (input.has("audio")) result.add(ModelCapabilities2.AudioInput);
+  if (input.has("video") || item.supports_video_in === true) {
+    result.add(ModelCapabilities2.VideoInput);
+  }
+  if (input.has("file") || input.has("pdf")) {
+    result.add(ModelCapabilities2.FileInput);
+  }
+  if (output.has("image")) result.add(ModelCapabilities2.ImageGeneration);
+  return result.size > 0 ? [...result] : void 0;
+}
+__name(openAICapabilities, "openAICapabilities");
 function pushUnique(result, seen, entry) {
   const key = entry.name.toLowerCase();
   if (seen.has(key)) return;
@@ -603,7 +802,11 @@ var openAIChatAdapter = {
     if (!requester.currentConfig().nonStreaming) {
       return requester.defaultCompletion(params);
     }
-    return completion(requester.requestContext(), params, "chat/completions");
+    return completion(
+      requester.requestContext(),
+      preserveRealModelName(params),
+      "chat/completions"
+    );
   },
   async *completionStream(requester, params) {
     if (!requester.currentConfig().nonStreaming) {
@@ -620,7 +823,7 @@ var openAIChatAdapter = {
   async *completionStreamInternal(requester, params) {
     yield* completionStream(
       requester.requestContext(),
-      params,
+      preserveRealModelName(params),
       "chat/completions"
     );
   },
@@ -633,9 +836,31 @@ var openAIChatAdapter = {
   async getModels(requester, config) {
     const response = await requester.get("models", {}, { signal: config?.signal });
     await checkResponse(response);
-    return parseOpenAIModels(JSON.parse(await response.text()));
+    return parseOpenAIModels(
+      JSON.parse(await response.text()),
+      requester.currentProviderPreset()
+    );
   }
 };
+function preserveRealModelName(params) {
+  if (!params.model) return params;
+  const { model, reasoningEffort } = parseOpenAIModelNameWithReasoningEffort(params.model);
+  if (model === params.model && Object.prototype.hasOwnProperty.call(
+    params.overrideRequestParams ?? {},
+    "model"
+  )) {
+    return params;
+  }
+  return {
+    ...params,
+    overrideRequestParams: {
+      ...params.overrideRequestParams,
+      model,
+      ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort }
+    }
+  };
+}
+__name(preserveRealModelName, "preserveRealModelName");
 
 // src/adapters/openai.ts
 import { ChatGenerationChunk as ChatGenerationChunk2 } from "@langchain/core/outputs";
@@ -643,11 +868,14 @@ import {
   completion as completion2,
   completionStream as completionStream2,
   createEmbeddings as createEmbeddings2,
-  createRerank as createRerank2,
   responseApiCompletion,
   responseApiCompletionStream
 } from "@chatluna/v1-shared-adapter";
 import { checkResponse as checkResponse2 } from "koishi-plugin-chatluna/utils/sse";
+import {
+  ChatLunaError,
+  ChatLunaErrorCode
+} from "koishi-plugin-chatluna/utils/error";
 var openAIAdapter = {
   id: "openai",
   async completion(requester, params) {
@@ -704,13 +932,20 @@ var openAIAdapter = {
     return await createEmbeddings2(requestContext, params);
   },
   async rerank(requester, params) {
-    const requestContext = requester.requestContext();
-    return await createRerank2(requestContext, params);
+    throw new ChatLunaError(
+      ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(
+        `OpenAI official API does not provide a rerank endpoint for ${params.model ?? "this model"}.`
+      )
+    );
   },
   async getModels(requester, config) {
     const response = await requester.get("models", {}, { signal: config?.signal });
     await checkResponse2(response);
-    return parseOpenAIModels(JSON.parse(await response.text()));
+    return parseOpenAIModels(
+      JSON.parse(await response.text()),
+      requester.currentProviderPreset()
+    );
   }
 };
 
@@ -725,6 +960,7 @@ import {
   createUsageMetadata,
   fetchFileLikeUrl,
   fetchImageUrl,
+  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort2,
   removeAdditionalProperties
 } from "@chatluna/v1-shared-adapter";
 import { checkResponse as checkResponse3, sseIterable } from "koishi-plugin-chatluna/utils/sse";
@@ -832,10 +1068,18 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
     toolNameMapper
   );
   const current = requester.currentConfig();
+  const parsedModel = parseOpenAIModelNameWithReasoningEffort2(
+    params.model ?? ""
+  );
+  const thinkingConfig = createGeminiThinkingConfig(
+    parsedModel.model,
+    parsedModel.reasoningEffort,
+    current
+  );
   const tools = geminiTools(
     requester,
     params.tools ?? [],
-    params.model,
+    parsedModel.model,
     toolNameMapper
   );
   const generationConfig = filterEmpty({
@@ -843,11 +1087,8 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
     topP: params.topP,
     maxOutputTokens: params.maxTokens,
     stopSequences: params.stop,
-    responseModalities: current.imageGeneration ? ["TEXT", "IMAGE"] : void 0,
-    thinkingConfig: current.includeThoughts || current.thinkingBudget != null ? filterEmpty({
-      thinkingBudget: current.thinkingBudget ?? -1,
-      includeThoughts: current.includeThoughts === true
-    }) : void 0
+    responseModalities: current.imageGeneration && supportsGeminiImageGeneration(parsedModel.model) ? ["TEXT", "IMAGE"] : void 0,
+    thinkingConfig
   });
   return filterEmpty({
     ...messageContents,
@@ -855,8 +1096,8 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
     safetySettings: createSafetySettings(),
     tools,
     toolConfig: tools?.some(
-      (tool2) => tool2.google_search != null || tool2.code_execution != null || tool2.urlContext != null
-    ) && params.model?.includes("gemini-3") ? { includeServerSideToolInvocations: true } : void 0
+      (tool2) => tool2.googleSearch != null || tool2.codeExecution != null || tool2.urlContext != null
+    ) && isGemini3Model(params.model) ? { includeServerSideToolInvocations: true } : void 0
   });
 }
 __name(createGeminiRequest, "createGeminiRequest");
@@ -952,7 +1193,7 @@ function geminiTools(requester, tools, model, toolNameMapper) {
       isZodSchemaV3(tool2.schema) ? zodToJsonSchema(tool2.schema) : tool2.schema
     )
   }));
-  const builtinTools = geminiBuiltinTools(requester, model);
+  const builtinTools = functionDeclarations.length > 0 && !isGemini3Model(model) ? [] : geminiBuiltinTools(requester, model);
   if (functionDeclarations.length > 0) {
     result.push({ functionDeclarations });
   }
@@ -962,16 +1203,82 @@ function geminiTools(requester, tools, model, toolNameMapper) {
 __name(geminiTools, "geminiTools");
 function geminiBuiltinTools(requester, model) {
   const config = requester.currentConfig();
-  const lower = model.toLowerCase();
+  const lower = prepareGeminiModelId(model);
   const unsupported = lower.includes("gemini-2.0-flash-lite") || lower.includes("gemini-2.0-flash-exp");
   if (unsupported) return [];
   const result = [];
-  if (config.googleSearch) result.push({ google_search: {} });
-  if (config.codeExecution) result.push({ code_execution: {} });
+  if (config.googleSearch) result.push({ googleSearch: {} });
+  if (config.codeExecution) result.push({ codeExecution: {} });
   if (config.urlContext) result.push({ urlContext: {} });
   return result;
 }
 __name(geminiBuiltinTools, "geminiBuiltinTools");
+function isGemini3Model(model) {
+  return prepareGeminiModelId(model).includes("gemini-3");
+}
+__name(isGemini3Model, "isGemini3Model");
+function supportsGeminiThinkingConfig(model) {
+  const id = prepareGeminiModelId(model);
+  if (!id) return false;
+  return id.includes("gemini-2.5") || id.includes("gemini-3") || id.includes("gemini-flash-latest") || id.includes("gemini-pro-latest") || id.includes("gemini-flash-lite-latest");
+}
+__name(supportsGeminiThinkingConfig, "supportsGeminiThinkingConfig");
+function createGeminiThinkingConfig(model, effort, current) {
+  if (!supportsGeminiThinkingConfig(model)) return void 0;
+  const suffixBudget = effort == null ? void 0 : geminiThinkingBudgetForEffort(effort);
+  const hasProviderConfig = current.includeThoughts === true || current.thinkingBudget != null;
+  const hasSuffixConfig = suffixBudget != null;
+  if (!hasProviderConfig && !hasSuffixConfig) return void 0;
+  const shared = {
+    includeThoughts: current.includeThoughts === true
+  };
+  if (isGemini3Model(model)) {
+    const thinkingLevel = effort == null ? geminiThinkingLevelForBudget(current.thinkingBudget) : geminiThinkingLevelForEffort(effort);
+    return filterEmpty({
+      ...shared,
+      thinkingLevel
+    });
+  }
+  return filterEmpty({
+    ...shared,
+    thinkingBudget: suffixBudget ?? current.thinkingBudget ?? -1
+  });
+}
+__name(createGeminiThinkingConfig, "createGeminiThinkingConfig");
+function geminiThinkingBudgetForEffort(effort) {
+  if (effort === "none") return 0;
+  if (effort === "minimal") return 128;
+  if (effort === "low") return 1024;
+  if (effort === "medium") return 8192;
+  if (effort === "high") return 24576;
+  if (effort === "xhigh" || effort === "max") return 24576;
+}
+__name(geminiThinkingBudgetForEffort, "geminiThinkingBudgetForEffort");
+function geminiThinkingLevelForEffort(effort) {
+  if (effort === "none" || effort === "minimal") return "minimal";
+  if (effort === "low") return "low";
+  if (effort === "medium") return "medium";
+  return "high";
+}
+__name(geminiThinkingLevelForEffort, "geminiThinkingLevelForEffort");
+function geminiThinkingLevelForBudget(budget) {
+  if (budget == null || budget < 0) return "medium";
+  if (budget <= 128) return "minimal";
+  if (budget <= 1024) return "low";
+  if (budget <= 24576) return "medium";
+  return "high";
+}
+__name(geminiThinkingLevelForBudget, "geminiThinkingLevelForBudget");
+function supportsGeminiImageGeneration(model) {
+  const id = prepareGeminiModelId(model);
+  return id.startsWith("gemini-") && id.includes("image");
+}
+__name(supportsGeminiImageGeneration, "supportsGeminiImageGeneration");
+function prepareGeminiModelId(model) {
+  const normalized = (model ?? "").replace(/^models\//, "");
+  return parseOpenAIModelNameWithReasoningEffort2(normalized).model.toLowerCase();
+}
+__name(prepareGeminiModelId, "prepareGeminiModelId");
 function createGeminiToolNameMapper(tools) {
   const sanitizeMap = /* @__PURE__ */ new Map();
   const restoreMap = /* @__PURE__ */ new Map();
@@ -1075,7 +1382,7 @@ ${grounding}`;
 }
 __name(parseGeminiResponse, "parseGeminiResponse");
 function prepareGeminiModel(model, requester) {
-  let result = model;
+  let result = parseOpenAIModelNameWithReasoningEffort2(model).model;
   if (requester.currentConfig().googleSearch && result.endsWith("-search")) {
     result = result.slice(0, -"-search".length);
   }
@@ -1139,13 +1446,40 @@ var ModelHubRequester = class extends ModelRequester {
     super(ctx, configPool, pluginConfig, plugin);
   }
   async completion(params) {
-    return await this._adapter().completion(this, params);
+    const start = Date.now();
+    const generation = await this._adapter().completion(
+      this,
+      this._prepareParams(params)
+    );
+    attachGenerationMetrics(generation, start);
+    return generation;
   }
   async *completionStream(params) {
-    yield* this._adapter().completionStream(this, params);
+    const preparedParams = this._prepareParams(params);
+    if (!this.currentConfig().nonStreaming) {
+      yield* super.completionStream(preparedParams);
+      return;
+    }
+    const tracker = new ModelHubStreamMetricsTracker();
+    for await (const chunk of this._adapter().completionStream(
+      this,
+      preparedParams
+    )) {
+      tracker.observe(chunk);
+      yield chunk;
+    }
+    yield tracker.attachTo(
+      new ChatGenerationChunk4({
+        message: new AIMessageChunk2({ content: "" }),
+        text: ""
+      })
+    );
   }
   async *completionStreamInternal(params) {
-    yield* this._adapter().completionStreamInternal(this, params);
+    yield* this._adapter().completionStreamInternal(
+      this,
+      this._prepareParams(params)
+    );
   }
   async embeddings(params) {
     return await this._adapter().embeddings(this, params);
@@ -1179,10 +1513,16 @@ var ModelHubRequester = class extends ModelRequester {
   async post(url, body, options) {
     if (url === "chat/completions") {
       const current = this._config.value;
-      getProviderPreset(current.provider).patchCompletionBody?.(
-        body,
+      const preset = getProviderPreset(current.provider);
+      const parsedModel = parseOpenAIModelNameWithReasoningEffort3(
         String(body.model ?? "")
       );
+      applyReasoningEffortStrategy(
+        preset.reasoningEffort,
+        body,
+        parsedModel.model
+      );
+      preset.patchCompletionBody?.(body, String(body.model ?? ""));
     }
     return super.post(url, body, options);
   }
@@ -1242,10 +1582,10 @@ var ModelHubRequester = class extends ModelRequester {
     };
   }
   defaultCompletion(params) {
-    return super.completion(params);
+    return super.completion(this._prepareParams(params));
   }
   defaultCompletionStream(params) {
-    return super.completionStream(params);
+    return super.completionStream(this._prepareParams(params));
   }
   _adapter() {
     return getProviderAdapter(this.currentProviderPreset().adapter);
@@ -1258,7 +1598,120 @@ var ModelHubRequester = class extends ModelRequester {
     if (apiKey) next.searchParams.set("key", apiKey);
     return next.toString();
   }
+  _prepareParams(params) {
+    if (!params.model) return params;
+    const { model, reasoningEffort } = parseOpenAIModelNameWithReasoningEffort3(params.model);
+    if (model === params.model && reasoningEffort == null) return params;
+    return {
+      ...params,
+      overrideRequestParams: {
+        ...params.overrideRequestParams,
+        model,
+        ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort }
+      }
+    };
+  }
 };
+function applyReasoningEffortStrategy(strategy, body, model) {
+  const effort = body.reasoning_effort;
+  if (effort == null) return;
+  if (strategy === "passthrough") return;
+  delete body.reasoning_effort;
+  if (strategy === "deepseek") {
+    const reasoningEffort = normalizeDeepSeekReasoningEffort(effort);
+    if (reasoningEffort == null) {
+      body.thinking = { type: "disabled" };
+      return;
+    }
+    body.reasoning_effort = reasoningEffort;
+    body.thinking = {
+      type: "enabled"
+    };
+    return;
+  }
+  if (strategy === "qwen") {
+    if (model.toLowerCase().includes("qwen3")) {
+      body.enable_thinking = effort !== "none";
+    }
+  }
+}
+__name(applyReasoningEffortStrategy, "applyReasoningEffortStrategy");
+function normalizeDeepSeekReasoningEffort(effort) {
+  if (effort === "none") return void 0;
+  if (effort === "max" || effort === "xhigh" || effort === "high") {
+    return effort === "xhigh" ? "max" : effort;
+  }
+  return "high";
+}
+__name(normalizeDeepSeekReasoningEffort, "normalizeDeepSeekReasoningEffort");
+var ModelHubStreamMetricsTracker = class {
+  static {
+    __name(this, "ModelHubStreamMetricsTracker");
+  }
+  start = Date.now();
+  firstAt;
+  usage;
+  observe(chunk) {
+    const usage2 = readChunkUsage(chunk);
+    if (usage2 != null) {
+      this.usage = usage2;
+    }
+    if (this.firstAt == null && hasResponseChunk(chunk)) {
+      this.firstAt = Date.now();
+    }
+  }
+  attachTo(chunk) {
+    attachInvocationMetrics(chunk, {
+      usageMetadata: this.usage,
+      timing: createModelHubUsageTiming(this.start, this.firstAt, this.usage)
+    });
+    return chunk;
+  }
+};
+function attachGenerationMetrics(generation, start) {
+  const metrics = readInvocationMetrics(generation);
+  if (isUsableTiming(metrics.timing)) return;
+  const usage2 = metrics.usageMetadata ?? readChunkUsage(generation);
+  attachInvocationMetrics(generation, {
+    usageMetadata: usage2,
+    timing: createModelHubUsageTiming(start, void 0, usage2)
+  });
+}
+__name(attachGenerationMetrics, "attachGenerationMetrics");
+function createModelHubUsageTiming(start, firstAt, usage2) {
+  const totalMs = Math.max(Date.now() - start, 10);
+  const outputTokens = usage2 == null ? void 0 : (usage2.output_tokens ?? 0) + (usage2.output_token_details?.reasoning ?? 0);
+  const timing = {
+    totalMs,
+    tps: outputTokens == null ? void 0 : outputTokens * 1e3 / totalMs
+  };
+  if (firstAt == null) return timing;
+  return {
+    ttftMs: Math.max(firstAt - start, 10),
+    ...timing
+  };
+}
+__name(createModelHubUsageTiming, "createModelHubUsageTiming");
+function isUsableTiming(timing) {
+  if (timing == null) return false;
+  if (timing.totalMs == null) return false;
+  if (timing.totalMs != null && !Number.isFinite(timing.totalMs)) return false;
+  if (timing.ttftMs != null && !Number.isFinite(timing.ttftMs)) return false;
+  if (timing.tps != null && !Number.isFinite(timing.tps)) return false;
+  return true;
+}
+__name(isUsableTiming, "isUsableTiming");
+function readChunkUsage(chunk) {
+  return chunk.message?.usage_metadata ?? chunk.generationInfo?.usage_metadata;
+}
+__name(readChunkUsage, "readChunkUsage");
+function hasResponseChunk(chunk) {
+  const message = chunk.message;
+  const content = message?.content;
+  const kwargs = message?.additional_kwargs;
+  return chunk.text.length > 0 || (typeof content === "string" ? content.trim().length > 0 : Array.isArray(content) && content.length > 0) || (message?.tool_call_chunks?.length ?? 0) > 0 || (message?.tool_calls?.length ?? 0) > 0 || (message?.invalid_tool_calls?.length ?? 0) > 0 || (kwargs?.tool_calls?.length ?? 0) > 0 || kwargs?.function_call != null || kwargs?.thought_data != null;
+}
+__name(hasResponseChunk, "hasResponseChunk");
 
 // src/client.ts
 var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
@@ -1285,8 +1738,15 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
     try {
       const current = this.config;
       const rawModels = current?.pullModels === true ? await this._requester.getModels(config) : [];
-      const apiModels = rawModels.filter(
-        (model) => !isNonLLMModel(model.name) || isImageGenerationModel(model.name)
+      const enhancedModels = rawModels.map(
+        (model) => this._metadata.enhance(this._runtime.provider.id, model)
+      );
+      const providerModels = current?.expandReasoningVariants === true ? expandReasoningVariantsForProvider(
+        this._runtime.provider,
+        enhancedModels
+      ) : enhancedModels;
+      const apiModels = providerModels.filter(
+        (model) => !isNonLLMModel(model.name) || isImageGenerationModel2(model.name)
       ).map((model) => this._inferModelInfo(model));
       const additionalModels = getTargetedAdditionalModels(
         this._config.additionalModels,
@@ -1306,10 +1766,10 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
         return !blacklist.some((keyword) => id.includes(keyword));
       });
     } catch (e) {
-      if (e instanceof ChatLunaError) {
+      if (e instanceof ChatLunaError2) {
         throw e;
       }
-      throw new ChatLunaError(ChatLunaErrorCode.MODEL_INIT_ERROR, e);
+      throw new ChatLunaError2(ChatLunaErrorCode2.MODEL_INIT_ERROR, e);
     }
   }
   async reloadModels(config) {
@@ -1323,14 +1783,14 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
         `Model ${model} not found`,
         JSON.stringify(this._modelInfos)
       );
-      throw new ChatLunaError(
-        ChatLunaErrorCode.MODEL_NOT_FOUND,
+      throw new ChatLunaError2(
+        ChatLunaErrorCode2.MODEL_NOT_FOUND,
         new Error(
           `The model ${model} is not found in ${this.platform}`
         )
       );
     }
-    if (info.type === ModelType2.llm) {
+    if (info.type === ModelType3.llm) {
       const modelMaxContextSize = getModelMaxContextSize(info);
       return new ChatLunaChatModel({
         usageReporter: report,
@@ -1351,7 +1811,7 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
         isThinkModel: this._isThinkModel(model, info)
       });
     }
-    if (info.type === ModelType2.reranker) {
+    if (info.type === ModelType3.reranker) {
       return new ChatLunaReranker({
         usageReporter: report,
         client: this._requester,
@@ -1370,36 +1830,33 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
   _inferModelInfo(model) {
     const name2 = model.name;
     const lower = name2.toLowerCase();
-    const type = isRerankerModel(lower) ? ModelType2.reranker : isEmbeddingModel(lower) ? ModelType2.embeddings : ModelType2.llm;
-    if (isImageGenerationModel(lower)) {
+    const type = model.type ?? (isRerankerModel2(lower) ? ModelType3.reranker : isEmbeddingModel2(lower) ? ModelType3.embeddings : ModelType3.llm);
+    if (isImageGenerationModel2(lower)) {
       return {
         name: name2,
-        type: ModelType2.llm,
+        type: ModelType3.llm,
         maxTokens: model.maxTokens ?? 4096,
-        capabilities: [ModelCapabilities2.ImageGeneration]
+        capabilities: [ModelCapabilities3.ImageGeneration]
       };
     }
     const info = {
       name: name2,
       type,
+      ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
       maxTokens: model.maxTokens ?? this._metadata.getMaxTokens(this._runtime.provider.id, name2) ?? 0,
-      capabilities: type === ModelType2.llm ? [
-        ModelCapabilities2.ToolCall,
-        supportImageInput(name2) ? ModelCapabilities2.ImageInput : null,
-        supportAudioInput(name2) ? ModelCapabilities2.AudioInput : null
-      ].filter(Boolean) : []
+      capabilities: type === ModelType3.llm ? this._mergeCapabilities(name2, model.capabilities) : []
     };
-    info.maxTokens = type === ModelType2.llm ? info.maxTokens || getModelMaxContextSize(info) : info.maxTokens || 8192;
+    info.maxTokens = type === ModelType3.llm ? info.maxTokens || getModelMaxContextSize(info) : info.maxTokens || 8192;
     return info;
   }
   _additionalModelInfo(model) {
-    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? ModelType2.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? ModelType2.reranker : ModelType2.llm;
+    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? ModelType3.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? ModelType3.reranker : ModelType3.llm;
     return {
       name: model.model,
       type,
       maxTokens: model.contextSize ?? 4096,
-      capabilities: type === ModelType2.llm ? model.modelCapabilities : model.modelCapabilities.filter(
-        (cap) => cap !== ModelCapabilities2.ToolCall
+      capabilities: type === ModelType3.llm ? model.modelCapabilities : model.modelCapabilities.filter(
+        (cap) => cap !== ModelCapabilities3.ToolCall
       )
     };
   }
@@ -1411,29 +1868,37 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
     }
     return [...result.values()];
   }
+  _mergeCapabilities(model, capabilities) {
+    const result = new Set(capabilities ?? []);
+    result.add(ModelCapabilities3.ToolCall);
+    if (supportImageInput(model)) result.add(ModelCapabilities3.ImageInput);
+    if (supportAudioInput(model)) result.add(ModelCapabilities3.AudioInput);
+    return [...result];
+  }
   _isThinkModel(model, info) {
     const lower = model.toLowerCase();
-    return info.capabilities.includes(ModelCapabilities2.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
+    return info.capabilities.includes(ModelCapabilities3.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
   }
 };
 
 // src/metadata.ts
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { dirname, resolve } from "path";
-import { ModelCapabilities as ModelCapabilities3 } from "koishi-plugin-chatluna/llm-core/platform/types";
+import { ModelCapabilities as ModelCapabilities4 } from "koishi-plugin-chatluna/llm-core/platform/types";
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
     this.ctx = ctx;
     this.options = options;
     this.path = resolve(
       ctx.baseDir,
-      options.cachePath || "data/chatluna-model-hub/models.dev.catalog.json"
+      options.cachePath || "data/chatluna-model-hub/models.dev.models.json"
     );
   }
   static {
     __name(this, "ModelMetadataStore");
   }
   _models = /* @__PURE__ */ new Map();
+  _aliases = /* @__PURE__ */ new Map();
   _timer;
   path;
   async start() {
@@ -1457,7 +1922,7 @@ var ModelMetadataStore = class {
   }
   async refresh() {
     const response = await fetch(
-      this.options.url || "https://models.dev/catalog.json"
+      this.options.url || "https://models.dev/models.json"
     );
     if (!response.ok) {
       throw new Error(`Failed to download models.dev catalog: ${response.status}`);
@@ -1474,7 +1939,10 @@ var ModelMetadataStore = class {
     return {
       ...model,
       maxTokens: model.maxTokens ?? metadata.limit?.context ?? metadata.limit?.input,
-      capabilities: model.capabilities ?? capabilitiesFromMetadata(metadata)
+      capabilities: mergeCapabilities2(
+        model.capabilities,
+        capabilitiesFromMetadata(metadata)
+      )
     };
   }
   getMaxTokens(provider, model) {
@@ -1483,9 +1951,15 @@ var ModelMetadataStore = class {
   }
   apply(catalog) {
     this._models.clear();
-    for (const [id, model] of Object.entries(catalog.models ?? {})) {
-      this._models.set(normalizeModelId(id), model);
-      if (model.id) this._models.set(normalizeModelId(model.id), model);
+    this._aliases.clear();
+    for (const [id, model] of Object.entries(modelsFromCatalog(catalog))) {
+      const keys = new Set([id, model.id].filter(Boolean));
+      for (const key of keys) {
+        const normalized = normalizeModelId(key);
+        this._models.set(normalized, model);
+        const alias = modelAlias(normalized);
+        if (alias !== normalized) this.setAlias(alias, model);
+      }
     }
   }
   find(provider, model) {
@@ -1495,12 +1969,36 @@ var ModelMetadataStore = class {
       const prefixed = this._models.get(normalizeModelId(`${prefix}/${model}`));
       if (prefixed) return prefixed;
     }
+    const alias = this._aliases.get(normalizeModelId(model));
+    if (alias) return alias;
+  }
+  setAlias(alias, model) {
+    if (!alias) return;
+    if (!this._aliases.has(alias)) {
+      this._aliases.set(alias, model);
+      return;
+    }
+    if (this._aliases.get(alias) !== model) {
+      this._aliases.set(alias, void 0);
+    }
   }
 };
+function modelsFromCatalog(catalog) {
+  if ("models" in catalog && catalog.models != null) {
+    return catalog.models;
+  }
+  return catalog;
+}
+__name(modelsFromCatalog, "modelsFromCatalog");
 function normalizeModelId(value) {
   return value.trim().toLowerCase();
 }
 __name(normalizeModelId, "normalizeModelId");
+function modelAlias(value) {
+  const index = value.lastIndexOf("/");
+  return index >= 0 ? value.slice(index + 1) : value;
+}
+__name(modelAlias, "modelAlias");
 function providerPrefixes(provider) {
   const map = {
     openai: ["openai"],
@@ -1523,21 +2021,26 @@ function capabilitiesFromMetadata(model) {
   const capabilities = [];
   const input = new Set(model.modalities?.input ?? []);
   const output = new Set(model.modalities?.output ?? []);
-  if (model.tool_call) capabilities.push(ModelCapabilities3.ToolCall);
-  if (model.reasoning) capabilities.push(ModelCapabilities3.Thinking);
-  if (input.has("image")) capabilities.push(ModelCapabilities3.ImageInput);
-  if (input.has("audio")) capabilities.push(ModelCapabilities3.AudioInput);
-  if (input.has("video")) capabilities.push(ModelCapabilities3.VideoInput);
-  if (input.has("pdf")) capabilities.push(ModelCapabilities3.FileInput);
-  if (output.has("image")) capabilities.push(ModelCapabilities3.ImageGeneration);
+  if (model.tool_call) capabilities.push(ModelCapabilities4.ToolCall);
+  if (model.reasoning) capabilities.push(ModelCapabilities4.Thinking);
+  if (input.has("image")) capabilities.push(ModelCapabilities4.ImageInput);
+  if (input.has("audio")) capabilities.push(ModelCapabilities4.AudioInput);
+  if (input.has("video")) capabilities.push(ModelCapabilities4.VideoInput);
+  if (input.has("pdf")) capabilities.push(ModelCapabilities4.FileInput);
+  if (output.has("image")) capabilities.push(ModelCapabilities4.ImageGeneration);
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
+function mergeCapabilities2(preferred, fallback) {
+  if ((preferred?.length ?? 0) < 1) return fallback;
+  return [.../* @__PURE__ */ new Set([...preferred ?? [], ...fallback])];
+}
+__name(mergeCapabilities2, "mergeCapabilities");
 
 // src/settings.ts
 import { mkdir as mkdir2, readFile as readFile2, writeFile as writeFile2 } from "fs/promises";
 import { dirname as dirname2, isAbsolute, resolve as resolve2 } from "path";
-import { ModelCapabilities as ModelCapabilities4 } from "koishi-plugin-chatluna/llm-core/platform/types";
+import { ModelCapabilities as ModelCapabilities5 } from "koishi-plugin-chatluna/llm-core/platform/types";
 var DEFAULT_SETTINGS_PATH = "data/chatluna-model-hub/config.json";
 var DEFAULT_PROVIDER_ADVANCED_SETTINGS = {
   customHeaders: [],
@@ -1552,7 +2055,8 @@ var DEFAULT_PROVIDER_ADVANCED_SETTINGS = {
   temperature: 1,
   presencePenalty: 0,
   frequencyPenalty: 0,
-  nonStreaming: false
+  nonStreaming: false,
+  expandReasoningVariants: false
 };
 var DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
   "gpt-4o",
@@ -1664,7 +2168,8 @@ function normalizeProviderAdvanced(input, previous, fallback = DEFAULT_PROVIDER_
     temperature: clampNumber(merged.temperature, 1, 0, 2),
     presencePenalty: clampNumber(merged.presencePenalty, 0, -2, 2),
     frequencyPenalty: clampNumber(merged.frequencyPenalty, 0, -2, 2),
-    nonStreaming: merged.nonStreaming === true
+    nonStreaming: merged.nonStreaming === true,
+    expandReasoningVariants: merged.expandReasoningVariants === true
   };
 }
 __name(normalizeProviderAdvanced, "normalizeProviderAdvanced");
@@ -1756,14 +2261,14 @@ function normalizeProviderSpecific(input, previous, provider) {
 __name(normalizeProviderSpecific, "normalizeProviderSpecific");
 function normalizeAdditionalModel(input) {
   const value = isRecord(input) ? input : {};
-  const capabilities = new Set(Object.values(ModelCapabilities4));
+  const capabilities = new Set(Object.values(ModelCapabilities5));
   return {
     target: stringOf(value.target, "*"),
     model: stringOf(value.model).trim(),
     modelType: stringOf(value.modelType, "LLM 大语言模型"),
     modelCapabilities: stringArrayOf(value.modelCapabilities, [
-      ModelCapabilities4.TextInput,
-      ModelCapabilities4.ToolCall
+      ModelCapabilities5.TextInput,
+      ModelCapabilities5.ToolCall
     ]).filter(
       (item) => capabilities.has(item)
     ),
@@ -1838,7 +2343,8 @@ function pickLegacySettings(input) {
     "temperature",
     "presencePenalty",
     "frequencyPenalty",
-    "nonStreaming"
+    "nonStreaming",
+    "expandReasoningVariants"
   ]) {
     if (input[key] !== void 0) {
       ;
@@ -1930,7 +2436,7 @@ var ModelHubConsoleService = class extends DataService {
       const loaded = this._runtime.clients.has(platform);
       const models2 = this.ctx.chatluna.platform.listPlatformModels(
         platform,
-        ModelType3.all
+        ModelType4.all
       ).value;
       return {
         id: preset.id,
@@ -2011,7 +2517,7 @@ var ModelHubConsoleService = class extends DataService {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
       runtime.platform,
-      ModelType3.all
+      ModelType4.all
     ).value;
     const additional = settings.additionalModels.filter(
       (item) => targetMatches(item.target, runtime.platform, runtime.provider.id)
@@ -2022,7 +2528,7 @@ var ModelHubConsoleService = class extends DataService {
         platform: runtime.platform,
         provider: runtime.provider.name,
         name: model.name,
-        type: ModelType3[model.type],
+        type: ModelType4[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
         source: custom ? "custom" : "api"
@@ -2170,8 +2676,8 @@ var Config = Schema.object({
   ]).role("radio").default("performance"),
   iconCdn: Schema.string().default(DEFAULT_ICON_CDN),
   settingsPath: Schema.string().default(DEFAULT_SETTINGS_PATH),
-  metadataUrl: Schema.string().default("https://models.dev/catalog.json").description("模型元数据缓存源"),
-  metadataCachePath: Schema.string().default("data/chatluna-model-hub/models.dev.catalog.json").description("模型元数据缓存文件"),
+  metadataUrl: Schema.string().default("https://models.dev/models.json").description("模型元数据缓存源"),
+  metadataCachePath: Schema.string().default("data/chatluna-model-hub/models.dev.models.json").description("模型元数据缓存文件"),
   metadataUpdateHours: Schema.number().default(24).min(1).max(168).description("元数据更新间隔（小时）")
 }).i18n({
   "zh-CN": require_zh_CN_schema(),
@@ -2185,7 +2691,7 @@ var usage = `
 OpenAI-compatible 服务商默认只走 Chat Completions（/chat/completions）。OpenAI 本家可在服务商详情里单独启用 Responses API；Gemini 本家可在服务商详情里单独启用 Google Search 等 Gemini 工具。
 
 配置文件默认保存在 \`data/chatluna-model-hub/config.json\`。WebUI 不会把已保存的 API Key 明文回传到浏览器，留空密钥输入框会保留原值。
-模型上下文大小优先读取服务商 /models 返回的 context_length / max_context_length / inputTokenLimit。未提供时，再用 models.dev 的本地缓存补全。
+模型上下文大小和思考能力优先读取服务商 /models 返回值。未提供时，再用 models.dev 的本地缓存补全；可在配置页调整更新间隔。
 `;
 var inject = {
   required: ["chatluna"],
@@ -2199,8 +2705,8 @@ function normalizeKoishiConfig(config) {
     frontendMode: config.frontendMode || "performance",
     iconCdn: config.iconCdn || DEFAULT_ICON_CDN,
     settingsPath: config.settingsPath || DEFAULT_SETTINGS_PATH,
-    metadataUrl: config.metadataUrl || "https://models.dev/catalog.json",
-    metadataCachePath: config.metadataCachePath || "data/chatluna-model-hub/models.dev.catalog.json",
+    metadataUrl: config.metadataUrl || "https://models.dev/models.json",
+    metadataCachePath: config.metadataCachePath || "data/chatluna-model-hub/models.dev.models.json",
     metadataUpdateHours: Math.max(1, config.metadataUpdateHours || 24)
   };
 }

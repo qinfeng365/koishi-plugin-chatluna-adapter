@@ -9,5 +9,6 @@ export default openAIChatProvider({
     defaultEndpoint: 'http://127.0.0.1:3000/v1',
     website: 'https://github.com/QuantumNous/new-api',
     allowEmptyApiKey: true,
+    reasoningEffort: 'passthrough',
     models: []
 })

@@ -104,7 +104,8 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[] = [
         temperature: 1,
         presencePenalty: 0,
         frequencyPenalty: 0,
-        nonStreaming: false
+        nonStreaming: false,
+        expandReasoningVariants: false
     }
 })
 

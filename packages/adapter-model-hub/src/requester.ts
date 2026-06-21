@@ -1,7 +1,12 @@
+import {
+    AIMessageChunk,
+    type UsageMetadata
+} from '@langchain/core/messages'
 import { ChatGeneration, ChatGenerationChunk } from '@langchain/core/outputs'
 import { RunnableConfig } from '@langchain/core/runnables'
 import { Context } from 'koishi'
 import {
+    attachInvocationMetrics,
     EmbeddingsRequester,
     EmbeddingsRequestParams,
     EmbeddingsResult,
@@ -10,9 +15,11 @@ import {
     RerankerRequester,
     RerankerRequestParams,
     RerankerResult,
-    RerankerUsageResult
+    RerankerUsageResult,
+    readInvocationMetrics
 } from 'koishi-plugin-chatluna/llm-core/platform/api'
 import type { ResponseBuiltinTool, ResponseImageProvider } from '@chatluna/v1-shared-adapter'
+import { parseOpenAIModelNameWithReasoningEffort } from '@chatluna/v1-shared-adapter'
 import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/config'
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import { createRequestContext } from '@chatluna/v1-shared-adapter'
@@ -39,19 +46,50 @@ export class ModelHubRequester
     }
 
     async completion(params: ModelRequestParams): Promise<ChatGeneration> {
-        return await this._adapter().completion(this, params)
+        const start = Date.now()
+        const generation = await this._adapter().completion(
+            this,
+            this._prepareParams(params)
+        )
+
+        attachGenerationMetrics(generation, start)
+        return generation
     }
 
     async *completionStream(
         params: ModelRequestParams
     ): AsyncGenerator<ChatGenerationChunk> {
-        yield* this._adapter().completionStream(this, params)
+        const preparedParams = this._prepareParams(params)
+        if (!this.currentConfig().nonStreaming) {
+            yield* super.completionStream(preparedParams)
+            return
+        }
+
+        const tracker = new ModelHubStreamMetricsTracker()
+
+        for await (const chunk of this._adapter().completionStream(
+            this,
+            preparedParams
+        )) {
+            tracker.observe(chunk)
+            yield chunk
+        }
+
+        yield tracker.attachTo(
+            new ChatGenerationChunk({
+                message: new AIMessageChunk({ content: '' }),
+                text: ''
+            })
+        )
     }
 
     async *completionStreamInternal(
         params: ModelRequestParams
     ): AsyncGenerator<ChatGenerationChunk> {
-        yield* this._adapter().completionStreamInternal(this, params)
+        yield* this._adapter().completionStreamInternal(
+            this,
+            this._prepareParams(params)
+        )
     }
 
     async embeddings(
@@ -99,10 +137,16 @@ export class ModelHubRequester
     async post(url: string, body: Record<string, unknown>, options?: any) {
         if (url === 'chat/completions') {
             const current = this._config.value
-            getProviderPreset(current.provider).patchCompletionBody?.(
-                body,
+            const preset = getProviderPreset(current.provider)
+            const parsedModel = parseOpenAIModelNameWithReasoningEffort(
                 String(body.model ?? '')
             )
+            applyReasoningEffortStrategy(
+                preset.reasoningEffort,
+                body,
+                parsedModel.model
+            )
+            preset.patchCompletionBody?.(body, String(body.model ?? ''))
         }
         return super.post(url, body, options)
     }
@@ -178,11 +222,11 @@ export class ModelHubRequester
     }
 
     defaultCompletion(params: ModelRequestParams) {
-        return super.completion(params)
+        return super.completion(this._prepareParams(params))
     }
 
     defaultCompletionStream(params: ModelRequestParams) {
-        return super.completionStream(params)
+        return super.completionStream(this._prepareParams(params))
     }
 
     private _adapter() {
@@ -198,4 +242,174 @@ export class ModelHubRequester
         if (apiKey) next.searchParams.set('key', apiKey)
         return next.toString()
     }
+
+    private _prepareParams<T extends ModelRequestParams>(params: T): T {
+        if (!params.model) return params
+
+        const { model, reasoningEffort } =
+            parseOpenAIModelNameWithReasoningEffort(params.model)
+
+        if (model === params.model && reasoningEffort == null) return params
+
+        return {
+            ...params,
+            overrideRequestParams: {
+                ...params.overrideRequestParams,
+                model,
+                ...(reasoningEffort == null
+                    ? {}
+                    : { reasoning_effort: reasoningEffort })
+            }
+        }
+    }
+}
+
+function applyReasoningEffortStrategy(
+    strategy: ReturnType<typeof getProviderPreset>['reasoningEffort'],
+    body: Record<string, unknown>,
+    model: string
+) {
+    const effort = body.reasoning_effort
+    if (effort == null) return
+
+    if (strategy === 'passthrough') return
+
+    delete body.reasoning_effort
+
+    if (strategy === 'deepseek') {
+        const reasoningEffort = normalizeDeepSeekReasoningEffort(effort)
+        if (reasoningEffort == null) {
+            body.thinking = { type: 'disabled' }
+            return
+        }
+        body.reasoning_effort = reasoningEffort
+        body.thinking = {
+            type: 'enabled'
+        }
+        return
+    }
+
+    if (strategy === 'qwen') {
+        if (model.toLowerCase().includes('qwen3')) {
+            body.enable_thinking = effort !== 'none'
+        }
+    }
+}
+
+function normalizeDeepSeekReasoningEffort(effort: unknown) {
+    if (effort === 'none') return undefined
+    if (effort === 'max' || effort === 'xhigh' || effort === 'high') {
+        return effort === 'xhigh' ? 'max' : effort
+    }
+    return 'high'
+}
+
+class ModelHubStreamMetricsTracker {
+    private readonly start = Date.now()
+    private firstAt?: number
+    private usage?: UsageMetadata
+
+    observe(chunk: ChatGenerationChunk) {
+        const usage = readChunkUsage(chunk)
+        if (usage != null) {
+            this.usage = usage
+        }
+        if (this.firstAt == null && hasResponseChunk(chunk)) {
+            this.firstAt = Date.now()
+        }
+    }
+
+    attachTo(chunk: ChatGenerationChunk) {
+        attachInvocationMetrics(chunk, {
+            usageMetadata: this.usage,
+            timing: createModelHubUsageTiming(this.start, this.firstAt, this.usage)
+        })
+        return chunk
+    }
+}
+
+function attachGenerationMetrics(generation: ChatGeneration, start: number) {
+    const metrics = readInvocationMetrics(generation)
+    if (isUsableTiming(metrics.timing)) return
+
+    const usage = metrics.usageMetadata ?? readChunkUsage(generation)
+    attachInvocationMetrics(generation, {
+        usageMetadata: usage,
+        timing: createModelHubUsageTiming(start, undefined, usage)
+    })
+}
+
+function createModelHubUsageTiming(
+    start: number,
+    firstAt?: number,
+    usage?: UsageMetadata
+) {
+    const totalMs = Math.max(Date.now() - start, 10)
+    const outputTokens =
+        usage == null
+            ? undefined
+            : (usage.output_tokens ?? 0) +
+              (usage.output_token_details?.reasoning ?? 0)
+    const timing = {
+        totalMs,
+        tps:
+            outputTokens == null
+                ? undefined
+                : outputTokens * 1000 / totalMs
+    }
+
+    if (firstAt == null) return timing
+    return {
+        ttftMs: Math.max(firstAt - start, 10),
+        ...timing
+    }
+}
+
+function isUsableTiming(
+    timing: { ttftMs?: number; totalMs?: number; tps?: number } | undefined
+) {
+    if (timing == null) return false
+    if (timing.totalMs == null) return false
+    if (timing.totalMs != null && !Number.isFinite(timing.totalMs)) return false
+    if (timing.ttftMs != null && !Number.isFinite(timing.ttftMs)) return false
+    if (timing.tps != null && !Number.isFinite(timing.tps)) return false
+    return true
+}
+
+function readChunkUsage(
+    chunk: ChatGeneration | ChatGenerationChunk
+): UsageMetadata | undefined {
+    return (
+        (chunk.message as { usage_metadata?: UsageMetadata } | undefined)
+            ?.usage_metadata ??
+        (chunk.generationInfo as { usage_metadata?: UsageMetadata } | undefined)
+            ?.usage_metadata
+    )
+}
+
+function hasResponseChunk(chunk: ChatGenerationChunk) {
+    const message = chunk.message as
+        | {
+              content?: unknown
+              tool_call_chunks?: unknown[]
+              tool_calls?: unknown[]
+              invalid_tool_calls?: unknown[]
+              additional_kwargs?: Record<string, unknown>
+          }
+        | undefined
+    const content = message?.content
+    const kwargs = message?.additional_kwargs
+
+    return (
+        chunk.text.length > 0 ||
+        (typeof content === 'string'
+            ? content.trim().length > 0
+            : Array.isArray(content) && content.length > 0) ||
+        (message?.tool_call_chunks?.length ?? 0) > 0 ||
+        (message?.tool_calls?.length ?? 0) > 0 ||
+        (message?.invalid_tool_calls?.length ?? 0) > 0 ||
+        ((kwargs?.tool_calls as unknown[] | undefined)?.length ?? 0) > 0 ||
+        kwargs?.function_call != null ||
+        kwargs?.thought_data != null
+    )
 }

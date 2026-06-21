@@ -35,6 +35,7 @@ import {
     getTargetedBlacklist
 } from './providers'
 import { ModelMetadataStore } from './metadata'
+import { expandReasoningVariantsForProvider } from './adapters/model-list'
 import type {
     AdditionalModelEntry,
     ModelHubClientConfig,
@@ -75,7 +76,20 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                     ? await this._requester.getModels(config)
                     : []
 
-            const apiModels = rawModels
+            const enhancedModels = rawModels
+                .map((model) =>
+                    this._metadata.enhance(this._runtime.provider.id, model)
+                )
+
+            const providerModels =
+                current?.expandReasoningVariants === true
+                    ? expandReasoningVariantsForProvider(
+                          this._runtime.provider,
+                          enhancedModels
+                      )
+                    : enhancedModels
+
+            const apiModels = providerModels
                 .filter(
                     (model) => !isNonLLMModel(model.name) || isImageGenerationModel(model.name)
                 )
@@ -173,14 +187,22 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         })
     }
 
-    private _inferModelInfo(model: { name: string; maxTokens?: number }): ModelInfo {
+    private _inferModelInfo(model: {
+        name: string
+        type?: ModelType
+        maxTokens?: number
+        capabilities?: ModelCapabilities[]
+        reasoningVariantOf?: string
+    }): ModelInfo {
         const name = model.name
         const lower = name.toLowerCase()
-        const type = isRerankerModel(lower)
-            ? ModelType.reranker
-            : isEmbeddingModel(lower)
-              ? ModelType.embeddings
-              : ModelType.llm
+        const type =
+            model.type ??
+            (isRerankerModel(lower)
+                ? ModelType.reranker
+                : isEmbeddingModel(lower)
+                  ? ModelType.embeddings
+                  : ModelType.llm)
 
         if (isImageGenerationModel(lower)) {
             return {
@@ -194,21 +216,16 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         const info = {
             name,
             type,
+            ...(model.reasoningVariantOf
+                ? { reasoningVariantOf: model.reasoningVariantOf }
+                : {}),
             maxTokens:
                 model.maxTokens ??
                 this._metadata.getMaxTokens(this._runtime.provider.id, name) ??
                 0,
             capabilities:
                 type === ModelType.llm
-                    ? [
-                          ModelCapabilities.ToolCall,
-                          supportImageInput(name)
-                              ? ModelCapabilities.ImageInput
-                              : null,
-                          supportAudioInput(name)
-                              ? ModelCapabilities.AudioInput
-                              : null
-                      ].filter(Boolean)
+                    ? this._mergeCapabilities(name, model.capabilities)
                     : []
         } as ModelInfo
 
@@ -250,6 +267,17 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             result.set(model.name, model)
         }
         return [...result.values()]
+    }
+
+    private _mergeCapabilities(
+        model: string,
+        capabilities: ModelCapabilities[] | undefined
+    ) {
+        const result = new Set<ModelCapabilities>(capabilities ?? [])
+        result.add(ModelCapabilities.ToolCall)
+        if (supportImageInput(model)) result.add(ModelCapabilities.ImageInput)
+        if (supportAudioInput(model)) result.add(ModelCapabilities.AudioInput)
+        return [...result]
     }
 
     private _isThinkModel(model: string, info: ModelInfo) {

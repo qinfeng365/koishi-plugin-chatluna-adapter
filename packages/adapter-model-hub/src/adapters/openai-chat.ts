@@ -4,7 +4,8 @@ import {
     completion,
     completionStream,
     createEmbeddings,
-    createRerank
+    createRerank,
+    parseOpenAIModelNameWithReasoningEffort
 } from '@chatluna/v1-shared-adapter'
 import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
 import type { ProviderAdapter } from './types'
@@ -18,7 +19,11 @@ export const openAIChatAdapter: ProviderAdapter = {
             return requester.defaultCompletion(params)
         }
 
-        return completion(requester.requestContext(), params, 'chat/completions')
+        return completion(
+            requester.requestContext(),
+            preserveRealModelName(params),
+            'chat/completions'
+        )
     },
 
     async *completionStream(requester, params) {
@@ -38,7 +43,7 @@ export const openAIChatAdapter: ProviderAdapter = {
     async *completionStreamInternal(requester, params) {
         yield* completionStream(
             requester.requestContext(),
-            params,
+            preserveRealModelName(params),
             'chat/completions'
         )
     },
@@ -54,6 +59,40 @@ export const openAIChatAdapter: ProviderAdapter = {
     async getModels(requester, config) {
         const response = await requester.get('models', {}, { signal: config?.signal })
         await checkResponse(response)
-        return parseOpenAIModels(JSON.parse(await response.text()))
+        return parseOpenAIModels(
+            JSON.parse(await response.text()),
+            requester.currentProviderPreset()
+        )
     }
+}
+
+export function preserveRealModelName<
+    T extends {
+        model?: string
+        overrideRequestParams?: Record<string, unknown>
+    }
+>(params: T): T {
+    if (!params.model) return params
+    const { model, reasoningEffort } =
+        parseOpenAIModelNameWithReasoningEffort(params.model)
+    if (
+        model === params.model &&
+        Object.prototype.hasOwnProperty.call(
+            params.overrideRequestParams ?? {},
+            'model'
+        )
+    ) {
+        return params
+    }
+
+    return {
+        ...params,
+        overrideRequestParams: {
+            ...params.overrideRequestParams,
+            model,
+            ...(reasoningEffort == null
+                ? {}
+                : { reasoning_effort: reasoningEffort })
+        }
+    } as T
 }

@@ -3,6 +3,6 @@ $inner:
     frontendMode: Frontend display mode. Performance mode keeps low motion; Polished mode enables finer animation and advanced styles.
     iconCdn: LobeHub icon static asset base URL.
     settingsPath: Web UI settings file path. Relative paths are resolved from the Koishi instance directory.
-    metadataUrl: Model metadata cache source. It only enriches context size and capabilities, not the available model list.
+    metadataUrl: models.dev metadata cache source. It only enriches context size and reasoning capability, not the available model list.
     metadataCachePath: Local model metadata cache file path. Relative paths are resolved from the Koishi instance directory.
-    metadataUpdateHours: Model metadata refresh interval in hours.
+    metadataUpdateHours: models.dev local cache refresh interval in hours.

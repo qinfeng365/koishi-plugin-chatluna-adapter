@@ -6,7 +6,7 @@ export default openAIChatProvider({
     icon: 'together',
     kind: 'cloud',
     defaultPlatform: 'hub-together',
-    defaultEndpoint: 'https://api.together.xyz/v1',
-    website: 'https://api.together.xyz',
+    defaultEndpoint: 'https://api.together.ai/v1',
+    website: 'https://docs.together.ai',
     models: []
 })

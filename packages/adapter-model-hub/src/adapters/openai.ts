@@ -4,11 +4,14 @@ import {
     completion,
     completionStream,
     createEmbeddings,
-    createRerank,
     responseApiCompletion,
     responseApiCompletionStream
 } from '@chatluna/v1-shared-adapter'
 import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
+import {
+    ChatLunaError,
+    ChatLunaErrorCode
+} from 'koishi-plugin-chatluna/utils/error'
 import type { ProviderAdapter } from './types'
 import { parseOpenAIModels } from './model-list'
 
@@ -81,14 +84,20 @@ export const openAIAdapter: ProviderAdapter = {
     },
 
     async rerank(requester, params) {
-        const requestContext = requester.requestContext()
-
-        return await createRerank(requestContext, params)
+        throw new ChatLunaError(
+            ChatLunaErrorCode.API_REQUEST_FAILED,
+            new Error(
+                `OpenAI official API does not provide a rerank endpoint for ${params.model ?? 'this model'}.`
+            )
+        )
     },
 
     async getModels(requester, config) {
         const response = await requester.get('models', {}, { signal: config?.signal })
         await checkResponse(response)
-        return parseOpenAIModels(JSON.parse(await response.text()))
+        return parseOpenAIModels(
+            JSON.parse(await response.text()),
+            requester.currentProviderPreset()
+        )
     }
 }

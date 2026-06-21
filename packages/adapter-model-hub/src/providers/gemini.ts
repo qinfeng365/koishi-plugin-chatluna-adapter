@@ -8,5 +8,6 @@ export default geminiProvider({
     defaultPlatform: 'hub-gemini',
     defaultEndpoint: 'https://generativelanguage.googleapis.com/v1beta',
     website: 'https://ai.google.dev/gemini-api',
+    reasoningEffort: 'passthrough',
     models: []
 })

@@ -1,7 +1,7 @@
 {
     "name": "koishi-plugin-chatluna-model-hub-adapter",
     "description": "Multi-provider OpenAI-compatible model hub adapter for ChatLuna",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "homepage": "https://github.com/qinfeng365/koishi-plugin-chatluna-adapter/tree/main/packages/adapter-model-hub#readme",
     "repository": {
         "type": "git",
@@ -48,7 +48,7 @@
         "console"
     ],
     "dependencies": {
-        "@chatluna/v1-shared-adapter": "^1.0.40",
+        "@chatluna/v1-shared-adapter": "^1.0.43",
         "@koishijs/plugin-console": "^5.30.11",
         "@langchain/core": "^0.3.80",
         "zod": "3.25.76",
@@ -58,14 +58,14 @@
         "@koishijs/client": "^5.30.11",
         "atsc": "^2.1.0",
         "koishi": "^4.18.9",
-        "koishi-plugin-chatluna": "^1.4.0-alpha.23",
+        "koishi-plugin-chatluna": "^1.4.0-alpha.32",
         "koishi-plugin-chatluna-storage-service": "^1.0.6",
         "typescript": "^5.9.2"
     },
     "peerDependencies": {
         "@koishijs/plugin-console": "^5.30.11",
         "koishi": "^4.18.9",
-        "koishi-plugin-chatluna": "^1.4.0-alpha.23",
+        "koishi-plugin-chatluna": "^1.4.0-alpha.32",
         "koishi-plugin-chatluna-storage-service": "^1.0.6"
     },
     "peerDependenciesMeta": {

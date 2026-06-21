@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-openrouter',
     defaultEndpoint: 'https://openrouter.ai/api/v1',
     website: 'https://openrouter.ai',
+    reasoningEffort: 'passthrough',
     models: []
 })

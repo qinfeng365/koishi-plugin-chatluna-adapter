@@ -43,6 +43,7 @@ export interface ProviderAdvancedSettings {
     presencePenalty: number;
     frequencyPenalty: number;
     nonStreaming: boolean;
+    expandReasoningVariants: boolean;
 }
 export type OpenAIResponseBuiltinToolType = 'web_search_preview' | 'image_generation' | 'code_interpreter' | 'file_search';
 export interface OpenAIProviderSettings {
@@ -99,8 +100,10 @@ export interface ProviderModelPreset {
 }
 export interface ProviderModelEntry {
     name: string;
+    type?: ModelType;
     maxTokens?: number;
     capabilities?: ModelCapabilities[];
+    reasoningVariantOf?: string;
 }
 export interface ProviderPreset {
     id: string;
@@ -112,6 +115,7 @@ export interface ProviderPreset {
     defaultEndpoint: string;
     website: string;
     allowEmptyApiKey?: boolean;
+    reasoningEffort?: 'passthrough' | 'deepseek' | 'qwen' | 'disabled';
     models: readonly ProviderModelPreset[];
     patchCompletionBody?: (body: Record<string, unknown>, model: string) => void;
 }

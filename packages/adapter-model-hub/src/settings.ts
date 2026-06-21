@@ -39,7 +39,8 @@ export const DEFAULT_PROVIDER_ADVANCED_SETTINGS: ProviderAdvancedSettings = {
     temperature: 1,
     presencePenalty: 0,
     frequencyPenalty: 0,
-    nonStreaming: false
+    nonStreaming: false,
+    expandReasoningVariants: false
 }
 
 const DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
@@ -184,7 +185,8 @@ function normalizeProviderAdvanced(
         temperature: clampNumber(merged.temperature, 1, 0, 2),
         presencePenalty: clampNumber(merged.presencePenalty, 0, -2, 2),
         frequencyPenalty: clampNumber(merged.frequencyPenalty, 0, -2, 2),
-        nonStreaming: merged.nonStreaming === true
+        nonStreaming: merged.nonStreaming === true,
+        expandReasoningVariants: merged.expandReasoningVariants === true
     }
 }
 
@@ -421,7 +423,8 @@ function pickLegacySettings(input: unknown): Partial<ModelHubSettings> | null {
         'temperature',
         'presencePenalty',
         'frequencyPenalty',
-        'nonStreaming'
+        'nonStreaming',
+        'expandReasoningVariants'
     ] as const) {
         if (input[key] !== undefined) {
             ;(result as Record<string, unknown>)[key] = input[key]

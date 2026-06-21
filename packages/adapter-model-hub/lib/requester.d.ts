@@ -27,4 +27,5 @@ export declare class ModelHubRequester extends ModelRequester<ModelHubClientConf
     defaultCompletionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk, any, any>;
     private _adapter;
     concatUrl(url: string): string;
+    private _prepareParams;
 }

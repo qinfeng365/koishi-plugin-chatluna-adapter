@@ -7,6 +7,9 @@ node_modules/
 !.yarn/versions/
 
 packages/*/tsconfig.tsbuildinfo
+packages/*/*.tgz
+packages/adapter-model-hub/client/assets/sidebar-network-preview.svg
+temp-pack-inspect/
 
 .env
 .env.*

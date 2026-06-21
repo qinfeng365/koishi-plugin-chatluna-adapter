@@ -10,7 +10,7 @@ ChatLuna 多模型供应商适配器工作区。目前主要包为 `koishi-plugi
 
 - 使用服务商作为配置单位，在独立 WebUI 中新增、编辑、刷新模型。
 - 模型列表优先从服务商 `/models` 接口自动获取，不显示内置模型列表。
-- 模型上下文长度优先使用接口返回的 `context_length`、`max_context_length`、`inputTokenLimit` 等字段，未提供时再使用本地缓存的 `models.dev` 元数据补全。
+- 模型上下文长度和思考能力优先使用接口返回的字段，未提供时再使用本地缓存的 `models.dev/models.json` 元数据补全。
 - OpenAI-compatible 使用 Chat Completions 协议，不启用 OpenAI Responses 工具。
 - OpenAI 本家可在服务商配置中按需启用 Responses API。
 - Gemini 本家可在服务商配置中按需启用 Google Search、Code Execution、URL Context 等工具。
@@ -24,7 +24,7 @@ yarn build
 
 ## 发布
 
-发布工作流位于 `.github/workflows/publish-npm.yml`。推送形如 `adapter-model-hub-v1.0.0` 的 tag 后，GitHub Actions 会构建并发布 `packages/adapter-model-hub`。
+发布工作流位于 `.github/workflows/publish-npm.yml`。推送形如 `adapter-model-hub-v1.2.0` 的 tag 后，GitHub Actions 会构建并发布 `packages/adapter-model-hub`。
 
 手动发布可在包目录执行：
 

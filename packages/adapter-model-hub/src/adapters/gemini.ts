@@ -13,6 +13,7 @@ import {
     createUsageMetadata,
     fetchFileLikeUrl,
     fetchImageUrl,
+    parseOpenAIModelNameWithReasoningEffort,
     removeAdditionalProperties
 } from '@chatluna/v1-shared-adapter'
 import { checkResponse, sseIterable } from 'koishi-plugin-chatluna/utils/sse'
@@ -45,6 +46,12 @@ type GeminiToolNameMapper = {
     sanitize(name: string | undefined): string
     restore(name: string | undefined): string
 }
+
+type OpenAIReasoningEffort = NonNullable<
+    ReturnType<typeof parseOpenAIModelNameWithReasoningEffort>['reasoningEffort']
+>
+
+type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
 
 export const geminiAdapter: ProviderAdapter = {
     id: 'gemini',
@@ -164,10 +171,18 @@ async function createGeminiRequest(
         toolNameMapper
     )
     const current = requester.currentConfig()
+    const parsedModel = parseOpenAIModelNameWithReasoningEffort(
+        params.model ?? ''
+    )
+    const thinkingConfig = createGeminiThinkingConfig(
+        parsedModel.model,
+        parsedModel.reasoningEffort,
+        current
+    )
     const tools = geminiTools(
         requester,
         params.tools ?? [],
-        params.model,
+        parsedModel.model,
         toolNameMapper
     )
     const generationConfig = filterEmpty({
@@ -175,16 +190,12 @@ async function createGeminiRequest(
         topP: params.topP,
         maxOutputTokens: params.maxTokens,
         stopSequences: params.stop,
-        responseModalities: current.imageGeneration
-            ? ['TEXT', 'IMAGE']
-            : undefined,
-        thinkingConfig:
-            current.includeThoughts || current.thinkingBudget != null
-                ? filterEmpty({
-                      thinkingBudget: current.thinkingBudget ?? -1,
-                      includeThoughts: current.includeThoughts === true
-                  })
-                : undefined
+        responseModalities:
+            current.imageGeneration &&
+            supportsGeminiImageGeneration(parsedModel.model)
+                ? ['TEXT', 'IMAGE']
+                : undefined,
+        thinkingConfig
     })
 
     return filterEmpty({
@@ -195,10 +206,10 @@ async function createGeminiRequest(
         toolConfig:
             tools?.some(
                 (tool) =>
-                    tool.google_search != null ||
-                    tool.code_execution != null ||
+                    tool.googleSearch != null ||
+                    tool.codeExecution != null ||
                     tool.urlContext != null
-            ) && params.model?.includes('gemini-3')
+            ) && isGemini3Model(params.model)
                 ? { includeServerSideToolInvocations: true }
                 : undefined
     })
@@ -315,7 +326,10 @@ function geminiTools(
                 : tool.schema
         )
     }))
-    const builtinTools = geminiBuiltinTools(requester, model)
+    const builtinTools =
+        functionDeclarations.length > 0 && !isGemini3Model(model)
+            ? []
+            : geminiBuiltinTools(requester, model)
 
     if (functionDeclarations.length > 0) {
         result.push({ functionDeclarations })
@@ -327,17 +341,117 @@ function geminiTools(
 
 function geminiBuiltinTools(requester: ModelHubRequester, model: string) {
     const config = requester.currentConfig()
-    const lower = model.toLowerCase()
+    const lower = prepareGeminiModelId(model)
     const unsupported =
         lower.includes('gemini-2.0-flash-lite') ||
         lower.includes('gemini-2.0-flash-exp')
     if (unsupported) return []
 
     const result: GeminiPart[] = []
-    if (config.googleSearch) result.push({ google_search: {} })
-    if (config.codeExecution) result.push({ code_execution: {} })
+    if (config.googleSearch) result.push({ googleSearch: {} })
+    if (config.codeExecution) result.push({ codeExecution: {} })
     if (config.urlContext) result.push({ urlContext: {} })
     return result
+}
+
+function isGemini3Model(model: string | undefined) {
+    return prepareGeminiModelId(model).includes('gemini-3')
+}
+
+function supportsGeminiThinkingConfig(model: string | undefined) {
+    const id = prepareGeminiModelId(model)
+    if (!id) return false
+    return (
+        id.includes('gemini-2.5') ||
+        id.includes('gemini-3') ||
+        id.includes('gemini-flash-latest') ||
+        id.includes('gemini-pro-latest') ||
+        id.includes('gemini-flash-lite-latest')
+    )
+}
+
+function createGeminiThinkingConfig(
+    model: string,
+    effort: OpenAIReasoningEffort | undefined,
+    current: {
+        thinkingBudget?: number
+        includeThoughts?: boolean
+    }
+) {
+    if (!supportsGeminiThinkingConfig(model)) return undefined
+
+    const suffixBudget =
+        effort == null ? undefined : geminiThinkingBudgetForEffort(effort)
+    const hasProviderConfig =
+        current.includeThoughts === true || current.thinkingBudget != null
+    const hasSuffixConfig = suffixBudget != null
+
+    if (!hasProviderConfig && !hasSuffixConfig) return undefined
+
+    const shared = {
+        includeThoughts: current.includeThoughts === true
+    }
+
+    if (isGemini3Model(model)) {
+        const thinkingLevel =
+            effort == null
+                ? geminiThinkingLevelForBudget(current.thinkingBudget)
+                : geminiThinkingLevelForEffort(effort)
+        return filterEmpty({
+            ...shared,
+            thinkingLevel
+        })
+    }
+
+    return filterEmpty({
+        ...shared,
+        thinkingBudget:
+            suffixBudget ??
+            current.thinkingBudget ??
+            -1
+    })
+}
+
+function geminiThinkingBudgetForEffort(
+    effort: OpenAIReasoningEffort
+): number | undefined {
+    if (effort === 'none') return 0
+    if (effort === 'minimal') return 128
+    if (effort === 'low') return 1024
+    if (effort === 'medium') return 8192
+    if (effort === 'high') return 24576
+    if (effort === 'xhigh' || effort === 'max') return 24576
+}
+
+function geminiThinkingLevelForEffort(
+    effort: OpenAIReasoningEffort
+): GeminiThinkingLevel {
+    if (effort === 'none' || effort === 'minimal') return 'minimal'
+    if (effort === 'low') return 'low'
+    if (effort === 'medium') return 'medium'
+    return 'high'
+}
+
+function geminiThinkingLevelForBudget(
+    budget: number | undefined
+): GeminiThinkingLevel {
+    if (budget == null || budget < 0) return 'medium'
+    if (budget <= 128) return 'minimal'
+    if (budget <= 1024) return 'low'
+    if (budget <= 24576) return 'medium'
+    return 'high'
+}
+
+function supportsGeminiImageGeneration(model: string | undefined) {
+    const id = prepareGeminiModelId(model)
+    return id.startsWith('gemini-') && id.includes('image')
+}
+
+function prepareGeminiModelId(model: string | undefined) {
+    const normalized = (model ?? '').replace(/^models\//, '')
+    return parseOpenAIModelNameWithReasoningEffort(normalized)
+        .model
+        .toLowerCase()
 }
 
 function createGeminiToolNameMapper(tools: StructuredTool[]): GeminiToolNameMapper {
@@ -463,7 +577,7 @@ async function parseGeminiResponse(
 }
 
 function prepareGeminiModel(model: string, requester: ModelHubRequester) {
-    let result = model
+    let result = parseOpenAIModelNameWithReasoningEffort(model).model
     if (requester.currentConfig().googleSearch && result.endsWith('-search')) {
         result = result.slice(0, -'-search'.length)
     }

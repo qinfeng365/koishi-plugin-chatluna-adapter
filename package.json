@@ -1,6 +1,6 @@
 {
     "name": "@local/chatluna-adapter-workspace",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "private": true,
     "type": "module",
     "packageManager": "yarn@4.14.1",
@@ -27,7 +27,7 @@
         "eslint-plugin-prettier": "^5.5.4",
         "eslint-plugin-promise": "^7.2.1",
         "koishi": "^4.18.9",
-        "koishi-plugin-chatluna": "^1.4.0-alpha.23",
+        "koishi-plugin-chatluna": "^1.4.0-alpha.32",
         "koishi-plugin-chatluna-storage-service": "^1.0.6",
         "prettier": "^3.6.2",
         "sass": "^1.93.2",

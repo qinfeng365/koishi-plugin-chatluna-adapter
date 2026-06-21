@@ -369,10 +369,10 @@ export const Config: Schema<Config> = Schema.object({
     iconCdn: Schema.string().default(DEFAULT_ICON_CDN),
     settingsPath: Schema.string().default(DEFAULT_SETTINGS_PATH),
     metadataUrl: Schema.string()
-        .default('https://models.dev/catalog.json')
+        .default('https://models.dev/models.json')
         .description('模型元数据缓存源'),
     metadataCachePath: Schema.string()
-        .default('data/chatluna-model-hub/models.dev.catalog.json')
+        .default('data/chatluna-model-hub/models.dev.models.json')
         .description('模型元数据缓存文件'),
     metadataUpdateHours: Schema.number()
         .default(24)
@@ -392,7 +392,7 @@ export const usage = `
 OpenAI-compatible 服务商默认只走 Chat Completions（/chat/completions）。OpenAI 本家可在服务商详情里单独启用 Responses API；Gemini 本家可在服务商详情里单独启用 Google Search 等 Gemini 工具。
 
 配置文件默认保存在 \`data/chatluna-model-hub/config.json\`。WebUI 不会把已保存的 API Key 明文回传到浏览器，留空密钥输入框会保留原值。
-模型上下文大小优先读取服务商 /models 返回的 context_length / max_context_length / inputTokenLimit。未提供时，再用 models.dev 的本地缓存补全。
+模型上下文大小和思考能力优先读取服务商 /models 返回值。未提供时，再用 models.dev 的本地缓存补全；可在配置页调整更新间隔。
 `
 
 export const inject = {
@@ -412,10 +412,10 @@ function normalizeKoishiConfig(config: Partial<Config>): Config {
         frontendMode: config.frontendMode || 'performance',
         iconCdn: config.iconCdn || DEFAULT_ICON_CDN,
         settingsPath: config.settingsPath || DEFAULT_SETTINGS_PATH,
-        metadataUrl: config.metadataUrl || 'https://models.dev/catalog.json',
+        metadataUrl: config.metadataUrl || 'https://models.dev/models.json',
         metadataCachePath:
             config.metadataCachePath ||
-            'data/chatluna-model-hub/models.dev.catalog.json',
+            'data/chatluna-model-hub/models.dev.models.json',
         metadataUpdateHours: Math.max(1, config.metadataUpdateHours || 24)
     }
 }

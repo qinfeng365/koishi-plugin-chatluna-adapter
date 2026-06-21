@@ -23,10 +23,11 @@ type ModelsDevModel = {
 
 type ModelsDevCatalog = {
     models?: Record<string, ModelsDevModel>
-}
+} | Record<string, ModelsDevModel>
 
 export class ModelMetadataStore {
     private _models = new Map<string, ModelsDevModel>()
+    private _aliases = new Map<string, ModelsDevModel | undefined>()
     private _timer?: ReturnType<typeof setInterval>
 
     readonly path: string
@@ -41,7 +42,7 @@ export class ModelMetadataStore {
     ) {
         this.path = resolve(
             ctx.baseDir,
-            options.cachePath || 'data/chatluna-model-hub/models.dev.catalog.json'
+            options.cachePath || 'data/chatluna-model-hub/models.dev.models.json'
         )
     }
 
@@ -68,7 +69,7 @@ export class ModelMetadataStore {
 
     async refresh() {
         const response = await fetch(
-            this.options.url || 'https://models.dev/catalog.json'
+            this.options.url || 'https://models.dev/models.json'
         )
         if (!response.ok) {
             throw new Error(`Failed to download models.dev catalog: ${response.status}`)
@@ -89,8 +90,10 @@ export class ModelMetadataStore {
                 model.maxTokens ??
                 metadata.limit?.context ??
                 metadata.limit?.input,
-            capabilities:
-                model.capabilities ?? capabilitiesFromMetadata(metadata)
+            capabilities: mergeCapabilities(
+                model.capabilities,
+                capabilitiesFromMetadata(metadata)
+            )
         }
     }
 
@@ -101,9 +104,16 @@ export class ModelMetadataStore {
 
     private apply(catalog: ModelsDevCatalog) {
         this._models.clear()
-        for (const [id, model] of Object.entries(catalog.models ?? {})) {
-            this._models.set(normalizeModelId(id), model)
-            if (model.id) this._models.set(normalizeModelId(model.id), model)
+        this._aliases.clear()
+        for (const [id, model] of Object.entries(modelsFromCatalog(catalog))) {
+            const keys = new Set([id, model.id].filter(Boolean) as string[])
+            for (const key of keys) {
+                const normalized = normalizeModelId(key)
+                this._models.set(normalized, model)
+
+                const alias = modelAlias(normalized)
+                if (alias !== normalized) this.setAlias(alias, model)
+            }
         }
     }
 
@@ -115,11 +125,39 @@ export class ModelMetadataStore {
             const prefixed = this._models.get(normalizeModelId(`${prefix}/${model}`))
             if (prefixed) return prefixed
         }
+
+        const alias = this._aliases.get(normalizeModelId(model))
+        if (alias) return alias
     }
+
+    private setAlias(alias: string, model: ModelsDevModel) {
+        if (!alias) return
+
+        if (!this._aliases.has(alias)) {
+            this._aliases.set(alias, model)
+            return
+        }
+
+        if (this._aliases.get(alias) !== model) {
+            this._aliases.set(alias, undefined)
+        }
+    }
+}
+
+function modelsFromCatalog(catalog: ModelsDevCatalog) {
+    if ('models' in catalog && catalog.models != null) {
+        return catalog.models
+    }
+    return catalog as Record<string, ModelsDevModel>
 }
 
 function normalizeModelId(value: string) {
     return value.trim().toLowerCase()
+}
+
+function modelAlias(value: string) {
+    const index = value.lastIndexOf('/')
+    return index >= 0 ? value.slice(index + 1) : value
 }
 
 function providerPrefixes(provider: string) {
@@ -154,4 +192,12 @@ function capabilitiesFromMetadata(model: ModelsDevModel) {
     if (output.has('image')) capabilities.push(ModelCapabilities.ImageGeneration)
 
     return capabilities
+}
+
+function mergeCapabilities(
+    preferred: ModelCapabilities[] | undefined,
+    fallback: ModelCapabilities[]
+) {
+    if ((preferred?.length ?? 0) < 1) return fallback
+    return [...new Set([...(preferred ?? []), ...fallback])]
 }

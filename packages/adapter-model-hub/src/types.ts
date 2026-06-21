@@ -59,6 +59,7 @@ export interface ProviderAdvancedSettings {
     presencePenalty: number
     frequencyPenalty: number
     nonStreaming: boolean
+    expandReasoningVariants: boolean
 }
 
 export type OpenAIResponseBuiltinToolType =
@@ -140,8 +141,10 @@ export interface ProviderModelPreset {
 
 export interface ProviderModelEntry {
     name: string
+    type?: ModelType
     maxTokens?: number
     capabilities?: ModelCapabilities[]
+    reasoningVariantOf?: string
 }
 
 export interface ProviderPreset {
@@ -154,6 +157,7 @@ export interface ProviderPreset {
     defaultEndpoint: string
     website: string
     allowEmptyApiKey?: boolean
+    reasoningEffort?: 'passthrough' | 'deepseek' | 'qwen' | 'disabled'
     models: readonly ProviderModelPreset[]
     patchCompletionBody?: (body: Record<string, unknown>, model: string) => void
 }

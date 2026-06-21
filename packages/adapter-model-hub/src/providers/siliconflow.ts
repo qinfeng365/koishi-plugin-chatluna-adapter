@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-siliconflow',
     defaultEndpoint: 'https://api.siliconflow.cn/v1',
     website: 'https://siliconflow.cn',
+    reasoningEffort: 'passthrough',
     models: []
 })
