@@ -1631,14 +1631,14 @@ function sanitizeGeminiToolName(name2, used) {
     result = `_${result}`;
   }
   result = result.slice(0, 128);
-  let unique = result;
+  let unique2 = result;
   let index = 2;
-  while (used.has(unique)) {
+  while (used.has(unique2)) {
     const suffix = `_${index++}`;
-    unique = `${result.slice(0, Math.max(1, 128 - suffix.length))}${suffix}`;
+    unique2 = `${result.slice(0, Math.max(1, 128 - suffix.length))}${suffix}`;
   }
-  used.add(unique);
-  return unique;
+  used.add(unique2);
+  return unique2;
 }
 __name(sanitizeGeminiToolName, "sanitizeGeminiToolName");
 async function parseGeminiResponse(text, requester, toolNameMapper) {
@@ -1965,14 +1965,14 @@ async function resolveDifyAppsWithParameters(requester, signal) {
     const baseName = next.modelName;
     const index = seen.get(baseName) ?? 0;
     seen.set(baseName, index + 1);
-    const unique = {
+    const unique2 = {
       ...next,
       modelName: index === 0 ? baseName : `${baseName}-${index + 1}`
     };
-    result.push(unique);
+    result.push(unique2);
     if (config.difyApps != null) {
       delete config.difyApps[app.modelName];
-      config.difyApps[unique.modelName] = unique;
+      config.difyApps[unique2.modelName] = unique2;
     }
   }
   return result;
@@ -3657,14 +3657,14 @@ function sanitizeAnthropicToolName(name2, used) {
   let result = normalized || fallback;
   if (!/^[A-Za-z_]/.test(result)) result = `_${result}`;
   result = result.slice(0, 64);
-  let unique = result;
+  let unique2 = result;
   let index = 2;
-  while (used.has(unique)) {
+  while (used.has(unique2)) {
     const suffix = `_${index++}`;
-    unique = `${result.slice(0, Math.max(1, 64 - suffix.length))}${suffix}`;
+    unique2 = `${result.slice(0, Math.max(1, 64 - suffix.length))}${suffix}`;
   }
-  used.add(unique);
-  return unique;
+  used.add(unique2);
+  return unique2;
 }
 __name(sanitizeAnthropicToolName, "sanitizeAnthropicToolName");
 function normalizeToolInputSchema(schema) {
@@ -4401,18 +4401,18 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
       return {
         name: name2,
         type: ModelType3.llm,
-        maxTokens: model.maxTokens ?? 4096,
+        maxTokens: positiveNumber(model.maxTokens) ?? 4096,
         capabilities: [ModelCapabilities4.ImageGeneration]
       };
     }
+    const maxTokens = positiveNumber(model.maxTokens) ?? positiveNumber(this._metadata.getMaxTokens(this._runtime.provider.id, name2));
     const info = {
       name: name2,
       type,
       ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
-      maxTokens: model.maxTokens ?? this._metadata.getMaxTokens(this._runtime.provider.id, name2) ?? 0,
+      maxTokens: type === ModelType3.llm ? maxTokens ?? this._fallbackModelMaxContextSize(name2) : maxTokens ?? 8192,
       capabilities: type === ModelType3.llm ? this._mergeCapabilities(name2, model.capabilities) : []
     };
-    info.maxTokens = type === ModelType3.llm ? info.maxTokens || getModelMaxContextSize(info) : info.maxTokens || 8192;
     return info;
   }
   _additionalModelInfo(model) {
@@ -4420,7 +4420,7 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
     return {
       name: model.model,
       type,
-      maxTokens: model.contextSize ?? 4096,
+      maxTokens: positiveNumber(model.contextSize) ?? 4096,
       capabilities: type === ModelType3.llm ? model.modelCapabilities : model.modelCapabilities.filter(
         (cap) => cap !== ModelCapabilities4.ToolCall
       )
@@ -4433,6 +4433,15 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
       result.set(model.name, model);
     }
     return [...result.values()];
+  }
+  _fallbackModelMaxContextSize(model) {
+    const inferred = getModelMaxContextSize({
+      name: model,
+      type: ModelType3.llm,
+      maxTokens: void 0,
+      capabilities: []
+    });
+    return positiveNumber(inferred) ?? 128e3;
   }
   _mergeCapabilities(model, capabilities) {
     const result = new Set(capabilities ?? []);
@@ -4503,6 +4512,10 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
     return info.capabilities.includes(ModelCapabilities4.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
   }
 };
+function positiveNumber(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
+}
+__name(positiveNumber, "positiveNumber");
 var ANTHROPIC_FILE_HANDLING_CONFIG = {
   supportedMimeTypes: /* @__PURE__ */ new Set([
     "text/html",
@@ -4533,6 +4546,7 @@ var ANTHROPIC_FILE_HANDLING_CONFIG = {
 // src/metadata.ts
 import { mkdir, readFile as readFile2, writeFile } from "fs/promises";
 import { dirname, resolve } from "path";
+import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort5 } from "@chatluna/v1-shared-adapter";
 import { ModelCapabilities as ModelCapabilities5 } from "koishi-plugin-chatluna/llm-core/platform/types";
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
@@ -4578,11 +4592,11 @@ var ModelMetadataStore = class {
 `, "utf8");
   }
   enhance(provider, model) {
-    const metadata = this.find(provider, model.name);
+    const metadata = this.findEntry(provider, model);
     if (!metadata) return model;
     return {
       ...model,
-      maxTokens: model.maxTokens ?? metadata.limit?.context ?? metadata.limit?.input,
+      maxTokens: positiveNumber2(model.maxTokens) ?? metadataMaxTokens(metadata),
       capabilities: mergeCapabilities2(
         model.capabilities,
         capabilitiesFromMetadata(metadata)
@@ -4592,7 +4606,7 @@ var ModelMetadataStore = class {
   }
   getMaxTokens(provider, model) {
     const metadata = this.find(provider, model);
-    return metadata?.limit?.context ?? metadata?.limit?.input;
+    return metadata ? metadataMaxTokens(metadata) : void 0;
   }
   apply(catalog) {
     this._models.clear();
@@ -4607,7 +4621,16 @@ var ModelMetadataStore = class {
       }
     }
   }
+  findEntry(provider, model) {
+    return this.find(provider, model.name) ?? (model.reasoningVariantOf ? this.find(provider, model.reasoningVariantOf) : void 0);
+  }
   find(provider, model) {
+    for (const candidate of metadataLookupCandidates(model)) {
+      const metadata = this.findCandidate(provider, candidate);
+      if (metadata) return metadata;
+    }
+  }
+  findCandidate(provider, model) {
     const exact = this._models.get(normalizeModelId(model));
     if (exact) return exact;
     for (const prefix of providerPrefixes(provider)) {
@@ -4679,6 +4702,16 @@ function normalizeModelId(value) {
   return value.trim().toLowerCase();
 }
 __name(normalizeModelId, "normalizeModelId");
+function metadataLookupCandidates(model) {
+  const exact = model.trim();
+  const realModel = parseOpenAIModelNameWithReasoningEffort5(exact).model.trim();
+  return unique([exact, realModel].filter(Boolean));
+}
+__name(metadataLookupCandidates, "metadataLookupCandidates");
+function unique(values) {
+  return [...new Set(values)];
+}
+__name(unique, "unique");
 function modelAlias(value) {
   const index = value.lastIndexOf("/");
   return index >= 0 ? value.slice(index + 1) : value;
@@ -4717,6 +4750,14 @@ function capabilitiesFromMetadata(model) {
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
+function metadataMaxTokens(model) {
+  return positiveNumber2(model.limit?.context) ?? positiveNumber2(model.limit?.input);
+}
+__name(metadataMaxTokens, "metadataMaxTokens");
+function positiveNumber2(value) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : void 0;
+}
+__name(positiveNumber2, "positiveNumber");
 function mergeCapabilities2(preferred, fallback) {
   if ((preferred?.length ?? 0) < 1) return fallback;
   return [.../* @__PURE__ */ new Set([...preferred ?? [], ...fallback])];

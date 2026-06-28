@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
+import { parseOpenAIModelNameWithReasoningEffort } from '@chatluna/v1-shared-adapter'
 import type { Context } from 'koishi'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ProviderModelEntry, ReasoningEffortLevel } from './types'
@@ -80,15 +81,14 @@ export class ModelMetadataStore {
     }
 
     enhance(provider: string, model: ProviderModelEntry): ProviderModelEntry {
-        const metadata = this.find(provider, model.name)
+        const metadata = this.findEntry(provider, model)
         if (!metadata) return model
 
         return {
             ...model,
             maxTokens:
-                model.maxTokens ??
-                metadata.limit?.context ??
-                metadata.limit?.input,
+                positiveNumber(model.maxTokens) ??
+                metadataMaxTokens(metadata),
             capabilities: mergeCapabilities(
                 model.capabilities,
                 capabilitiesFromMetadata(metadata)
@@ -101,7 +101,7 @@ export class ModelMetadataStore {
 
     getMaxTokens(provider: string, model: string) {
         const metadata = this.find(provider, model)
-        return metadata?.limit?.context ?? metadata?.limit?.input
+        return metadata ? metadataMaxTokens(metadata) : undefined
     }
 
     private apply(catalog: ModelsDevCatalog) {
@@ -119,7 +119,21 @@ export class ModelMetadataStore {
         }
     }
 
+    private findEntry(provider: string, model: ProviderModelEntry) {
+        return this.find(provider, model.name) ??
+            (model.reasoningVariantOf
+                ? this.find(provider, model.reasoningVariantOf)
+                : undefined)
+    }
+
     private find(provider: string, model: string) {
+        for (const candidate of metadataLookupCandidates(model)) {
+            const metadata = this.findCandidate(provider, candidate)
+            if (metadata) return metadata
+        }
+    }
+
+    private findCandidate(provider: string, model: string) {
         const exact = this._models.get(normalizeModelId(model))
         if (exact) return exact
 
@@ -227,6 +241,17 @@ function normalizeModelId(value: string) {
     return value.trim().toLowerCase()
 }
 
+function metadataLookupCandidates(model: string) {
+    const exact = model.trim()
+    const realModel =
+        parseOpenAIModelNameWithReasoningEffort(exact).model.trim()
+    return unique([exact, realModel].filter(Boolean))
+}
+
+function unique(values: string[]) {
+    return [...new Set(values)]
+}
+
 function modelAlias(value: string) {
     const index = value.lastIndexOf('/')
     return index >= 0 ? value.slice(index + 1) : value
@@ -265,6 +290,16 @@ function capabilitiesFromMetadata(model: ModelsDevModel) {
     if (output.has('image')) capabilities.push(ModelCapabilities.ImageGeneration)
 
     return capabilities
+}
+
+function metadataMaxTokens(model: ModelsDevModel) {
+    return positiveNumber(model.limit?.context) ?? positiveNumber(model.limit?.input)
+}
+
+function positiveNumber(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : undefined
 }
 
 function mergeCapabilities(

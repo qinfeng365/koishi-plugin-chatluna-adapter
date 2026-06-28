@@ -24,6 +24,7 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     private _inferModelInfo;
     private _additionalModelInfo;
     private _dedupeModels;
+    private _fallbackModelMaxContextSize;
     private _mergeCapabilities;
     private _fileHandlingConfig;
     private _difyFileHandlingConfig;

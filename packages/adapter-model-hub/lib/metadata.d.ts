@@ -18,7 +18,9 @@ export declare class ModelMetadataStore {
     enhance(provider: string, model: ProviderModelEntry): ProviderModelEntry;
     getMaxTokens(provider: string, model: string): number;
     private apply;
+    private findEntry;
     private find;
+    private findCandidate;
     private setAlias;
     private downloadCatalog;
 }

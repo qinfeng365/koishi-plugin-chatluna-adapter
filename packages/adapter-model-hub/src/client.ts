@@ -270,10 +270,14 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             return {
                 name,
                 type: ModelType.llm,
-                maxTokens: model.maxTokens ?? 4096,
+                maxTokens: positiveNumber(model.maxTokens) ?? 4096,
                 capabilities: [ModelCapabilities.ImageGeneration]
             }
         }
+
+        const maxTokens =
+            positiveNumber(model.maxTokens) ??
+            positiveNumber(this._metadata.getMaxTokens(this._runtime.provider.id, name))
 
         const info = {
             name,
@@ -282,19 +286,14 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 ? { reasoningVariantOf: model.reasoningVariantOf }
                 : {}),
             maxTokens:
-                model.maxTokens ??
-                this._metadata.getMaxTokens(this._runtime.provider.id, name) ??
-                0,
+                type === ModelType.llm
+                    ? maxTokens ?? this._fallbackModelMaxContextSize(name)
+                    : maxTokens ?? 8192,
             capabilities:
                 type === ModelType.llm
                     ? this._mergeCapabilities(name, model.capabilities)
                     : []
         } as ModelInfo
-
-        info.maxTokens =
-            type === ModelType.llm
-                ? info.maxTokens || getModelMaxContextSize(info)
-                : info.maxTokens || 8192
 
         return info
     }
@@ -312,7 +311,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         return {
             name: model.model,
             type,
-            maxTokens: model.contextSize ?? 4096,
+            maxTokens: positiveNumber(model.contextSize) ?? 4096,
             capabilities:
                 type === ModelType.llm
                     ? model.modelCapabilities
@@ -329,6 +328,16 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             result.set(model.name, model)
         }
         return [...result.values()]
+    }
+
+    private _fallbackModelMaxContextSize(model: string) {
+        const inferred = getModelMaxContextSize({
+            name: model,
+            type: ModelType.llm,
+            maxTokens: undefined as unknown as number,
+            capabilities: []
+        })
+        return positiveNumber(inferred) ?? 128_000
     }
 
     private _mergeCapabilities(
@@ -426,6 +435,12 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             lower.startsWith('gpt-5')
         )
     }
+}
+
+function positiveNumber(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? value
+        : undefined
 }
 
 const ANTHROPIC_FILE_HANDLING_CONFIG: FileHandlingConfig = {
