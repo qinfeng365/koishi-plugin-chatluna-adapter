@@ -18,6 +18,7 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     constructor(ctx: Context, _config: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>, _runtime: RuntimeProvider, _metadata: ModelMetadataStore);
     refreshModels(config?: RunnableConfig): Promise<ModelInfo[]>;
     reloadModels(config?: RunnableConfig): Promise<ModelInfo[]>;
+    registerSelf(): void;
     getFileHandlingConfig(): FileHandlingConfig | null;
     protected _createModel(model: string, report: ModelUsageReporter): ChatLunaChatModel | ChatLunaBaseEmbeddings | ChatLunaReranker;
     private _inferModelInfo;

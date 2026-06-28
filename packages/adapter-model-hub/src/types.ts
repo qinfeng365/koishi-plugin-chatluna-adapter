@@ -6,7 +6,12 @@ import type {
 import type { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import type { ModelHubClient } from './client'
 
-export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini' | 'dify'
+export type ProviderAdapterId =
+    | 'openai-chat'
+    | 'openai'
+    | 'gemini'
+    | 'dify'
+    | 'anthropic'
 
 export type ModelHubProviderStatus =
     | 'loaded'
@@ -62,6 +67,19 @@ export interface ProviderAdvancedSettings {
     expandReasoningVariants: boolean
 }
 
+export type OpenAICompatibleReasoningProtocol =
+    | 'openai'
+    | 'deepseek'
+    | 'qwen'
+    | 'gemini'
+    | 'anthropic'
+    | 'openrouter'
+    | 'auto'
+
+export interface OpenAICompatibleProviderSettings {
+    reasoningProtocol?: OpenAICompatibleReasoningProtocol
+}
+
 export type OpenAIResponseBuiltinToolType =
     | 'web_search_preview'
     | 'image_generation'
@@ -83,6 +101,13 @@ export interface GeminiProviderSettings {
     thinkingBudget?: number
     includeThoughts?: boolean
     groundingContentDisplay?: boolean
+}
+
+export type AnthropicPromptCacheTtl = '5m' | '1h'
+
+export interface AnthropicProviderSettings {
+    anthropicPromptCache?: boolean
+    anthropicPromptCacheTtl?: AnthropicPromptCacheTtl
 }
 
 export type DifyAppType = 'chat' | 'agent' | 'workflow' | 'completion'
@@ -143,8 +168,10 @@ export interface ModelHubSettings {
 
 export interface ProviderEntry
     extends ProviderAdvancedSettings,
+        OpenAICompatibleProviderSettings,
         OpenAIProviderSettings,
         GeminiProviderSettings,
+        AnthropicProviderSettings,
         DifyProviderSettings {
     provider: string
     name?: string
@@ -179,8 +206,10 @@ export interface ModelHubConsoleSettings
 export type ModelHubResolvedConfig = ModelHubKoishiConfig &
     ModelHubSettings &
     ProviderAdvancedSettings &
+    OpenAICompatibleProviderSettings &
     OpenAIProviderSettings &
     GeminiProviderSettings &
+    AnthropicProviderSettings &
     DifyProviderSettings &
     ChatLunaPlugin.Config
 
@@ -191,11 +220,21 @@ export interface ProviderModelPreset {
     capabilities: readonly ModelCapabilities[]
 }
 
+export type ReasoningEffortLevel =
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max'
+
 export interface ProviderModelEntry {
     name: string
     type?: ModelType
     maxTokens?: number
     capabilities?: ModelCapabilities[]
+    reasoningEfforts?: ReasoningEffortLevel[]
     reasoningVariantOf?: string
 }
 
@@ -220,20 +259,24 @@ export interface RuntimeProviderEntry extends ProviderEntry {
     icon: string
     platform: string
     apiEndpoint: string
+    configIndex?: number
 }
 
 export interface RuntimeProvider {
     provider: ProviderPreset
     adapter: ProviderAdapterId
     platform: string
+    configSignature?: string
     entries: RuntimeProviderEntry[]
 }
 
 export interface ModelHubClientConfig
     extends ClientConfig,
         ProviderAdvancedSettings,
+        OpenAICompatibleProviderSettings,
         OpenAIProviderSettings,
         GeminiProviderSettings,
+        AnthropicProviderSettings,
         DifyProviderSettings {
     provider: string
     providerName: string

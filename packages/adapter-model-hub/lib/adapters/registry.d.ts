@@ -4,6 +4,7 @@ import { openAIChatAdapter } from './openai-chat';
 import { openAIAdapter } from './openai';
 import { geminiAdapter } from './gemini';
 import { difyAdapter } from './dify';
+import { anthropicAdapter } from './anthropic';
 export declare function getProviderAdapter(id: ProviderAdapterId): ProviderAdapter;
-export { difyAdapter, geminiAdapter, openAIAdapter, openAIChatAdapter };
+export { anthropicAdapter, difyAdapter, geminiAdapter, openAIAdapter, openAIChatAdapter };
 export type { ProviderAdapter };

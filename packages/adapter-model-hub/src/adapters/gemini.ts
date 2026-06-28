@@ -51,7 +51,7 @@ type OpenAIReasoningEffort = NonNullable<
     ReturnType<typeof parseOpenAIModelNameWithReasoningEffort>['reasoningEffort']
 >
 
-type GeminiThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
+type GeminiThinkingLevel = 'low' | 'medium' | 'high'
 
 export const geminiAdapter: ProviderAdapter = {
     id: 'gemini',
@@ -399,7 +399,8 @@ function createGeminiThinkingConfig(
                 : geminiThinkingLevelForEffort(effort)
         return filterEmpty({
             ...shared,
-            thinkingLevel
+            thinkingLevel,
+            ...(effort === 'none' ? { includeThoughts: false } : {})
         })
     }
 
@@ -426,8 +427,9 @@ function geminiThinkingBudgetForEffort(
 function geminiThinkingLevelForEffort(
     effort: OpenAIReasoningEffort
 ): GeminiThinkingLevel {
-    if (effort === 'none' || effort === 'minimal') return 'minimal'
-    if (effort === 'low') return 'low'
+    if (effort === 'none' || effort === 'minimal' || effort === 'low') {
+        return 'low'
+    }
     if (effort === 'medium') return 'medium'
     return 'high'
 }
@@ -436,7 +438,6 @@ function geminiThinkingLevelForBudget(
     budget: number | undefined
 ): GeminiThinkingLevel {
     if (budget == null || budget < 0) return 'medium'
-    if (budget <= 128) return 'minimal'
     if (budget <= 1024) return 'low'
     if (budget <= 24576) return 'medium'
     return 'high'

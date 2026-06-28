@@ -87,7 +87,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 current?.expandReasoningVariants === true
                     ? expandReasoningVariantsForProvider(
                           this._runtime.provider,
-                          enhancedModels
+                          enhancedModels,
+                          {
+                              reasoningProtocol: current?.reasoningProtocol
+                          }
                       )
                     : enhancedModels
 
@@ -129,7 +132,15 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         return await this.getModels(config)
     }
 
+    registerSelf() {
+        this.ctx.chatluna.platform.registerClient(this.platform, () => this)
+    }
+
     getFileHandlingConfig(): FileHandlingConfig | null {
+        if (this._runtime.provider.adapter === 'anthropic') {
+            return ANTHROPIC_FILE_HANDLING_CONFIG
+        }
+
         if (this._runtime.provider.adapter !== 'dify') {
             return null
         }
@@ -195,6 +206,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
 
         if (info.type === ModelType.llm) {
+            const current = this.config ?? this._config
             const modelMaxContextSize = getModelMaxContextSize(info)
             return new ChatLunaChatModel({
                 usageReporter: report,
@@ -203,14 +215,14 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 model,
                 maxTokenLimit: Math.floor(
                     (info.maxTokens || modelMaxContextSize || 128_000) *
-                        this._config.maxContextRatio
+                        current.maxContextRatio
                 ),
                 modelMaxContextSize,
-                frequencyPenalty: this._config.frequencyPenalty,
-                presencePenalty: this._config.presencePenalty,
-                timeout: this._config.timeout,
-                temperature: this._config.temperature,
-                maxRetries: this._config.maxRetries,
+                frequencyPenalty: current.frequencyPenalty,
+                presencePenalty: current.presencePenalty,
+                timeout: current.timeout,
+                temperature: current.temperature,
+                maxRetries: current.maxRetries,
                 llmType: this._runtime.provider.id,
                 fileHandlingConfig: this._fileHandlingConfig(model, info),
                 isThinkModel: this._isThinkModel(model, info)
@@ -218,20 +230,22 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
 
         if (info.type === ModelType.reranker) {
+            const current = this.config ?? this._config
             return new ChatLunaReranker({
                 usageReporter: report,
                 client: this._requester,
                 model,
-                maxRetries: this._config.maxRetries,
-                timeout: this._config.timeout
+                maxRetries: current.maxRetries,
+                timeout: current.timeout
             })
         }
 
+        const current = this.config ?? this._config
         return new ChatLunaEmbeddings({
             usageReporter: report,
             client: this._requester,
             model,
-            maxRetries: this._config.maxRetries
+            maxRetries: current.maxRetries
         })
     }
 
@@ -325,6 +339,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         if (this._runtime.provider.adapter === 'dify') {
             return [...result]
         }
+        if (this._runtime.provider.adapter === 'anthropic') {
+            result.add(ModelCapabilities.ToolCall)
+            return [...result]
+        }
 
         result.add(ModelCapabilities.ToolCall)
         if (supportImageInput(model)) result.add(ModelCapabilities.ImageInput)
@@ -336,6 +354,16 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         model: string,
         info: ModelInfo
     ): FileHandlingConfig | undefined {
+        if (this._runtime.provider.adapter === 'anthropic') {
+            return info.capabilities.some(
+                (capability) =>
+                    capability === ModelCapabilities.ImageInput ||
+                    capability === ModelCapabilities.FileInput
+            )
+                ? ANTHROPIC_FILE_HANDLING_CONFIG
+                : undefined
+        }
+
         if (this._runtime.provider.adapter !== 'dify') {
             return getOpenAIFileHandlingConfig(model)
         }
@@ -397,5 +425,32 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             lower.startsWith('o4') ||
             lower.startsWith('gpt-5')
         )
+    }
+}
+
+const ANTHROPIC_FILE_HANDLING_CONFIG: FileHandlingConfig = {
+    supportedMimeTypes: new Set<string>([
+        'text/html',
+        'text/css',
+        'text/plain',
+        'text/markdown',
+        'text/xml',
+        'text/csv',
+        'text/rtf',
+        'text/javascript',
+        'application/json',
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp'
+    ]),
+    maxTotalSizeBytes: 32 * 1024 * 1024,
+    maxFileSizeBytes: 32 * 1024 * 1024,
+    maxFileSizeBytesOverrides: {
+        'image/jpeg': 5 * 1024 * 1024,
+        'image/png': 5 * 1024 * 1024,
+        'image/gif': 5 * 1024 * 1024,
+        'image/webp': 5 * 1024 * 1024
     }
 }

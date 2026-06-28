@@ -61,23 +61,23 @@ var import_plugin_console = require("@koishijs/plugin-console");
 var import_path4 = require("path");
 var import_koishi = require("koishi");
 var import_chat = require("koishi-plugin-chatluna/services/chat");
-var import_types8 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types9 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_logger = require("koishi-plugin-chatluna/utils/logger");
 
 // src/client.ts
 var import_client = require("koishi-plugin-chatluna/llm-core/platform/client");
 var import_model = require("koishi-plugin-chatluna/llm-core/platform/model");
 var import_rerank = require("koishi-plugin-chatluna/llm-core/platform/rerank");
-var import_types5 = require("koishi-plugin-chatluna/llm-core/platform/types");
-var import_error3 = require("koishi-plugin-chatluna/utils/error");
-var import_v1_shared_adapter8 = require("@chatluna/v1-shared-adapter");
+var import_types6 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_error4 = require("koishi-plugin-chatluna/utils/error");
+var import_v1_shared_adapter9 = require("@chatluna/v1-shared-adapter");
 
 // src/requester.ts
-var import_messages3 = require("@langchain/core/messages");
-var import_outputs5 = require("@langchain/core/outputs");
+var import_messages4 = require("@langchain/core/messages");
+var import_outputs6 = require("@langchain/core/outputs");
 var import_api = require("koishi-plugin-chatluna/llm-core/platform/api");
-var import_v1_shared_adapter6 = require("@chatluna/v1-shared-adapter");
 var import_v1_shared_adapter7 = require("@chatluna/v1-shared-adapter");
+var import_v1_shared_adapter8 = require("@chatluna/v1-shared-adapter");
 
 // src/providers/helpers.ts
 var import_types = require("koishi-plugin-chatluna/llm-core/platform/types");
@@ -116,6 +116,13 @@ function difyProvider(preset) {
   };
 }
 __name(difyProvider, "difyProvider");
+function anthropicProvider(preset) {
+  return {
+    ...preset,
+    adapter: "anthropic"
+  };
+}
+__name(anthropicProvider, "anthropicProvider");
 
 // src/providers/openai-compatible.ts
 var openai_compatible_default = openAIChatProvider({
@@ -152,6 +159,19 @@ var gemini_default = geminiProvider({
   defaultPlatform: "hub-gemini",
   defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
   website: "https://ai.google.dev/gemini-api",
+  reasoningEffort: "passthrough",
+  models: []
+});
+
+// src/providers/anthropic.ts
+var anthropic_default = anthropicProvider({
+  id: "anthropic",
+  name: "Anthropic",
+  icon: "anthropic",
+  kind: "cloud",
+  defaultPlatform: "hub-anthropic",
+  defaultEndpoint: "https://api.anthropic.com/v1",
+  website: "https://www.anthropic.com",
   reasoningEffort: "passthrough",
   models: []
 });
@@ -446,6 +466,7 @@ var PROVIDER_PRESETS = [
   openai_compatible_default,
   openai_default,
   gemini_default,
+  anthropic_default,
   openrouter_default,
   deepseek_default,
   qwen_default,
@@ -473,6 +494,7 @@ var providerMap = new Map(PROVIDER_PRESETS.map((item) => [item.id, item]));
 var DEFAULT_PROVIDER_CONFIGS = [
   "openai",
   "gemini",
+  "anthropic",
   "openrouter",
   "deepseek",
   "qwen",
@@ -500,7 +522,10 @@ var DEFAULT_PROVIDER_CONFIGS = [
     presencePenalty: 0,
     frequencyPenalty: 0,
     nonStreaming: false,
-    expandReasoningVariants: false
+    expandReasoningVariants: false,
+    reasoningProtocol: preset.id === "openrouter" ? "openrouter" : "openai",
+    anthropicPromptCache: false,
+    anthropicPromptCacheTtl: "5m"
   };
 });
 function normalizeId(value, fallback = "custom") {
@@ -540,9 +565,19 @@ function targetMatches(target, platform, provider) {
 __name(targetMatches, "targetMatches");
 function resolveRuntimeProviders(entries) {
   const groups = /* @__PURE__ */ new Map();
-  for (const entry of entries ?? []) {
+  for (const [configIndex, entry] of (entries ?? []).entries()) {
     const preset = getProviderPreset(entry.provider);
-    const platform = normalizePlatformName(entry.platform, preset.defaultPlatform);
+    const requestedPlatform = normalizePlatformName(
+      entry.platform,
+      preset.defaultPlatform
+    );
+    const configSignature = runtimeConfigSignature(entry, preset);
+    const platform = resolveRuntimePlatform(
+      groups,
+      requestedPlatform,
+      preset,
+      configSignature
+    );
     const apiKey = entry.apiKey?.trim() ?? "";
     const apiEndpoint = getEndpoint(entry, preset);
     if (entry.enabled === false) continue;
@@ -554,6 +589,7 @@ function resolveRuntimeProviders(entries) {
         provider: preset,
         adapter: preset.adapter,
         platform,
+        configSignature,
         entries: []
       };
       groups.set(platform, group);
@@ -566,6 +602,7 @@ function resolveRuntimeProviders(entries) {
       providerName: entry.name?.trim() || preset.name,
       icon: preset.icon,
       platform,
+      configIndex,
       enabled: true,
       pullModels: entry.pullModels === true
     });
@@ -573,6 +610,80 @@ function resolveRuntimeProviders(entries) {
   return [...groups.values()];
 }
 __name(resolveRuntimeProviders, "resolveRuntimeProviders");
+function resolveRuntimePlatform(groups, requestedPlatform, preset, configSignature) {
+  const existing = groups.get(requestedPlatform);
+  if (existing == null || existing.provider.id === preset.id && canShareRuntimeProvider(existing, configSignature)) {
+    return requestedPlatform;
+  }
+  const base = `${requestedPlatform}-${preset.id}`;
+  let next = base;
+  let index = 2;
+  while (true) {
+    const group = groups.get(next);
+    if (group == null || group.provider.id === preset.id && canShareRuntimeProvider(group, configSignature)) {
+      return next;
+    }
+    next = `${base}-${index++}`;
+  }
+}
+__name(resolveRuntimePlatform, "resolveRuntimePlatform");
+function canShareRuntimeProvider(group, configSignature) {
+  if (group.provider.adapter === "dify") return true;
+  return group.configSignature === configSignature;
+}
+__name(canShareRuntimeProvider, "canShareRuntimeProvider");
+function runtimeConfigSignature(entry, preset) {
+  if (preset.adapter === "dify") return "dify-apps";
+  return stableStringify({
+    provider: preset.id,
+    adapter: preset.adapter,
+    apiEndpoint: getEndpoint(entry, preset),
+    pullModels: entry.pullModels === true,
+    customHeaders: (entry.customHeaders ?? []).map((header) => ({
+      target: normalizeId(header.target, "*"),
+      name: header.name?.trim().toLowerCase() ?? "",
+      value: header.value ?? ""
+    })),
+    chatConcurrentMaxSize: entry.chatConcurrentMaxSize,
+    chatTimeLimit: entry.chatTimeLimit,
+    configMode: entry.configMode,
+    maxRetries: entry.maxRetries,
+    timeout: entry.timeout,
+    proxyMode: entry.proxyMode,
+    proxyAddress: entry.proxyAddress,
+    maxContextRatio: entry.maxContextRatio,
+    temperature: entry.temperature,
+    presencePenalty: entry.presencePenalty,
+    frequencyPenalty: entry.frequencyPenalty,
+    nonStreaming: entry.nonStreaming === true,
+    expandReasoningVariants: entry.expandReasoningVariants === true,
+    reasoningProtocol: entry.reasoningProtocol ?? "openai",
+    responseApi: entry.responseApi === true,
+    responseBuiltinTools: entry.responseBuiltinTools ?? [],
+    responseBuiltinToolSupportModel: entry.responseBuiltinToolSupportModel ?? [],
+    responseFileSearchVectorStoreIds: entry.responseFileSearchVectorStoreIds ?? [],
+    googleSearch: entry.googleSearch === true,
+    codeExecution: entry.codeExecution === true,
+    urlContext: entry.urlContext === true,
+    imageGeneration: entry.imageGeneration === true,
+    thinkingBudget: entry.thinkingBudget,
+    includeThoughts: entry.includeThoughts === true,
+    groundingContentDisplay: entry.groundingContentDisplay === true,
+    anthropicPromptCache: entry.anthropicPromptCache === true,
+    anthropicPromptCacheTtl: entry.anthropicPromptCacheTtl
+  });
+}
+__name(runtimeConfigSignature, "runtimeConfigSignature");
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value != null && typeof value === "object") {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+__name(stableStringify, "stableStringify");
 function getTargetedAdditionalModels(models, platform, provider) {
   return (models ?? []).filter(
     (item) => item.model?.trim().length > 0 && targetMatches(item.target, platform, provider)
@@ -602,10 +713,9 @@ function parseOpenAIModels(payload, provider) {
     const base = makeOpenAIEntry(id, item);
     pushUnique(result, seen, base);
     if (!shouldExpandReasoningVariants(provider, base)) continue;
-    for (const variant of (0, import_v1_shared_adapter.expandReasoningEffortModelVariants)(
-      id,
-      reasoningVariantSuffixes(provider, id)
-    )) {
+    const suffixes = reasoningVariantSuffixes(provider, base);
+    if ((suffixes?.length ?? 0) < 1) continue;
+    for (const variant of (0, import_v1_shared_adapter.expandReasoningEffortModelVariants)(id, suffixes)) {
       pushUnique(result, seen, {
         name: variant,
         type: import_types2.ModelType.llm,
@@ -624,22 +734,31 @@ function shouldExpandReasoningVariants(provider, model) {
   if (!provider?.reasoningEffort || provider.reasoningEffort === "disabled") {
     return false;
   }
+  if (model.reasoningEfforts != null) {
+    return model.reasoningEfforts.length > 0 && isChatModel(model);
+  }
   if (model.capabilities?.includes(import_types2.ModelCapabilities.Thinking)) {
     return isChatModel(model);
   }
   return modelSupportsReasoning(provider.id, model);
 }
 __name(shouldExpandReasoningVariants, "shouldExpandReasoningVariants");
-function expandReasoningVariantsForProvider(provider, models) {
+function expandReasoningVariantsForProvider(provider, models, options = {}) {
   const result = [];
   const seen = /* @__PURE__ */ new Set();
   for (const model of models) {
     pushUnique(result, seen, model);
     if (model.reasoningVariantOf) continue;
     if (!shouldExpandReasoningVariants(provider, model)) continue;
+    const suffixes = reasoningVariantSuffixes(
+      provider,
+      model,
+      options.reasoningProtocol
+    );
+    if ((suffixes?.length ?? 0) < 1) continue;
     for (const variant of (0, import_v1_shared_adapter.expandReasoningEffortModelVariants)(
       model.name,
-      reasoningVariantSuffixes(provider, model.name)
+      suffixes
     )) {
       pushUnique(result, seen, {
         name: variant,
@@ -672,14 +791,27 @@ function modelSupportsReasoning(provider, model) {
   if (provider === "qwen") {
     return id.includes("qwen3");
   }
+  if (provider === "anthropic") return false;
   if (provider === "siliconflow") {
     return id.includes("deepseek-v4") || id.includes("deepseek") && id.includes("reason");
   }
   return false;
 }
 __name(modelSupportsReasoning, "modelSupportsReasoning");
-var DEEPSEEK_REASONING_SUFFIXES = ["high-thinking", "max-thinking"];
+var DEEPSEEK_REASONING_SUFFIXES = [
+  "non-thinking",
+  "high-thinking",
+  "max-thinking"
+];
 var NO_REASONING_SUFFIXES = [];
+var QWEN_REASONING_SUFFIXES = [
+  "non-thinking",
+  "minimal-thinking",
+  "low-thinking",
+  "medium-thinking",
+  "high-thinking",
+  "max-thinking"
+];
 var GEMINI_REASONING_SUFFIXES = [
   "minimal-thinking",
   "low-thinking",
@@ -691,24 +823,85 @@ var GEMINI_FLASH_REASONING_SUFFIXES = [
   ...GEMINI_REASONING_SUFFIXES
 ];
 var GEMMA_REASONING_SUFFIXES = ["minimal-thinking", "high-thinking"];
-function reasoningVariantSuffixes(provider, model) {
-  const id = model.toLowerCase();
+var REASONING_EFFORT_SUFFIXES = {
+  none: "non-thinking",
+  minimal: "minimal-thinking",
+  low: "low-thinking",
+  medium: "medium-thinking",
+  high: "high-thinking",
+  xhigh: "xhigh-thinking",
+  max: "max-thinking"
+};
+var REASONING_EFFORT_ORDER = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max"
+];
+function reasoningVariantSuffixes(provider, model, reasoningProtocol) {
+  const id = model.name.toLowerCase();
+  const protocol = resolveReasoningProtocol(reasoningProtocol, id);
+  if (protocol === "deepseek") {
+    return DEEPSEEK_REASONING_SUFFIXES;
+  }
+  if (protocol === "qwen") {
+    return QWEN_REASONING_SUFFIXES;
+  }
+  if (protocol === "gemini") {
+    return geminiReasoningSuffixes(id);
+  }
+  if (protocol === "anthropic") {
+    return reasoningEffortSuffixes(
+      model.reasoningEfforts ?? ["low", "medium", "high"]
+    );
+  }
   if (provider?.id === "deepseek" || id.includes("deepseek-v4")) {
     return DEEPSEEK_REASONING_SUFFIXES;
+  }
+  if (provider?.id === "qwen" && id.includes("qwen3")) {
+    return QWEN_REASONING_SUFFIXES;
+  }
+  if (model.reasoningEfforts != null) {
+    return reasoningEffortSuffixes(model.reasoningEfforts);
   }
   if (provider?.id === "minimax" || id.includes("minimax-m")) {
     return NO_REASONING_SUFFIXES;
   }
+  if (provider?.id === "anthropic" || id.includes("claude-")) return void 0;
   if (id.includes("gemma-4")) return GEMMA_REASONING_SUFFIXES;
   if (id.includes("gemini-2.5-flash") || id.includes("gemini-flash-lite-latest")) {
-    return GEMINI_FLASH_REASONING_SUFFIXES;
+    return geminiReasoningSuffixes(id);
   }
   if (id.includes("gemini-2.5") || id.includes("gemini-3") || id.includes("gemini-pro-latest")) {
-    return GEMINI_REASONING_SUFFIXES;
+    return geminiReasoningSuffixes(id);
   }
   return void 0;
 }
 __name(reasoningVariantSuffixes, "reasoningVariantSuffixes");
+function resolveReasoningProtocol(protocol, model) {
+  if (!protocol || protocol === "openai") return "openai";
+  if (protocol !== "auto") return protocol;
+  if (model.includes("deepseek")) return "deepseek";
+  if (model.includes("qwen")) return "qwen";
+  if (model.includes("gemini") || model.includes("gemma")) return "gemini";
+  if (model.includes("claude")) return "anthropic";
+  return "openai";
+}
+__name(resolveReasoningProtocol, "resolveReasoningProtocol");
+function geminiReasoningSuffixes(model) {
+  return model.includes("gemini-3") ? GEMINI_REASONING_SUFFIXES : GEMINI_FLASH_REASONING_SUFFIXES;
+}
+__name(geminiReasoningSuffixes, "geminiReasoningSuffixes");
+function reasoningEffortSuffixes(efforts) {
+  const set = new Set(efforts);
+  return REASONING_EFFORT_ORDER.filter((effort) => set.has(effort)).map(
+    (effort) => REASONING_EFFORT_SUFFIXES[effort]
+  );
+}
+__name(reasoningEffortSuffixes, "reasoningEffortSuffixes");
 function mergeCapabilities(preferred, extra) {
   return [.../* @__PURE__ */ new Set([...preferred ?? [], ...extra])];
 }
@@ -731,11 +924,29 @@ function parseGeminiModels(payload) {
   }).filter(Boolean);
 }
 __name(parseGeminiModels, "parseGeminiModels");
+function parseAnthropicModels(payload) {
+  const items = Array.isArray(payload.data) ? payload.data ?? [] : [];
+  return items.map((item) => {
+    const name2 = item.id?.trim();
+    if (!name2) return void 0;
+    return {
+      name: name2,
+      maxTokens: item.max_input_tokens ?? item.context_length ?? item.max_tokens,
+      type: import_types2.ModelType.llm,
+      reasoningEfforts: anthropicReasoningEfforts(item),
+      capabilities: anthropicCapabilities(item)
+    };
+  }).filter(Boolean);
+}
+__name(parseAnthropicModels, "parseAnthropicModels");
 function geminiCapabilities(name2) {
   const lower = name2.toLowerCase();
   const result = /* @__PURE__ */ new Set([import_types2.ModelCapabilities.ToolCall]);
-  if (lower.includes("vision") || lower.includes("gemini-1.5") || lower.includes("gemini-2") || lower.includes("gemini-3") || lower.includes("gemini-pro-latest") || lower.includes("gemini-flash-latest")) {
+  if (supportsGeminiMultimodalInput(lower)) {
     result.add(import_types2.ModelCapabilities.ImageInput);
+    result.add(import_types2.ModelCapabilities.AudioInput);
+    result.add(import_types2.ModelCapabilities.VideoInput);
+    result.add(import_types2.ModelCapabilities.FileInput);
   }
   if (lower.includes("thinking") || lower.includes("gemini-2.5") || lower.includes("gemini-3") || lower.includes("gemini-pro-latest") || lower.includes("gemini-flash-latest") || lower.includes("gemini-flash-lite-latest")) {
     result.add(import_types2.ModelCapabilities.Thinking);
@@ -746,6 +957,92 @@ function geminiCapabilities(name2) {
   return [...result];
 }
 __name(geminiCapabilities, "geminiCapabilities");
+function supportsGeminiMultimodalInput(lower) {
+  if (lower.includes("embedding")) return false;
+  if (lower.includes("image-generation")) return false;
+  return lower.includes("vision") || lower.includes("gemini-1.5") || lower.includes("gemini-2") || lower.includes("gemini-3") || lower.includes("gemini-pro-latest") || lower.includes("gemini-flash-latest") || lower.includes("gemini-flash-lite-latest");
+}
+__name(supportsGeminiMultimodalInput, "supportsGeminiMultimodalInput");
+function anthropicCapabilities(item) {
+  const result = /* @__PURE__ */ new Set([import_types2.ModelCapabilities.ToolCall]);
+  const capabilities = item.capabilities;
+  const id = item.id?.toLowerCase() ?? "";
+  const reasoningEfforts = anthropicReasoningEfforts(item);
+  if (isCapabilitySupported(capabilities?.image_input) || id.includes("sonnet") || id.includes("opus") || id.includes("haiku") || id.includes("fable") || id.includes("mythos")) {
+    result.add(import_types2.ModelCapabilities.ImageInput);
+  }
+  if (isCapabilitySupported(capabilities?.pdf_input) || id.includes("sonnet") || id.includes("opus") || id.includes("fable") || id.includes("mythos")) {
+    result.add(import_types2.ModelCapabilities.FileInput);
+  }
+  if (isCapabilitySupported(capabilities?.thinking) || isCapabilitySupported(capabilities?.effort) || reasoningEfforts != null) {
+    result.add(import_types2.ModelCapabilities.Thinking);
+  }
+  if (capabilities != null && (isCapabilitySupported(capabilities.tool_use) || isCapabilitySupported(capabilities.tools))) {
+    result.add(import_types2.ModelCapabilities.ToolCall);
+  }
+  return [...result];
+}
+__name(anthropicCapabilities, "anthropicCapabilities");
+function anthropicReasoningEfforts(item) {
+  const capabilities = item.capabilities;
+  const values = [
+    ...capabilityEffortValues(capabilities?.thinking),
+    ...capabilityEffortValues(capabilities?.effort),
+    ...arrayOf(item.reasoning_effort),
+    ...item.reasoning_efforts ?? [],
+    ...item.supported_reasoning_efforts ?? []
+  ].map(normalizeReasoningEffort).filter((value) => value != null);
+  if (values.length > 0) return [...new Set(values)];
+  const fallback = anthropicFallbackReasoningEfforts(item.id ?? "");
+  if (fallback) return fallback;
+  if (isCapabilitySupported(capabilities?.thinking) || isCapabilitySupported(capabilities?.effort) || item.reasoning_effort === true) {
+    return ["low", "medium", "high"];
+  }
+}
+__name(anthropicReasoningEfforts, "anthropicReasoningEfforts");
+function anthropicFallbackReasoningEfforts(model) {
+  const id = model.toLowerCase();
+  if (id.includes("claude-fable-5") || id.includes("claude-mythos-5") || id.includes("claude-opus-4-8") || id.includes("claude-opus-4-7")) {
+    return ["low", "medium", "high", "xhigh", "max"];
+  }
+  if (id.includes("claude-mythos-preview") || id.includes("claude-opus-4-6") || id.includes("claude-sonnet-4-6")) {
+    return ["low", "medium", "high", "max"];
+  }
+}
+__name(anthropicFallbackReasoningEfforts, "anthropicFallbackReasoningEfforts");
+function capabilityEffortValues(value) {
+  if (Array.isArray(value)) return value;
+  if (value == null || typeof value !== "object") return [];
+  const object = value;
+  return [
+    ...arrayOf(object.effort),
+    ...arrayOf(object.values),
+    ...arrayOf(object.levels),
+    ...arrayOf(object.supported_values)
+  ];
+}
+__name(capabilityEffortValues, "capabilityEffortValues");
+function arrayOf(value) {
+  return Array.isArray(value) ? value : [];
+}
+__name(arrayOf, "arrayOf");
+function normalizeReasoningEffort(value) {
+  if (typeof value !== "string") return void 0;
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
+  if (normalized === "tiny") return "minimal";
+  if (normalized === "none" || normalized === "minimal" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return normalized;
+  }
+}
+__name(normalizeReasoningEffort, "normalizeReasoningEffort");
+function isCapabilitySupported(value) {
+  if (typeof value === "boolean") return value;
+  if (value != null && typeof value === "object") {
+    return value.supported === true;
+  }
+  return false;
+}
+__name(isCapabilitySupported, "isCapabilitySupported");
 function makeOpenAIEntry(id, item) {
   return {
     name: id,
@@ -1231,7 +1528,8 @@ function createGeminiThinkingConfig(model, effort, current) {
     const thinkingLevel = effort == null ? geminiThinkingLevelForBudget(current.thinkingBudget) : geminiThinkingLevelForEffort(effort);
     return filterEmpty({
       ...shared,
-      thinkingLevel
+      thinkingLevel,
+      ...effort === "none" ? { includeThoughts: false } : {}
     });
   }
   return filterEmpty({
@@ -1250,15 +1548,15 @@ function geminiThinkingBudgetForEffort(effort) {
 }
 __name(geminiThinkingBudgetForEffort, "geminiThinkingBudgetForEffort");
 function geminiThinkingLevelForEffort(effort) {
-  if (effort === "none" || effort === "minimal") return "minimal";
-  if (effort === "low") return "low";
+  if (effort === "none" || effort === "minimal" || effort === "low") {
+    return "low";
+  }
   if (effort === "medium") return "medium";
   return "high";
 }
 __name(geminiThinkingLevelForEffort, "geminiThinkingLevelForEffort");
 function geminiThinkingLevelForBudget(budget) {
   if (budget == null || budget < 0) return "medium";
-  if (budget <= 128) return "minimal";
   if (budget <= 1024) return "low";
   if (budget <= 24576) return "medium";
   return "high";
@@ -1473,14 +1771,8 @@ var difyAdapter = {
 async function* difyCompletionStream(requester, params) {
   const config = resolveDifyApp(requester, params.model);
   const conversationId = resolveChatLunaConversationId(params);
-  if (!conversationId) {
-    throw new import_error2.ChatLunaError(
-      import_error2.ChatLunaErrorCode.UNKNOWN_ERROR,
-      new Error("Dify adapter only supports ChatLuna conversation mode.")
-    );
-  }
   const difyUser = resolveDifyUser(requester, params);
-  const difyConversationId = config.appType === "workflow" ? void 0 : await getDifyConversationId(requester, conversationId, config);
+  const difyConversationId = config.appType === "workflow" || config.appType === "completion" || !conversationId ? void 0 : await getDifyConversationId(requester, conversationId, config);
   const response = await callDify(requester, params, config, {
     chatLunaConversationId: conversationId,
     difyConversationId,
@@ -1508,7 +1800,7 @@ async function* difyCompletionStream(requester, params) {
       break;
     }
   }
-  if (updatedDifyConversationId && config.appType !== "workflow" && config.appType !== "completion") {
+  if (conversationId && updatedDifyConversationId && config.appType !== "workflow" && config.appType !== "completion") {
     await updateDifyConversationId(
       requester,
       conversationId,
@@ -1550,7 +1842,7 @@ async function callDify(requester, params, config, context) {
     return postDify(requester, config, path2, body2, params.signal);
   }
   if (config.appType === "completion") {
-    const query2 = (0, import_string2.getMessageContent)(lastMessage?.content ?? "") ?? "";
+    const query2 = buildDifyQuery(params, lastMessage, config, inputs);
     const body2 = filterEmpty2({
       inputs,
       query: query2,
@@ -1566,7 +1858,7 @@ async function callDify(requester, params, config, context) {
       params.signal
     );
   }
-  const query = (0, import_string2.getMessageContent)(lastMessage?.content ?? "") ?? "";
+  const query = buildDifyQuery(params, lastMessage, config, inputs);
   const body = filterEmpty2({
     query,
     inputs,
@@ -2018,6 +2310,44 @@ function buildDifyInputs(params, conversationId, lastMessage, config, chatlunaMu
   return stripUndefined(inputs);
 }
 __name(buildDifyInputs, "buildDifyInputs");
+function buildDifyQuery(params, lastMessage, config, inputs) {
+  const query = (0, import_string2.getMessageContent)(lastMessage?.content ?? "") ?? "";
+  const prefix = buildDifyCharacterQueryPrefix(params, config, inputs);
+  if (!prefix) return query;
+  if (!query.trim()) return prefix;
+  return `${prefix}
+
+${query}`;
+}
+__name(buildDifyQuery, "buildDifyQuery");
+function buildDifyCharacterQueryPrefix(params, config, inputs) {
+  if (config.appType === "workflow") return "";
+  if (hasDeclaredCharacterInputs(config)) return "";
+  const variables = params.variables ?? {};
+  const source = firstDefined(variables.source, variables.built?.source);
+  const character = stringifyForPrompt(inputs.chatluna_character);
+  const persona = stringifyForPrompt(inputs.chatluna_persona);
+  const characterName = stringifyForPrompt(inputs.chatluna_character_name);
+  const system = stringifyForPrompt(inputs.chatluna_system_prompt);
+  const preset = stringifyForPrompt(inputs.chatluna_preset);
+  if (!character && !persona && !characterName && !system && !preset && source !== "character") {
+    return "";
+  }
+  const parts = [];
+  if (system) parts.push(system);
+  if (preset) parts.push(`Preset: ${preset}`);
+  if (characterName) parts.push(`Character name: ${characterName}`);
+  if (persona) parts.push(`Persona: ${persona}`);
+  if (character) parts.push(`Character data: ${character}`);
+  return parts.length > 0 ? parts.join("\n") : "";
+}
+__name(buildDifyCharacterQueryPrefix, "buildDifyCharacterQueryPrefix");
+function hasDeclaredCharacterInputs(config) {
+  return (config.parameters?.inputControls ?? []).some(
+    (control) => /(^|_)character($|_)|persona|preset|system/i.test(control.variable)
+  );
+}
+__name(hasDeclaredCharacterInputs, "hasDeclaredCharacterInputs");
 function firstDefined(...values) {
   return values.find((value) => value !== void 0 && value !== null);
 }
@@ -2076,6 +2406,12 @@ function serializeDifyInputValue(value) {
   }
 }
 __name(serializeDifyInputValue, "serializeDifyInputValue");
+function stringifyForPrompt(value) {
+  if (value == null) return "";
+  const text = typeof value === "string" ? value : serializeDifyInputValue(value);
+  return String(text ?? "").trim();
+}
+__name(stringifyForPrompt, "stringifyForPrompt");
 function withWorkflowFileInputs(inputs, files, config) {
   if (files.length < 1) return inputs;
   const result = { ...inputs };
@@ -2556,17 +2892,994 @@ function fileNameFromUrl(source, mimeType) {
 }
 __name(fileNameFromUrl, "fileNameFromUrl");
 
+// src/adapters/anthropic.ts
+var import_messages3 = require("@langchain/core/messages");
+var import_outputs5 = require("@langchain/core/outputs");
+var import_types5 = require("@langchain/core/utils/types");
+var import_v1_shared_adapter6 = require("@chatluna/v1-shared-adapter");
+var import_zod_to_json_schema2 = require("zod-to-json-schema");
+var import_sse5 = require("koishi-plugin-chatluna/utils/sse");
+var import_string3 = require("koishi-plugin-chatluna/utils/string");
+var import_error3 = require("koishi-plugin-chatluna/utils/error");
+var anthropicAdapter = {
+  id: "anthropic",
+  async completion(requester, params) {
+    if (!requester.currentConfig().nonStreaming) {
+      return requester.defaultCompletion(params);
+    }
+    return await anthropicCompletion(requester, params);
+  },
+  async *completionStream(requester, params) {
+    if (!requester.currentConfig().nonStreaming) {
+      yield* requester.defaultCompletionStream(params);
+      return;
+    }
+    const generation = await this.completion(requester, params);
+    yield new import_outputs5.ChatGenerationChunk({
+      generationInfo: generation.generationInfo,
+      message: generation.message,
+      text: generation.text
+    });
+  },
+  async *completionStreamInternal(requester, params) {
+    yield* anthropicCompletionStream(requester, params);
+  },
+  async embeddings(_requester, params) {
+    throw new import_error3.ChatLunaError(
+      import_error3.ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(`Anthropic does not provide embeddings for ${params.model}.`)
+    );
+  },
+  async rerank(_requester, params) {
+    throw new import_error3.ChatLunaError(
+      import_error3.ChatLunaErrorCode.API_REQUEST_FAILED,
+      new Error(`Anthropic does not provide rerank for ${params.model}.`)
+    );
+  },
+  async getModels(requester, config) {
+    return await getAnthropicModels(requester, config?.signal);
+  }
+};
+async function anthropicCompletion(requester, params) {
+  const toolNameMapper = createAnthropicToolNameMapper(params.tools ?? []);
+  const request = await createAnthropicRequest(
+    requester,
+    params,
+    toolNameMapper,
+    false
+  );
+  const response = await requester.post("messages", request, {
+    signal: params.signal
+  });
+  await (0, import_sse5.checkResponse)(response);
+  return parseAnthropicResponse(
+    await response.json(),
+    toolNameMapper
+  );
+}
+__name(anthropicCompletion, "anthropicCompletion");
+async function* anthropicCompletionStream(requester, params) {
+  const toolNameMapper = createAnthropicToolNameMapper(params.tools ?? []);
+  const request = await createAnthropicRequest(
+    requester,
+    params,
+    toolNameMapper,
+    true
+  );
+  const response = await requester.post("messages", request, {
+    signal: params.signal
+  });
+  await (0, import_sse5.checkResponse)(response);
+  const reasoningState = createReasoningState();
+  let usage2;
+  for await (const event of (0, import_sse5.sseIterable)(response)) {
+    if (!event.data || event.data === "[DONE]" || event.event === "ping") {
+      continue;
+    }
+    if (event.event === "error") {
+      throw new import_error3.ChatLunaError(
+        import_error3.ChatLunaErrorCode.API_REQUEST_FAILED,
+        new Error(event.data)
+      );
+    }
+    const data = JSON.parse(event.data);
+    const usageDelta = data.type === "message_start" ? data.message.usage : data.type === "message_delta" ? data.usage : void 0;
+    if (usageDelta != null) {
+      usage2 = mergeAnthropicUsage(usage2, usageDelta);
+      yield createAnthropicChunk("", {
+        usage: usage2,
+        generationInfo: {
+          id: data.type === "message_start" ? data.message.id : void 0,
+          model: data.type === "message_start" ? data.message.model : void 0,
+          stop_reason: data.type === "message_delta" ? data.delta?.stop_reason : void 0,
+          stop_sequence: data.type === "message_delta" ? data.delta?.stop_sequence : void 0
+        }
+      });
+      continue;
+    }
+    const chunk = convertAnthropicStreamEvent(
+      data,
+      reasoningState,
+      toolNameMapper
+    );
+    if (chunk == null) continue;
+    if (reasoningState.endedAt == null && hasAnthropicResponseChunk(chunk)) {
+      reasoningState.endedAt = Date.now();
+    }
+    yield chunk;
+  }
+  const reasoningChunk = createReasoningChunk(reasoningState);
+  if (reasoningChunk) yield reasoningChunk;
+}
+__name(anthropicCompletionStream, "anthropicCompletionStream");
+async function createAnthropicRequest(requester, params, toolNameMapper, stream) {
+  const parsedModel = (0, import_v1_shared_adapter6.parseOpenAIModelNameWithReasoningEffort)(params.model ?? "");
+  const override = {
+    ...params.overrideRequestParams ?? {}
+  };
+  const overrideEffort = override.reasoning_effort;
+  delete override.reasoning_effort;
+  const model = String(override.model ?? parsedModel.model);
+  const maxTokens = normalizeMaxTokens(params.maxTokens);
+  const effort = normalizeAnthropicEffort(
+    overrideEffort ?? parsedModel.reasoningEffort
+  );
+  const contents = await messagesToAnthropicContents(
+    requester,
+    params.input,
+    toolNameMapper
+  );
+  const hasAssistantPrefill = contents.messages[contents.messages.length - 1]?.role === "assistant";
+  const generatedThinking = createThinkingConfig(effort, hasAssistantPrefill);
+  const tools = formatToolsToAnthropicTools(params.tools ?? [], toolNameMapper);
+  const outputConfig = effort == null ? void 0 : {
+    ...objectOf(override.output_config),
+    effort
+  };
+  const request = stripUndefined2({
+    model,
+    max_tokens: maxTokens,
+    stream,
+    system: contents.system,
+    messages: contents.messages,
+    stop_sequences: typeof params.stop === "string" ? [params.stop] : params.stop,
+    temperature: generatedThinking == null ? params.temperature : void 0,
+    top_p: generatedThinking == null ? params.topP : void 0,
+    tools,
+    cache_control: createAnthropicCacheControl(requester),
+    thinking: generatedThinking,
+    output_config: outputConfig,
+    ...override
+  });
+  if (outputConfig != null) {
+    request.output_config = {
+      ...outputConfig,
+      ...objectOf(override.output_config)
+    };
+  }
+  if (override.thinking !== void 0) {
+    request.thinking = override.thinking;
+  }
+  return request;
+}
+__name(createAnthropicRequest, "createAnthropicRequest");
+async function messagesToAnthropicContents(requester, messages, toolNameMapper) {
+  const result = [];
+  const system = [];
+  for (const message of messages) {
+    const type = message.getType();
+    if (type === "system") {
+      const text = systemTextFromContent(message.content);
+      if (text) system.push(text);
+      continue;
+    }
+    if (message instanceof import_messages3.ToolMessage || type === "tool") {
+      result.push(await toolMessageToAnthropic(message, requester));
+      continue;
+    }
+    if (message instanceof import_messages3.AIMessage || type === "ai") {
+      result.push(
+        await aiMessageToAnthropic(
+          message,
+          requester,
+          toolNameMapper
+        )
+      );
+      continue;
+    }
+    result.push({
+      role: "user",
+      content: await userContentToAnthropic(requester, message.content)
+    });
+  }
+  return {
+    system: system.length > 0 ? system.join("\n\n") : void 0,
+    messages: result.length > 0 ? result : [{ role: "user", content: "" }]
+  };
+}
+__name(messagesToAnthropicContents, "messagesToAnthropicContents");
+async function aiMessageToAnthropic(message, requester, toolNameMapper) {
+  const blocks = [];
+  const reasoningBlocks = message.additional_kwargs.reasoning_blocks;
+  if (Array.isArray(reasoningBlocks) && reasoningBlocks.length > 0) {
+    blocks.push(...reasoningBlocks.filter(isReasoningBlock));
+  } else {
+    const reasoningContent = message.additional_kwargs.reasoning_content;
+    const reasoningSignature = message.additional_kwargs.reasoning_signature;
+    if (reasoningContent && reasoningSignature) {
+      blocks.push({
+        type: "thinking",
+        thinking: reasoningContent,
+        signature: reasoningSignature
+      });
+    }
+  }
+  const content = await contentToAnthropicBlocks(requester, message.content);
+  blocks.push(...content);
+  for (const toolCall of message.tool_calls ?? []) {
+    blocks.push({
+      type: "tool_use",
+      id: toolCall.id ?? createToolUseId(toolCall.name),
+      name: toolNameMapper.sanitize(toolCall.name),
+      input: objectOf(toolCall.args)
+    });
+  }
+  return {
+    role: "assistant",
+    content: blocks.length === 0 ? "" : blocks.length === 1 && blocks[0].type === "text" ? blocks[0].text : blocks
+  };
+}
+__name(aiMessageToAnthropic, "aiMessageToAnthropic");
+async function toolMessageToAnthropic(message, requester) {
+  const content = typeof message.content === "string" ? message.content : await contentToAnthropicBlocks(requester, message.content);
+  const normalizedContent = Array.isArray(content) && content.length < 1 ? "" : content;
+  return {
+    role: "user",
+    content: [
+      stripUndefined2({
+        type: "tool_result",
+        tool_use_id: message.tool_call_id,
+        content: normalizedContent,
+        is_error: message.status === "error" ? true : void 0
+      })
+    ]
+  };
+}
+__name(toolMessageToAnthropic, "toolMessageToAnthropic");
+async function userContentToAnthropic(requester, content) {
+  if (typeof content === "string") return content;
+  const blocks = await contentToAnthropicBlocks(requester, content);
+  return blocks.length > 0 ? blocks : "";
+}
+__name(userContentToAnthropic, "userContentToAnthropic");
+async function contentToAnthropicBlocks(requester, content) {
+  if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
+  const blocks = [];
+  for (const part of content) {
+    const block = await contentPartToAnthropicBlock(requester, part);
+    if (block != null) blocks.push(block);
+  }
+  return blocks;
+}
+__name(contentToAnthropicBlocks, "contentToAnthropicBlocks");
+async function contentPartToAnthropicBlock(requester, part) {
+  if ((0, import_string3.isMessageContentText)(part)) {
+    return { type: "text", text: part.text };
+  }
+  if ((0, import_string3.isMessageContentImageUrl)(part)) {
+    return await imageContentToAnthropic(requester, part);
+  }
+  if (isFileLikePart3(part)) {
+    return await fileContentToAnthropic(requester, part);
+  }
+  if (isAnthropicInputBlock(part)) return part;
+  if (isInlineDataPart(part)) return inlineDataToAnthropic(requester, part);
+  return {
+    type: "text",
+    text: stringifyUnknownContent(part)
+  };
+}
+__name(contentPartToAnthropicBlock, "contentPartToAnthropicBlock");
+async function imageContentToAnthropic(requester, part) {
+  try {
+    const url = await (0, import_v1_shared_adapter6.fetchImageUrl)(requester.requestContext().plugin, part);
+    if (/^https?:\/\//i.test(url)) {
+      return {
+        type: "image",
+        source: {
+          type: "url",
+          url
+        }
+      };
+    }
+    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) return null;
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: normalizeAnthropicImageMime(match[1]),
+        data: match[2]
+      }
+    };
+  } catch (error) {
+    requester.logger.warn(error);
+    return null;
+  }
+}
+__name(imageContentToAnthropic, "imageContentToAnthropic");
+async function fileContentToAnthropic(requester, part) {
+  try {
+    const { buffer, mimeType } = await (0, import_v1_shared_adapter6.fetchFileLikeUrl)(
+      requester.requestContext().plugin,
+      part
+    );
+    if (mimeType.startsWith("image/")) {
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: normalizeAnthropicImageMime(mimeType),
+          data: buffer.toString("base64")
+        }
+      };
+    }
+    if (mimeType === "application/pdf") {
+      return {
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: buffer.toString("base64")
+        }
+      };
+    }
+    if (mimeType.startsWith("text/") || mimeType === "application/json") {
+      return {
+        type: "document",
+        source: {
+          type: "text",
+          media_type: "text/plain",
+          data: buffer.toString("utf8")
+        }
+      };
+    }
+    requester.logger.warn(`Unsupported Anthropic file mime type: ${mimeType}`);
+    return null;
+  } catch (error) {
+    requester.logger.warn(error);
+    return null;
+  }
+}
+__name(fileContentToAnthropic, "fileContentToAnthropic");
+function inlineDataToAnthropic(requester, part) {
+  const inline = part.inline_data ?? part.inlineData;
+  const mimeType = inline?.mime_type ?? inline?.mimeType;
+  const data = inline?.data;
+  if (typeof mimeType !== "string" || typeof data !== "string") return null;
+  if (mimeType.startsWith("image/")) {
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: normalizeAnthropicImageMime(mimeType),
+        data
+      }
+    };
+  }
+  if (mimeType === "application/pdf") {
+    return {
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data
+      }
+    };
+  }
+  if (mimeType.startsWith("text/") || mimeType === "application/json") {
+    return {
+      type: "document",
+      source: {
+        type: "text",
+        media_type: "text/plain",
+        data: Buffer.from(data, "base64").toString("utf8")
+      }
+    };
+  }
+  requester.logger.warn(`Unsupported Anthropic inline mime type: ${mimeType}`);
+  return null;
+}
+__name(inlineDataToAnthropic, "inlineDataToAnthropic");
+function formatToolsToAnthropicTools(tools, toolNameMapper) {
+  if (tools.length < 1) return void 0;
+  return tools.map((tool2) => ({
+    name: toolNameMapper.sanitize(tool2.name),
+    description: tool2.description,
+    input_schema: normalizeToolInputSchema(
+      (0, import_v1_shared_adapter6.removeAdditionalProperties)(
+        (0, import_types5.isZodSchemaV3)(tool2.schema) ? (0, import_zod_to_json_schema2.zodToJsonSchema)(tool2.schema) : tool2.schema
+      )
+    )
+  }));
+}
+__name(formatToolsToAnthropicTools, "formatToolsToAnthropicTools");
+function parseAnthropicResponse(data, toolNameMapper) {
+  let content = "";
+  const toolCalls = [];
+  const reasoningState = createReasoningState();
+  for (const block of data.content ?? []) {
+    if (block.type === "text") {
+      content += block.text;
+    } else if (block.type === "tool_use") {
+      toolCalls.push({
+        name: toolNameMapper.restore(block.name),
+        args: JSON.stringify(block.input ?? {}),
+        id: block.id,
+        index: toolCalls.length
+      });
+    } else if (block.type === "thinking") {
+      pushThinkingBlock(reasoningState, reasoningState.blocks.length, block);
+    } else if (block.type === "redacted_thinking") {
+      reasoningState.blocks.push(block);
+    }
+  }
+  const usage2 = data.usage ? anthropicUsageToMetadata(data.usage) : void 0;
+  const additional = reasoningAdditionalKwargs(reasoningState);
+  const message = new import_messages3.AIMessageChunk({
+    content,
+    tool_call_chunks: toolCalls,
+    usage_metadata: usage2,
+    additional_kwargs: additional
+  });
+  return new import_outputs5.ChatGenerationChunk({
+    generationInfo: stripUndefined2({
+      id: data.id,
+      model: data.model,
+      stop_reason: data.stop_reason,
+      stop_sequence: data.stop_sequence,
+      stop_details: data.stop_details,
+      usage_metadata: usage2
+    }),
+    message,
+    text: (0, import_string3.getMessageContent)(message.content) ?? content
+  });
+}
+__name(parseAnthropicResponse, "parseAnthropicResponse");
+function convertAnthropicStreamEvent(event, reasoningState, toolNameMapper) {
+  if (event.type === "content_block_start") {
+    const block = event.content_block;
+    if (block.type === "text") {
+      return block.text ? createAnthropicChunk(block.text) : void 0;
+    }
+    if (block.type === "tool_use") {
+      return createAnthropicToolChunk({
+        id: block.id,
+        index: event.index,
+        name: toolNameMapper.restore(block.name),
+        args: objectHasKeys(block.input) ? JSON.stringify(block.input) : ""
+      });
+    }
+    if (block.type === "thinking") {
+      pushThinkingBlock(reasoningState, event.index, block);
+      return void 0;
+    }
+    if (block.type === "redacted_thinking") {
+      reasoningState.blocks[event.index] = block;
+    }
+    return void 0;
+  }
+  if (event.type !== "content_block_delta") return void 0;
+  const delta = event.delta;
+  if (delta.type === "text_delta") {
+    return createAnthropicChunk(delta.text);
+  }
+  if (delta.type === "input_json_delta") {
+    return createAnthropicToolChunk({
+      index: event.index,
+      args: delta.partial_json
+    });
+  }
+  if (delta.type === "thinking_delta") {
+    reasoningState.content += delta.thinking;
+    const block = reasoningState.blocks[event.index];
+    if (block?.type === "thinking") block.thinking += delta.thinking;
+    return void 0;
+  }
+  if (delta.type === "signature_delta") {
+    const block = reasoningState.blocks[event.index];
+    if (block?.type === "thinking") block.signature = delta.signature;
+    return void 0;
+  }
+}
+__name(convertAnthropicStreamEvent, "convertAnthropicStreamEvent");
+async function getAnthropicModels(requester, signal) {
+  const result = [];
+  let afterId;
+  while (true) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (afterId) query.set("after_id", afterId);
+    const response = await requester.get(`models?${query.toString()}`, {}, { signal });
+    await (0, import_sse5.checkResponse)(response);
+    const payload = JSON.parse(await response.text());
+    result.push(...parseAnthropicModels(payload));
+    if (!payload.has_more || !payload.last_id) break;
+    afterId = payload.last_id;
+  }
+  return dedupeProviderModels(result);
+}
+__name(getAnthropicModels, "getAnthropicModels");
+function createAnthropicChunk(text, options = {}) {
+  const usage2 = options.usage ? anthropicUsageToMetadata(options.usage) : void 0;
+  return new import_outputs5.ChatGenerationChunk({
+    generationInfo: stripUndefined2({
+      ...options.generationInfo,
+      usage_metadata: usage2
+    }),
+    message: new import_messages3.AIMessageChunk({
+      content: text,
+      usage_metadata: usage2
+    }),
+    text
+  });
+}
+__name(createAnthropicChunk, "createAnthropicChunk");
+function createAnthropicToolChunk(toolCall) {
+  return new import_outputs5.ChatGenerationChunk({
+    message: new import_messages3.AIMessageChunk({
+      content: "",
+      tool_call_chunks: [toolCall]
+    }),
+    text: ""
+  });
+}
+__name(createAnthropicToolChunk, "createAnthropicToolChunk");
+function createReasoningChunk(reasoningState) {
+  const additional = reasoningAdditionalKwargs(reasoningState);
+  if (Object.keys(additional).length < 1) return void 0;
+  return new import_outputs5.ChatGenerationChunk({
+    message: new import_messages3.AIMessageChunk({
+      content: "",
+      additional_kwargs: additional
+    }),
+    text: ""
+  });
+}
+__name(createReasoningChunk, "createReasoningChunk");
+function reasoningAdditionalKwargs(reasoningState) {
+  const blocks = reasoningState.blocks.filter(isReasoningBlock);
+  const reasoningSignature = blocks.length === 1 && blocks[0].type === "thinking" ? blocks[0].signature : void 0;
+  const reasoningTime = reasoningState.content || blocks.length > 0 ? (reasoningState.endedAt ?? Date.now()) - reasoningState.startedAt : void 0;
+  return stripUndefined2({
+    reasoning_content: reasoningState.content || void 0,
+    reasoning_signature: reasoningSignature,
+    reasoning_blocks: blocks.length > 0 ? blocks : void 0,
+    reasoning_time: reasoningTime
+  });
+}
+__name(reasoningAdditionalKwargs, "reasoningAdditionalKwargs");
+function createReasoningState() {
+  return {
+    content: "",
+    startedAt: Date.now(),
+    endedAt: void 0,
+    blocks: []
+  };
+}
+__name(createReasoningState, "createReasoningState");
+function pushThinkingBlock(reasoningState, index, block) {
+  reasoningState.content += block.thinking ?? "";
+  reasoningState.blocks[index] = {
+    type: "thinking",
+    thinking: block.thinking ?? "",
+    signature: block.signature ?? ""
+  };
+}
+__name(pushThinkingBlock, "pushThinkingBlock");
+function anthropicUsageToMetadata(usage2) {
+  const cacheReadTokens = usage2.cache_read_input_tokens ?? 0;
+  const cacheCreationTokens = usage2.cache_creation_input_tokens ?? 0;
+  const inputTokens = (usage2.input_tokens ?? 0) + cacheReadTokens + cacheCreationTokens;
+  const outputTokens = usage2.output_tokens ?? 0;
+  const metadata = (0, import_v1_shared_adapter6.createUsageMetadata)({
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    cacheReadTokens: usage2.cache_read_input_tokens,
+    cacheCreationTokens: usage2.cache_creation_input_tokens,
+    reasoningTokens: usage2.output_tokens_details?.thinking_tokens
+  });
+  const cacheCreation = usage2.cache_creation;
+  if (cacheCreation != null) {
+    metadata.input_token_details = {
+      ...metadata.input_token_details,
+      ...cacheCreation.ephemeral_5m_input_tokens != null ? {
+        cache_creation_5m: cacheCreation.ephemeral_5m_input_tokens
+      } : {},
+      ...cacheCreation.ephemeral_1h_input_tokens != null ? {
+        cache_creation_1h: cacheCreation.ephemeral_1h_input_tokens
+      } : {}
+    };
+  }
+  return metadata;
+}
+__name(anthropicUsageToMetadata, "anthropicUsageToMetadata");
+function mergeAnthropicUsage(previous, next) {
+  return {
+    ...previous,
+    ...next,
+    input_tokens: next.input_tokens ?? previous?.input_tokens,
+    output_tokens: next.output_tokens ?? previous?.output_tokens,
+    cache_creation_input_tokens: next.cache_creation_input_tokens ?? previous?.cache_creation_input_tokens,
+    cache_read_input_tokens: next.cache_read_input_tokens ?? previous?.cache_read_input_tokens,
+    cache_creation: mergeAnthropicCacheCreation(
+      previous?.cache_creation,
+      next.cache_creation
+    ),
+    iterations: next.iterations ?? previous?.iterations,
+    output_tokens_details: {
+      ...previous?.output_tokens_details,
+      ...next.output_tokens_details
+    }
+  };
+}
+__name(mergeAnthropicUsage, "mergeAnthropicUsage");
+function mergeAnthropicCacheCreation(previous, next) {
+  if (previous == null) return next;
+  if (next == null) return previous;
+  return {
+    ...previous,
+    ...next,
+    ephemeral_5m_input_tokens: next.ephemeral_5m_input_tokens ?? previous.ephemeral_5m_input_tokens,
+    ephemeral_1h_input_tokens: next.ephemeral_1h_input_tokens ?? previous.ephemeral_1h_input_tokens
+  };
+}
+__name(mergeAnthropicCacheCreation, "mergeAnthropicCacheCreation");
+function createThinkingConfig(effort, hasAssistantPrefill) {
+  if (effort == null || hasAssistantPrefill) return void 0;
+  return {
+    type: "adaptive",
+    display: "summarized"
+  };
+}
+__name(createThinkingConfig, "createThinkingConfig");
+function createAnthropicCacheControl(requester) {
+  const config = requester.currentConfig();
+  if (config.anthropicPromptCache !== true) return void 0;
+  return {
+    type: "ephemeral",
+    ...config.anthropicPromptCacheTtl === "1h" ? { ttl: "1h" } : {}
+  };
+}
+__name(createAnthropicCacheControl, "createAnthropicCacheControl");
+function normalizeAnthropicEffort(effort) {
+  if (effort === "none" || effort === "minimal" || effort === "tiny") {
+    return void 0;
+  }
+  if (effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh" || effort === "max") {
+    return effort;
+  }
+}
+__name(normalizeAnthropicEffort, "normalizeAnthropicEffort");
+function normalizeMaxTokens(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1) return 4096;
+  return Math.floor(number);
+}
+__name(normalizeMaxTokens, "normalizeMaxTokens");
+function normalizeAnthropicImageMime(mimeType) {
+  if (mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/gif" || mimeType === "image/webp") {
+    return mimeType;
+  }
+  return "image/jpeg";
+}
+__name(normalizeAnthropicImageMime, "normalizeAnthropicImageMime");
+function createAnthropicToolNameMapper(tools) {
+  const sanitizeMap = /* @__PURE__ */ new Map();
+  const restoreMap = /* @__PURE__ */ new Map();
+  const used = /* @__PURE__ */ new Set();
+  for (const tool2 of tools) {
+    const sanitized = sanitizeAnthropicToolName(tool2.name, used);
+    sanitizeMap.set(tool2.name, sanitized);
+    restoreMap.set(sanitized, tool2.name);
+  }
+  return {
+    sanitize(name2) {
+      const original = name2 || "tool";
+      const known = sanitizeMap.get(original);
+      if (known) return known;
+      const sanitized = sanitizeAnthropicToolName(original, used);
+      sanitizeMap.set(original, sanitized);
+      restoreMap.set(sanitized, original);
+      return sanitized;
+    },
+    restore(name2) {
+      const value = name2 || "";
+      return restoreMap.get(value) ?? value;
+    }
+  };
+}
+__name(createAnthropicToolNameMapper, "createAnthropicToolNameMapper");
+function sanitizeAnthropicToolName(name2, used) {
+  const fallback = "tool";
+  const normalized = (name2 || fallback).normalize("NFKC").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^[^a-zA-Z_]+/, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64);
+  let result = normalized || fallback;
+  if (!/^[A-Za-z_]/.test(result)) result = `_${result}`;
+  result = result.slice(0, 64);
+  let unique = result;
+  let index = 2;
+  while (used.has(unique)) {
+    const suffix = `_${index++}`;
+    unique = `${result.slice(0, Math.max(1, 64 - suffix.length))}${suffix}`;
+  }
+  used.add(unique);
+  return unique;
+}
+__name(sanitizeAnthropicToolName, "sanitizeAnthropicToolName");
+function normalizeToolInputSchema(schema) {
+  if (schema.type === "object") return schema;
+  return {
+    type: "object",
+    properties: {},
+    ...schema
+  };
+}
+__name(normalizeToolInputSchema, "normalizeToolInputSchema");
+function systemTextFromContent(content) {
+  if (typeof content === "string") return content.trim();
+  return content.map((part) => {
+    if ((0, import_string3.isMessageContentText)(part)) return part.text;
+    const text = part.text;
+    return typeof text === "string" ? text : "";
+  }).filter(Boolean).join("\n").trim();
+}
+__name(systemTextFromContent, "systemTextFromContent");
+function stringifyUnknownContent(value) {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+__name(stringifyUnknownContent, "stringifyUnknownContent");
+function objectOf(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+__name(objectOf, "objectOf");
+function objectHasKeys(value) {
+  return value != null && typeof value === "object" && Object.keys(value).length > 0;
+}
+__name(objectHasKeys, "objectHasKeys");
+function stripUndefined2(value) {
+  for (const key of Object.keys(value)) {
+    if (value[key] === void 0) delete value[key];
+    if (value[key] != null && typeof value[key] === "object" && !Array.isArray(value[key])) {
+      stripUndefined2(value[key]);
+    }
+  }
+  return value;
+}
+__name(stripUndefined2, "stripUndefined");
+function isFileLikePart3(part) {
+  return part != null && typeof part === "object" && ["file_url", "audio_url", "video_url"].includes(String(part.type));
+}
+__name(isFileLikePart3, "isFileLikePart");
+function isInlineDataPart(part) {
+  return part != null && typeof part === "object" && (part.inline_data != null || part.inlineData != null);
+}
+__name(isInlineDataPart, "isInlineDataPart");
+function isAnthropicInputBlock(value) {
+  if (value == null || typeof value !== "object") return false;
+  return value.type === "text" || value.type === "image" || value.type === "document";
+}
+__name(isAnthropicInputBlock, "isAnthropicInputBlock");
+function isReasoningBlock(value) {
+  return value?.type === "thinking" || value?.type === "redacted_thinking";
+}
+__name(isReasoningBlock, "isReasoningBlock");
+function hasAnthropicResponseChunk(chunk) {
+  const message = chunk.message;
+  return chunk.text.length > 0 || typeof message.content === "string" && message.content.length > 0 || Array.isArray(message.content) && message.content.length > 0 || (message.tool_call_chunks?.length ?? 0) > 0;
+}
+__name(hasAnthropicResponseChunk, "hasAnthropicResponseChunk");
+function createToolUseId(name2) {
+  return `toolu_${(name2 || "tool").replace(/[^a-zA-Z0-9_-]+/g, "_")}`;
+}
+__name(createToolUseId, "createToolUseId");
+function dedupeProviderModels(models) {
+  const result = /* @__PURE__ */ new Map();
+  for (const model of models) {
+    if (!model.name) continue;
+    result.set(model.name, model);
+  }
+  return [...result.values()];
+}
+__name(dedupeProviderModels, "dedupeProviderModels");
+
 // src/adapters/registry.ts
 var adapters = /* @__PURE__ */ new Map([
   [openAIChatAdapter.id, openAIChatAdapter],
   [openAIAdapter.id, openAIAdapter],
   [geminiAdapter.id, geminiAdapter],
-  [difyAdapter.id, difyAdapter]
+  [difyAdapter.id, difyAdapter],
+  [anthropicAdapter.id, anthropicAdapter]
 ]);
 function getProviderAdapter(id) {
   return adapters.get(id) ?? openAIChatAdapter;
 }
 __name(getProviderAdapter, "getProviderAdapter");
+
+// src/adapters/reasoning-protocols.ts
+function applyReasoningProtocol(protocol, body, model) {
+  if (protocol === "openai") return;
+  const effort = body.reasoning_effort;
+  if (effort == null) return;
+  delete body.reasoning_effort;
+  if (protocol === "deepseek") {
+    applyDeepSeekReasoning(body, effort);
+    return;
+  }
+  if (protocol === "qwen") {
+    applyQwenReasoning(body, effort);
+    return;
+  }
+  if (protocol === "gemini") {
+    applyGeminiReasoning(body, model, effort);
+    return;
+  }
+  if (protocol === "anthropic") {
+    applyAnthropicReasoning(body, effort);
+    return;
+  }
+  if (protocol === "openrouter") {
+    applyOpenRouterReasoning(body, effort);
+  }
+}
+__name(applyReasoningProtocol, "applyReasoningProtocol");
+function resolveReasoningProtocol2(configured, model) {
+  if (configured == null || configured === "openai") return "openai";
+  if (configured !== "auto") return configured;
+  const lower = model.toLowerCase();
+  if (lower.includes("deepseek")) return "deepseek";
+  if (lower.includes("qwen") || lower.includes("qwq")) return "qwen";
+  if (lower.includes("gemini") || lower.includes("gemma")) return "gemini";
+  if (lower.includes("claude")) return "anthropic";
+  return "openai";
+}
+__name(resolveReasoningProtocol2, "resolveReasoningProtocol");
+function normalizeDeepSeekReasoningEffort(effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized === "none") return void 0;
+  if (normalized === "max" || normalized === "xhigh" || normalized === "high") {
+    return normalized === "xhigh" ? "max" : normalized;
+  }
+  return "high";
+}
+__name(normalizeDeepSeekReasoningEffort, "normalizeDeepSeekReasoningEffort");
+function qwenThinkingBudgetForEffort(effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized === "none") return 0;
+  if (normalized === "minimal") return 512;
+  if (normalized === "low") return 1024;
+  if (normalized === "medium") return 4096;
+  if (normalized === "high") return 8192;
+  if (normalized === "xhigh" || normalized === "max") return 16384;
+}
+__name(qwenThinkingBudgetForEffort, "qwenThinkingBudgetForEffort");
+function geminiThinkingConfig(model, effort) {
+  if (isGemini3CompatibleModel(model)) {
+    return {
+      thinking_level: geminiThinkingLevel(effort),
+      ...normalizeReasoningEffort2(effort) === "none" ? { include_thoughts: false } : {}
+    };
+  }
+  return {
+    thinking_budget: geminiThinkingBudget(effort)
+  };
+}
+__name(geminiThinkingConfig, "geminiThinkingConfig");
+function anthropicThinkingConfig(effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized === "none") return { type: "disabled" };
+  if (normalized == null) return void 0;
+  return {
+    type: "adaptive",
+    display: "summarized"
+  };
+}
+__name(anthropicThinkingConfig, "anthropicThinkingConfig");
+function applyDeepSeekReasoning(body, effort) {
+  const reasoningEffort = normalizeDeepSeekReasoningEffort(effort);
+  if (reasoningEffort == null) {
+    body.thinking = { type: "disabled" };
+    return;
+  }
+  body.thinking = mergeObject(body.thinking, {
+    type: "enabled",
+    reasoning_effort: reasoningEffort
+  });
+}
+__name(applyDeepSeekReasoning, "applyDeepSeekReasoning");
+function applyQwenReasoning(body, effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  body.enable_thinking = normalized !== "none";
+  const thinkingBudget = qwenThinkingBudgetForEffort(normalized);
+  if (thinkingBudget != null) body.thinking_budget = thinkingBudget;
+}
+__name(applyQwenReasoning, "applyQwenReasoning");
+function applyGeminiReasoning(body, model, effort) {
+  body.extra_body = mergeObject(body.extra_body, {
+    google: {
+      thinking_config: geminiThinkingConfig(model, effort)
+    }
+  });
+}
+__name(applyGeminiReasoning, "applyGeminiReasoning");
+function applyAnthropicReasoning(body, effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  const thinking2 = anthropicThinkingConfig(effort);
+  if (thinking2 == null) return;
+  body.thinking = mergeObject(body.thinking, thinking2);
+  if (normalized != null && normalized !== "none") {
+    body.output_config = mergeObject(body.output_config, {
+      effort: normalized
+    });
+  }
+}
+__name(applyAnthropicReasoning, "applyAnthropicReasoning");
+function applyOpenRouterReasoning(body, effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized == null) return;
+  body.reasoning = mergeObject(body.reasoning, { effort: normalized });
+}
+__name(applyOpenRouterReasoning, "applyOpenRouterReasoning");
+function normalizeReasoningEffort2(value) {
+  if (typeof value !== "string") return void 0;
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
+  if (normalized === "tiny") return "minimal";
+  if (normalized === "none" || normalized === "minimal" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return normalized;
+  }
+}
+__name(normalizeReasoningEffort2, "normalizeReasoningEffort");
+function isGemini3CompatibleModel(model) {
+  return model.toLowerCase().includes("gemini-3");
+}
+__name(isGemini3CompatibleModel, "isGemini3CompatibleModel");
+function geminiThinkingBudget(effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized === "none") return 0;
+  if (normalized === "minimal") return 128;
+  if (normalized === "low") return 1024;
+  if (normalized === "medium") return 8192;
+  if (normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return 24576;
+  }
+  return -1;
+}
+__name(geminiThinkingBudget, "geminiThinkingBudget");
+function geminiThinkingLevel(effort) {
+  const normalized = normalizeReasoningEffort2(effort);
+  if (normalized === "none" || normalized === "minimal" || normalized === "low") {
+    return "low";
+  }
+  if (normalized === "medium") return "medium";
+  return "high";
+}
+__name(geminiThinkingLevel, "geminiThinkingLevel");
+function mergeObject(current, extra) {
+  const object = current != null && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (value != null && typeof value === "object" && !Array.isArray(value) && object[key] != null && typeof object[key] === "object" && !Array.isArray(object[key])) {
+      object[key] = mergeObject(object[key], value);
+      continue;
+    }
+    object[key] = value;
+  }
+  return object;
+}
+__name(mergeObject, "mergeObject");
 
 // src/requester.ts
 var ModelHubRequester = class extends import_api.ModelRequester {
@@ -2600,8 +3913,8 @@ var ModelHubRequester = class extends import_api.ModelRequester {
       yield chunk;
     }
     yield tracker.attachTo(
-      new import_outputs5.ChatGenerationChunk({
-        message: new import_messages3.AIMessageChunk({ content: "" }),
+      new import_outputs6.ChatGenerationChunk({
+        message: new import_messages4.AIMessageChunk({ content: "" }),
         text: ""
       })
     );
@@ -2627,15 +3940,19 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   buildHeaders() {
     const current = this._config.value;
     const preset = getProviderPreset(current.provider);
-    const result = {
+    const result = preset.adapter === "anthropic" ? {
+      "Content-Type": "application/json",
+      "x-api-key": current.apiKey,
+      "anthropic-version": "2023-06-01"
+    } : {
       "Content-Type": "application/json",
       "HTTP-Referer": "https://github.com/ChatLunaLab/chatluna",
       "X-Title": "ChatLuna"
     };
-    if (preset.adapter !== "gemini" && current.apiKey.length > 0) {
+    if (preset.adapter !== "gemini" && preset.adapter !== "anthropic" && current.apiKey.length > 0) {
       result.Authorization = `Bearer ${current.apiKey}`;
     }
-    for (const header of this._pluginConfig.customHeaders ?? []) {
+    for (const header of current.customHeaders ?? []) {
       const name2 = header.name?.trim();
       if (!name2) continue;
       if (!targetMatches(header.target, current.platform, current.provider))
@@ -2648,13 +3965,14 @@ var ModelHubRequester = class extends import_api.ModelRequester {
     if (url === "chat/completions") {
       const current = this._config.value;
       const preset = getProviderPreset(current.provider);
-      const parsedModel = (0, import_v1_shared_adapter6.parseOpenAIModelNameWithReasoningEffort)(
+      const parsedModel = (0, import_v1_shared_adapter7.parseOpenAIModelNameWithReasoningEffort)(
         String(body.model ?? "")
       );
       applyReasoningEffortStrategy(
         preset.reasoningEffort,
         body,
-        parsedModel.model
+        parsedModel.model,
+        current.reasoningProtocol
       );
       preset.patchCompletionBody?.(body, String(body.model ?? ""));
     }
@@ -2667,7 +3985,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
     return this._pluginConfig;
   }
   requestContext() {
-    return (0, import_v1_shared_adapter7.createRequestContext)(
+    return (0, import_v1_shared_adapter8.createRequestContext)(
       this.ctx,
       this._config.value,
       this._pluginConfig,
@@ -2687,7 +4005,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   responseBuiltinTools(params) {
     const current = this._config.value;
     if (!current.responseApi) return [];
-    if (!current.responseBuiltinToolSupportModel?.includes(params.model ?? "")) {
+    if (!matchesResponseBuiltinToolModel(params.model, current.responseBuiltinToolSupportModel)) {
       return [];
     }
     const result = [];
@@ -2737,7 +4055,7 @@ var ModelHubRequester = class extends import_api.ModelRequester {
   }
   _prepareParams(params) {
     if (!params.model) return params;
-    const { model, reasoningEffort } = (0, import_v1_shared_adapter6.parseOpenAIModelNameWithReasoningEffort)(params.model);
+    const { model, reasoningEffort } = (0, import_v1_shared_adapter7.parseOpenAIModelNameWithReasoningEffort)(params.model);
     if (model === params.model && reasoningEffort == null) return params;
     return {
       ...params,
@@ -2749,38 +4067,48 @@ var ModelHubRequester = class extends import_api.ModelRequester {
     };
   }
 };
-function applyReasoningEffortStrategy(strategy, body, model) {
+function applyReasoningEffortStrategy(strategy, body, model, configuredProtocol) {
   const effort = body.reasoning_effort;
   if (effort == null) return;
-  if (strategy === "passthrough") return;
-  delete body.reasoning_effort;
+  if (strategy === "passthrough") {
+    applyReasoningProtocol(
+      resolveReasoningProtocol2(configuredProtocol, model),
+      body,
+      model
+    );
+    return;
+  }
   if (strategy === "deepseek") {
-    const reasoningEffort = normalizeDeepSeekReasoningEffort(effort);
-    if (reasoningEffort == null) {
-      body.thinking = { type: "disabled" };
-      return;
-    }
-    body.reasoning_effort = reasoningEffort;
-    body.thinking = {
-      type: "enabled"
-    };
+    applyReasoningProtocol("deepseek", body, model);
     return;
   }
   if (strategy === "qwen") {
-    if (model.toLowerCase().includes("qwen3")) {
-      body.enable_thinking = effort !== "none";
-    }
+    applyReasoningProtocol("qwen", body, model);
+    return;
   }
+  delete body.reasoning_effort;
 }
 __name(applyReasoningEffortStrategy, "applyReasoningEffortStrategy");
-function normalizeDeepSeekReasoningEffort(effort) {
-  if (effort === "none") return void 0;
-  if (effort === "max" || effort === "xhigh" || effort === "high") {
-    return effort === "xhigh" ? "max" : effort;
-  }
-  return "high";
+function matchesResponseBuiltinToolModel(model, supported) {
+  if (!model || (supported?.length ?? 0) < 1) return false;
+  const normalized = normalizeResponseToolModel(model);
+  return (supported ?? []).some((item) => {
+    const target = normalizeResponseToolModel(item);
+    if (!target) return false;
+    return normalized === target || isResponseModelPrefix(normalized, target) || isResponseModelPrefix(target, normalized);
+  });
 }
-__name(normalizeDeepSeekReasoningEffort, "normalizeDeepSeekReasoningEffort");
+__name(matchesResponseBuiltinToolModel, "matchesResponseBuiltinToolModel");
+function normalizeResponseToolModel(model) {
+  return (0, import_v1_shared_adapter7.parseOpenAIModelNameWithReasoningEffort)(model).model.trim().toLowerCase();
+}
+__name(normalizeResponseToolModel, "normalizeResponseToolModel");
+function isResponseModelPrefix(model, prefix) {
+  if (!model.startsWith(prefix)) return false;
+  const next = model[prefix.length];
+  return next === "-" || next === "." || next === ":";
+}
+__name(isResponseModelPrefix, "isResponseModelPrefix");
 var ModelHubStreamMetricsTracker = class {
   static {
     __name(this, "ModelHubStreamMetricsTracker");
@@ -2880,10 +4208,13 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       );
       const providerModels = current?.expandReasoningVariants === true ? expandReasoningVariantsForProvider(
         this._runtime.provider,
-        enhancedModels
+        enhancedModels,
+        {
+          reasoningProtocol: current?.reasoningProtocol
+        }
       ) : enhancedModels;
       const apiModels = providerModels.filter(
-        (model) => !(0, import_v1_shared_adapter8.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter8.isImageGenerationModel)(model.name)
+        (model) => !(0, import_v1_shared_adapter9.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter9.isImageGenerationModel)(model.name)
       ).map((model) => this._inferModelInfo(model));
       const additionalModels = getTargetedAdditionalModels(
         this._config.additionalModels,
@@ -2903,17 +4234,23 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         return !blacklist.some((keyword) => id.includes(keyword));
       });
     } catch (e) {
-      if (e instanceof import_error3.ChatLunaError) {
+      if (e instanceof import_error4.ChatLunaError) {
         throw e;
       }
-      throw new import_error3.ChatLunaError(import_error3.ChatLunaErrorCode.MODEL_INIT_ERROR, e);
+      throw new import_error4.ChatLunaError(import_error4.ChatLunaErrorCode.MODEL_INIT_ERROR, e);
     }
   }
   async reloadModels(config) {
     this._modelInfos = {};
     return await this.getModels(config);
   }
+  registerSelf() {
+    this.ctx.chatluna.platform.registerClient(this.platform, () => this);
+  }
   getFileHandlingConfig() {
+    if (this._runtime.provider.adapter === "anthropic") {
+      return ANTHROPIC_FILE_HANDLING_CONFIG;
+    }
     if (this._runtime.provider.adapter !== "dify") {
       return null;
     }
@@ -2958,60 +4295,63 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         `Model ${model} not found`,
         JSON.stringify(this._modelInfos)
       );
-      throw new import_error3.ChatLunaError(
-        import_error3.ChatLunaErrorCode.MODEL_NOT_FOUND,
+      throw new import_error4.ChatLunaError(
+        import_error4.ChatLunaErrorCode.MODEL_NOT_FOUND,
         new Error(
           `The model ${model} is not found in ${this.platform}`
         )
       );
     }
-    if (info.type === import_types5.ModelType.llm) {
-      const modelMaxContextSize = (0, import_v1_shared_adapter8.getModelMaxContextSize)(info);
+    if (info.type === import_types6.ModelType.llm) {
+      const current2 = this.config ?? this._config;
+      const modelMaxContextSize = (0, import_v1_shared_adapter9.getModelMaxContextSize)(info);
       return new import_model.ChatLunaChatModel({
         usageReporter: report,
         modelInfo: info,
         requester: this._requester,
         model,
         maxTokenLimit: Math.floor(
-          (info.maxTokens || modelMaxContextSize || 128e3) * this._config.maxContextRatio
+          (info.maxTokens || modelMaxContextSize || 128e3) * current2.maxContextRatio
         ),
         modelMaxContextSize,
-        frequencyPenalty: this._config.frequencyPenalty,
-        presencePenalty: this._config.presencePenalty,
-        timeout: this._config.timeout,
-        temperature: this._config.temperature,
-        maxRetries: this._config.maxRetries,
+        frequencyPenalty: current2.frequencyPenalty,
+        presencePenalty: current2.presencePenalty,
+        timeout: current2.timeout,
+        temperature: current2.temperature,
+        maxRetries: current2.maxRetries,
         llmType: this._runtime.provider.id,
         fileHandlingConfig: this._fileHandlingConfig(model, info),
         isThinkModel: this._isThinkModel(model, info)
       });
     }
-    if (info.type === import_types5.ModelType.reranker) {
+    if (info.type === import_types6.ModelType.reranker) {
+      const current2 = this.config ?? this._config;
       return new import_rerank.ChatLunaReranker({
         usageReporter: report,
         client: this._requester,
         model,
-        maxRetries: this._config.maxRetries,
-        timeout: this._config.timeout
+        maxRetries: current2.maxRetries,
+        timeout: current2.timeout
       });
     }
+    const current = this.config ?? this._config;
     return new import_model.ChatLunaEmbeddings({
       usageReporter: report,
       client: this._requester,
       model,
-      maxRetries: this._config.maxRetries
+      maxRetries: current.maxRetries
     });
   }
   _inferModelInfo(model) {
     const name2 = model.name;
     const lower = name2.toLowerCase();
-    const type = model.type ?? ((0, import_v1_shared_adapter8.isRerankerModel)(lower) ? import_types5.ModelType.reranker : (0, import_v1_shared_adapter8.isEmbeddingModel)(lower) ? import_types5.ModelType.embeddings : import_types5.ModelType.llm);
-    if ((0, import_v1_shared_adapter8.isImageGenerationModel)(lower)) {
+    const type = model.type ?? ((0, import_v1_shared_adapter9.isRerankerModel)(lower) ? import_types6.ModelType.reranker : (0, import_v1_shared_adapter9.isEmbeddingModel)(lower) ? import_types6.ModelType.embeddings : import_types6.ModelType.llm);
+    if ((0, import_v1_shared_adapter9.isImageGenerationModel)(lower)) {
       return {
         name: name2,
-        type: import_types5.ModelType.llm,
+        type: import_types6.ModelType.llm,
         maxTokens: model.maxTokens ?? 4096,
-        capabilities: [import_types5.ModelCapabilities.ImageGeneration]
+        capabilities: [import_types6.ModelCapabilities.ImageGeneration]
       };
     }
     const info = {
@@ -3019,19 +4359,19 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       type,
       ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
       maxTokens: model.maxTokens ?? this._metadata.getMaxTokens(this._runtime.provider.id, name2) ?? 0,
-      capabilities: type === import_types5.ModelType.llm ? this._mergeCapabilities(name2, model.capabilities) : []
+      capabilities: type === import_types6.ModelType.llm ? this._mergeCapabilities(name2, model.capabilities) : []
     };
-    info.maxTokens = type === import_types5.ModelType.llm ? info.maxTokens || (0, import_v1_shared_adapter8.getModelMaxContextSize)(info) : info.maxTokens || 8192;
+    info.maxTokens = type === import_types6.ModelType.llm ? info.maxTokens || (0, import_v1_shared_adapter9.getModelMaxContextSize)(info) : info.maxTokens || 8192;
     return info;
   }
   _additionalModelInfo(model) {
-    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types5.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types5.ModelType.reranker : import_types5.ModelType.llm;
+    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types6.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types6.ModelType.reranker : import_types6.ModelType.llm;
     return {
       name: model.model,
       type,
       maxTokens: model.contextSize ?? 4096,
-      capabilities: type === import_types5.ModelType.llm ? model.modelCapabilities : model.modelCapabilities.filter(
-        (cap) => cap !== import_types5.ModelCapabilities.ToolCall
+      capabilities: type === import_types6.ModelType.llm ? model.modelCapabilities : model.modelCapabilities.filter(
+        (cap) => cap !== import_types6.ModelCapabilities.ToolCall
       )
     };
   }
@@ -3048,16 +4388,25 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     if (this._runtime.provider.adapter === "dify") {
       return [...result];
     }
-    result.add(import_types5.ModelCapabilities.ToolCall);
-    if ((0, import_v1_shared_adapter8.supportImageInput)(model)) result.add(import_types5.ModelCapabilities.ImageInput);
-    if ((0, import_v1_shared_adapter8.supportAudioInput)(model)) result.add(import_types5.ModelCapabilities.AudioInput);
+    if (this._runtime.provider.adapter === "anthropic") {
+      result.add(import_types6.ModelCapabilities.ToolCall);
+      return [...result];
+    }
+    result.add(import_types6.ModelCapabilities.ToolCall);
+    if ((0, import_v1_shared_adapter9.supportImageInput)(model)) result.add(import_types6.ModelCapabilities.ImageInput);
+    if ((0, import_v1_shared_adapter9.supportAudioInput)(model)) result.add(import_types6.ModelCapabilities.AudioInput);
     return [...result];
   }
   _fileHandlingConfig(model, info) {
-    if (this._runtime.provider.adapter !== "dify") {
-      return (0, import_v1_shared_adapter8.getOpenAIFileHandlingConfig)(model);
+    if (this._runtime.provider.adapter === "anthropic") {
+      return info.capabilities.some(
+        (capability) => capability === import_types6.ModelCapabilities.ImageInput || capability === import_types6.ModelCapabilities.FileInput
+      ) ? ANTHROPIC_FILE_HANDLING_CONFIG : void 0;
     }
-    if (!info.capabilities.includes(import_types5.ModelCapabilities.FileInput)) {
+    if (this._runtime.provider.adapter !== "dify") {
+      return (0, import_v1_shared_adapter9.getOpenAIFileHandlingConfig)(model);
+    }
+    if (!info.capabilities.includes(import_types6.ModelCapabilities.FileInput)) {
       return void 0;
     }
     const difyFileHandling = this._difyFileHandlingConfig(model);
@@ -3100,14 +4449,40 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   }
   _isThinkModel(model, info) {
     const lower = model.toLowerCase();
-    return info.capabilities.includes(import_types5.ModelCapabilities.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
+    return info.capabilities.includes(import_types6.ModelCapabilities.Thinking) || lower.includes("reasoner") || lower.includes("thinking") || lower.includes("reasoning") || lower.includes("r1") || lower.startsWith("o1") || lower.startsWith("o3") || lower.startsWith("o4") || lower.startsWith("gpt-5");
+  }
+};
+var ANTHROPIC_FILE_HANDLING_CONFIG = {
+  supportedMimeTypes: /* @__PURE__ */ new Set([
+    "text/html",
+    "text/css",
+    "text/plain",
+    "text/markdown",
+    "text/xml",
+    "text/csv",
+    "text/rtf",
+    "text/javascript",
+    "application/json",
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp"
+  ]),
+  maxTotalSizeBytes: 32 * 1024 * 1024,
+  maxFileSizeBytes: 32 * 1024 * 1024,
+  maxFileSizeBytesOverrides: {
+    "image/jpeg": 5 * 1024 * 1024,
+    "image/png": 5 * 1024 * 1024,
+    "image/gif": 5 * 1024 * 1024,
+    "image/webp": 5 * 1024 * 1024
   }
 };
 
 // src/metadata.ts
 var import_promises2 = require("fs/promises");
 var import_path2 = require("path");
-var import_types6 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types7 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
     this.ctx = ctx;
@@ -3144,13 +4519,8 @@ var ModelMetadataStore = class {
     }
   }
   async refresh() {
-    const response = await fetch(
-      this.options.url || "https://models.dev/models.json"
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to download models.dev catalog: ${response.status}`);
-    }
-    const catalog = await response.json();
+    const url = this.options.url || "https://models.dev/models.json";
+    const catalog = await this.downloadCatalog(url);
     this.apply(catalog);
     await (0, import_promises2.mkdir)((0, import_path2.dirname)(this.path), { recursive: true });
     await (0, import_promises2.writeFile)(this.path, `${JSON.stringify(catalog)}
@@ -3165,7 +4535,8 @@ var ModelMetadataStore = class {
       capabilities: mergeCapabilities2(
         model.capabilities,
         capabilitiesFromMetadata(metadata)
-      )
+      ),
+      reasoningEfforts: model.reasoningEfforts ?? reasoningEffortsFromMetadata(provider, metadata)
     };
   }
   getMaxTokens(provider, model) {
@@ -3205,7 +4576,47 @@ var ModelMetadataStore = class {
       this._aliases.set(alias, void 0);
     }
   }
+  async downloadCatalog(url) {
+    if (this.ctx.http != null) {
+      const response2 = await this.ctx.http(url, {
+        method: "GET",
+        responseType: "json",
+        timeout: 6e4
+      });
+      return response2.data;
+    }
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download models.dev catalog: ${response.status}`
+      );
+    }
+    return await response.json();
+  }
 };
+function reasoningEffortsFromMetadata(provider, model) {
+  const values = [
+    ...Array.isArray(model.reasoning_effort) ? model.reasoning_effort : [],
+    ...model.reasoning_efforts ?? [],
+    ...model.supported_reasoning_efforts ?? []
+  ].map(normalizeReasoningEffort3).filter((value) => value != null);
+  if (values.length > 0) return [...new Set(values)];
+  if (provider === "anthropic") return void 0;
+  if (model.reasoning_effort === true || model.supported_parameters?.includes("reasoning_effort")) {
+    return ["low", "medium", "high"];
+  }
+  if (model.reasoning === true) return ["low", "medium", "high"];
+}
+__name(reasoningEffortsFromMetadata, "reasoningEffortsFromMetadata");
+function normalizeReasoningEffort3(value) {
+  if (typeof value !== "string") return void 0;
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
+  if (normalized === "tiny") return "minimal";
+  if (normalized === "none" || normalized === "minimal" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return normalized;
+  }
+}
+__name(normalizeReasoningEffort3, "normalizeReasoningEffort");
 function modelsFromCatalog(catalog) {
   if ("models" in catalog && catalog.models != null) {
     return catalog.models;
@@ -3233,6 +4644,7 @@ function providerPrefixes(provider) {
     xai: ["xai"],
     minimax: ["minimax"],
     mistral: ["mistral"],
+    anthropic: ["anthropic"],
     groq: ["groq"],
     together: ["togetherai", "together"],
     openrouter: []
@@ -3244,13 +4656,13 @@ function capabilitiesFromMetadata(model) {
   const capabilities = [];
   const input = new Set(model.modalities?.input ?? []);
   const output = new Set(model.modalities?.output ?? []);
-  if (model.tool_call) capabilities.push(import_types6.ModelCapabilities.ToolCall);
-  if (model.reasoning) capabilities.push(import_types6.ModelCapabilities.Thinking);
-  if (input.has("image")) capabilities.push(import_types6.ModelCapabilities.ImageInput);
-  if (input.has("audio")) capabilities.push(import_types6.ModelCapabilities.AudioInput);
-  if (input.has("video")) capabilities.push(import_types6.ModelCapabilities.VideoInput);
-  if (input.has("pdf")) capabilities.push(import_types6.ModelCapabilities.FileInput);
-  if (output.has("image")) capabilities.push(import_types6.ModelCapabilities.ImageGeneration);
+  if (model.tool_call) capabilities.push(import_types7.ModelCapabilities.ToolCall);
+  if (model.reasoning) capabilities.push(import_types7.ModelCapabilities.Thinking);
+  if (input.has("image")) capabilities.push(import_types7.ModelCapabilities.ImageInput);
+  if (input.has("audio")) capabilities.push(import_types7.ModelCapabilities.AudioInput);
+  if (input.has("video")) capabilities.push(import_types7.ModelCapabilities.VideoInput);
+  if (input.has("pdf")) capabilities.push(import_types7.ModelCapabilities.FileInput);
+  if (output.has("image")) capabilities.push(import_types7.ModelCapabilities.ImageGeneration);
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
@@ -3263,7 +4675,7 @@ __name(mergeCapabilities2, "mergeCapabilities");
 // src/settings.ts
 var import_promises3 = require("fs/promises");
 var import_path3 = require("path");
-var import_types7 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types8 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var DEFAULT_SETTINGS_PATH = "data/chatluna-model-hub/config.json";
 var DEFAULT_PROVIDER_ADVANCED_SETTINGS = {
   customHeaders: [],
@@ -3353,13 +4765,13 @@ function normalizeSettings(input, previous) {
   const value = isRecord(input) ? input : {};
   const legacyAdvanced = normalizeProviderAdvanced(value);
   return {
-    providers: arrayOf(value.providers).map(
+    providers: arrayOf2(value.providers).map(
       (entry) => normalizeProvider(entry, previous, legacyAdvanced)
     ),
-    additionalModels: arrayOf(value.additionalModels).map(
+    additionalModels: arrayOf2(value.additionalModels).map(
       normalizeAdditionalModel
     ),
-    blacklistModels: arrayOf(value.blacklistModels).map(normalizeFilter)
+    blacklistModels: arrayOf2(value.blacklistModels).map(normalizeFilter)
   };
 }
 __name(normalizeSettings, "normalizeSettings");
@@ -3372,7 +4784,7 @@ function normalizeProviderAdvanced(input, previous, fallback = DEFAULT_PROVIDER_
   };
   const headerSource = value.customHeaders === void 0 ? previous?.customHeaders ?? fallback.customHeaders : value.customHeaders;
   return {
-    customHeaders: arrayOf(headerSource).map(
+    customHeaders: arrayOf2(headerSource).map(
       (entry) => normalizeHeader(entry, previous?.customHeaders)
     ),
     chatConcurrentMaxSize: clampNumber(
@@ -3449,8 +4861,12 @@ __name(normalizeProvider, "normalizeProvider");
 function normalizeProviderSpecific(input, previous, provider) {
   if (provider === "openai") {
     return {
+      reasoningProtocol: normalizeReasoningProtocol(
+        input.reasoningProtocol ?? previous?.reasoningProtocol,
+        defaultReasoningProtocol(provider)
+      ),
       responseApi: booleanOrUndefined(input.responseApi) ?? previous?.responseApi ?? false,
-      responseBuiltinTools: arrayOf(
+      responseBuiltinTools: arrayOf2(
         input.responseBuiltinTools ?? previous?.responseBuiltinTools ?? []
       ).filter(isResponseBuiltinTool),
       responseBuiltinToolSupportModel: stringArrayOf(
@@ -3460,6 +4876,14 @@ function normalizeProviderSpecific(input, previous, provider) {
       responseFileSearchVectorStoreIds: stringArrayOf(
         input.responseFileSearchVectorStoreIds ?? previous?.responseFileSearchVectorStoreIds,
         []
+      )
+    };
+  }
+  if (isOpenAICompatibleProvider(provider)) {
+    return {
+      reasoningProtocol: normalizeReasoningProtocol(
+        input.reasoningProtocol ?? previous?.reasoningProtocol,
+        defaultReasoningProtocol(provider)
       )
     };
   }
@@ -3477,6 +4901,14 @@ function normalizeProviderSpecific(input, previous, provider) {
       ),
       includeThoughts: booleanOrUndefined(input.includeThoughts) ?? previous?.includeThoughts ?? false,
       groundingContentDisplay: booleanOrUndefined(input.groundingContentDisplay) ?? previous?.groundingContentDisplay ?? false
+    };
+  }
+  if (provider === "anthropic") {
+    return {
+      anthropicPromptCache: booleanOrUndefined(input.anthropicPromptCache) ?? previous?.anthropicPromptCache ?? false,
+      anthropicPromptCacheTtl: normalizeAnthropicPromptCacheTtl(
+        input.anthropicPromptCacheTtl ?? previous?.anthropicPromptCacheTtl
+      )
     };
   }
   if (provider === "dify") {
@@ -3509,14 +4941,14 @@ function normalizeProviderSpecific(input, previous, provider) {
 __name(normalizeProviderSpecific, "normalizeProviderSpecific");
 function normalizeAdditionalModel(input) {
   const value = isRecord(input) ? input : {};
-  const capabilities = new Set(Object.values(import_types7.ModelCapabilities));
+  const capabilities = new Set(Object.values(import_types8.ModelCapabilities));
   return {
     target: stringOf(value.target, "*"),
     model: stringOf(value.model).trim(),
     modelType: stringOf(value.modelType, "LLM 大语言模型"),
     modelCapabilities: stringArrayOf(value.modelCapabilities, [
-      import_types7.ModelCapabilities.TextInput,
-      import_types7.ModelCapabilities.ToolCall
+      import_types8.ModelCapabilities.TextInput,
+      import_types8.ModelCapabilities.ToolCall
     ]).filter(
       (item) => capabilities.has(item)
     ),
@@ -3570,7 +5002,7 @@ __name(findPreviousProvider, "findPreviousProvider");
 function pickLegacySettings(input) {
   if (!isRecord(input)) return null;
   const result = {};
-  const providers = arrayOf(input.providers).filter(isMeaningfulLegacyProvider);
+  const providers = arrayOf2(input.providers).filter(isMeaningfulLegacyProvider);
   if (providers.length > 0) {
     result.providers = providers.map((provider) => ({
       ...provider
@@ -3614,6 +5046,22 @@ function normalizeDifyAppType(value) {
   return value === "agent" || value === "workflow" || value === "completion" ? value : "chat";
 }
 __name(normalizeDifyAppType, "normalizeDifyAppType");
+function normalizeAnthropicPromptCacheTtl(value) {
+  return value === "1h" ? "1h" : "5m";
+}
+__name(normalizeAnthropicPromptCacheTtl, "normalizeAnthropicPromptCacheTtl");
+function normalizeReasoningProtocol(value, fallback = "openai") {
+  return value === "deepseek" || value === "qwen" || value === "gemini" || value === "anthropic" || value === "openrouter" || value === "auto" ? value : fallback;
+}
+__name(normalizeReasoningProtocol, "normalizeReasoningProtocol");
+function isOpenAICompatibleProvider(provider) {
+  return provider === "openai-compatible" || provider === "newapi" || provider === "openrouter" || provider === "siliconflow";
+}
+__name(isOpenAICompatibleProvider, "isOpenAICompatibleProvider");
+function defaultReasoningProtocol(provider) {
+  return provider === "openrouter" ? "openrouter" : "openai";
+}
+__name(defaultReasoningProtocol, "defaultReasoningProtocol");
 function isMeaningfulLegacyProvider(input) {
   if (!isRecord(input)) return false;
   const provider = stringOf(input.provider);
@@ -3633,10 +5081,10 @@ function previewSecret(value) {
   return `${secret.slice(0, 3)}...${secret.slice(-4)}`;
 }
 __name(previewSecret, "previewSecret");
-function arrayOf(value) {
+function arrayOf2(value) {
   return Array.isArray(value) ? value : [];
 }
-__name(arrayOf, "arrayOf");
+__name(arrayOf2, "arrayOf");
 function stringArrayOf(value, fallback) {
   const source = Array.isArray(value) ? value : fallback;
   return source.map((item) => stringOf(item).trim()).filter(Boolean);
@@ -3679,16 +5127,25 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
   async get() {
     const settings = this._settings;
     const configured = settings.providers ?? [];
-    const providers = configured.map((entry) => {
+    const runtimeByConfigIndex = /* @__PURE__ */ new Map();
+    for (const runtime of this._runtime.providers) {
+      for (const entry of runtime.entries) {
+        if (entry.configIndex != null) {
+          runtimeByConfigIndex.set(entry.configIndex, runtime);
+        }
+      }
+    }
+    const providers = configured.map((entry, index) => {
       const preset = getProviderPreset(entry.provider);
-      const platform = this._platformOf(entry);
+      const runtime = runtimeByConfigIndex.get(index);
+      const platform = runtime?.platform ?? this._platformOf(entry);
       const endpoint = entry.apiEndpoint || preset.defaultEndpoint;
       const readyForLoad = entry.enabled !== false && endpoint.length > 0 && (entry.apiKey.length > 0 || preset.allowEmptyApiKey === true);
       const error = this._runtime.errors.get(platform);
       const loaded = this._runtime.clients.has(platform);
       const models2 = this.ctx.chatluna.platform.listPlatformModels(
         platform,
-        import_types8.ModelType.all
+        import_types9.ModelType.all
       ).value;
       return {
         id: preset.id,
@@ -3749,7 +5206,9 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       if (!client) continue;
       try {
         const refreshed = await client.reloadModels();
-        await this.ctx.chatluna.platform.refreshClient(client, name2);
+        this.ctx.chatluna.platform.unregisterClient(name2);
+        client.registerSelf();
+        await this.ctx.chatluna.platform.createClient(name2);
         this._runtime.errors.delete(name2);
         models += refreshed.length;
       } catch (error) {
@@ -3769,7 +5228,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
       runtime.platform,
-      import_types8.ModelType.all
+      import_types9.ModelType.all
     ).value;
     const additional = settings.additionalModels.filter(
       (item) => targetMatches(item.target, runtime.platform, runtime.provider.id)
@@ -3780,7 +5239,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         platform: runtime.platform,
         provider: runtime.provider.name,
         name: model.name,
-        type: import_types8.ModelType[model.type],
+        type: import_types9.ModelType[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
         source: custom ? "custom" : "api"

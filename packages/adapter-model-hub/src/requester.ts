@@ -26,9 +26,14 @@ import { createRequestContext } from '@chatluna/v1-shared-adapter'
 import { logger } from '.'
 import { getProviderPreset, targetMatches } from './providers'
 import { getProviderAdapter } from './adapters/registry'
+import {
+    applyReasoningProtocol,
+    resolveReasoningProtocol
+} from './adapters/reasoning-protocols'
 import type {
     ModelHubClientConfig,
     ModelHubResolvedConfig,
+    OpenAICompatibleReasoningProtocol,
     ProviderModelEntry
 } from './types'
 
@@ -115,17 +120,28 @@ export class ModelHubRequester
     public buildHeaders() {
         const current = this._config.value
         const preset = getProviderPreset(current.provider)
-        const result: Record<string, string> = {
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://github.com/ChatLunaLab/chatluna',
-            'X-Title': 'ChatLuna'
-        }
+        const result: Record<string, string> =
+            preset.adapter === 'anthropic'
+                ? {
+                      'Content-Type': 'application/json',
+                      'x-api-key': current.apiKey,
+                      'anthropic-version': '2023-06-01'
+                  }
+                : {
+                      'Content-Type': 'application/json',
+                      'HTTP-Referer': 'https://github.com/ChatLunaLab/chatluna',
+                      'X-Title': 'ChatLuna'
+                  }
 
-        if (preset.adapter !== 'gemini' && current.apiKey.length > 0) {
+        if (
+            preset.adapter !== 'gemini' &&
+            preset.adapter !== 'anthropic' &&
+            current.apiKey.length > 0
+        ) {
             result.Authorization = `Bearer ${current.apiKey}`
         }
 
-        for (const header of this._pluginConfig.customHeaders ?? []) {
+        for (const header of current.customHeaders ?? []) {
             const name = header.name?.trim()
             if (!name) continue
             if (
@@ -148,7 +164,8 @@ export class ModelHubRequester
             applyReasoningEffortStrategy(
                 preset.reasoningEffort,
                 body,
-                parsedModel.model
+                parsedModel.model,
+                current.reasoningProtocol
             )
             preset.patchCompletionBody?.(body, String(body.model ?? ''))
         }
@@ -188,9 +205,7 @@ export class ModelHubRequester
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[] {
         const current = this._config.value
         if (!current.responseApi) return []
-        if (
-            !current.responseBuiltinToolSupportModel?.includes(params.model ?? '')
-        ) {
+        if (!matchesResponseBuiltinToolModel(params.model, current.responseBuiltinToolSupportModel)) {
             return []
         }
 
@@ -275,41 +290,62 @@ export class ModelHubRequester
 function applyReasoningEffortStrategy(
     strategy: ReturnType<typeof getProviderPreset>['reasoningEffort'],
     body: Record<string, unknown>,
-    model: string
+    model: string,
+    configuredProtocol?: OpenAICompatibleReasoningProtocol
 ) {
     const effort = body.reasoning_effort
     if (effort == null) return
 
-    if (strategy === 'passthrough') return
-
-    delete body.reasoning_effort
+    if (strategy === 'passthrough') {
+        applyReasoningProtocol(
+            resolveReasoningProtocol(configuredProtocol, model),
+            body,
+            model
+        )
+        return
+    }
 
     if (strategy === 'deepseek') {
-        const reasoningEffort = normalizeDeepSeekReasoningEffort(effort)
-        if (reasoningEffort == null) {
-            body.thinking = { type: 'disabled' }
-            return
-        }
-        body.reasoning_effort = reasoningEffort
-        body.thinking = {
-            type: 'enabled'
-        }
+        applyReasoningProtocol('deepseek', body, model)
         return
     }
 
     if (strategy === 'qwen') {
-        if (model.toLowerCase().includes('qwen3')) {
-            body.enable_thinking = effort !== 'none'
-        }
+        applyReasoningProtocol('qwen', body, model)
+        return
     }
+
+    delete body.reasoning_effort
 }
 
-function normalizeDeepSeekReasoningEffort(effort: unknown) {
-    if (effort === 'none') return undefined
-    if (effort === 'max' || effort === 'xhigh' || effort === 'high') {
-        return effort === 'xhigh' ? 'max' : effort
-    }
-    return 'high'
+function matchesResponseBuiltinToolModel(
+    model: string | undefined,
+    supported: string[] | undefined
+) {
+    if (!model || (supported?.length ?? 0) < 1) return false
+    const normalized = normalizeResponseToolModel(model)
+    return (supported ?? []).some((item) => {
+        const target = normalizeResponseToolModel(item)
+        if (!target) return false
+        return (
+            normalized === target ||
+            isResponseModelPrefix(normalized, target) ||
+            isResponseModelPrefix(target, normalized)
+        )
+    })
+}
+
+function normalizeResponseToolModel(model: string) {
+    return parseOpenAIModelNameWithReasoningEffort(model)
+        .model
+        .trim()
+        .toLowerCase()
+}
+
+function isResponseModelPrefix(model: string, prefix: string) {
+    if (!model.startsWith(prefix)) return false
+    const next = model[prefix.length]
+    return next === '-' || next === '.' || next === ':'
 }
 
 class ModelHubStreamMetricsTracker {

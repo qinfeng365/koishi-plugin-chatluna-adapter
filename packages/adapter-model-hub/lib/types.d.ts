@@ -2,7 +2,7 @@ import type { ClientConfig } from 'koishi-plugin-chatluna/llm-core/platform/conf
 import type { ModelCapabilities, ModelType } from 'koishi-plugin-chatluna/llm-core/platform/types';
 import type { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import type { ModelHubClient } from './client';
-export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini' | 'dify';
+export type ProviderAdapterId = 'openai-chat' | 'openai' | 'gemini' | 'dify' | 'anthropic';
 export type ModelHubProviderStatus = 'loaded' | 'configured' | 'missing-key' | 'disabled' | 'error' | 'preset';
 export interface ModelHubKoishiConfig {
     webui: boolean;
@@ -45,6 +45,10 @@ export interface ProviderAdvancedSettings {
     nonStreaming: boolean;
     expandReasoningVariants: boolean;
 }
+export type OpenAICompatibleReasoningProtocol = 'openai' | 'deepseek' | 'qwen' | 'gemini' | 'anthropic' | 'openrouter' | 'auto';
+export interface OpenAICompatibleProviderSettings {
+    reasoningProtocol?: OpenAICompatibleReasoningProtocol;
+}
 export type OpenAIResponseBuiltinToolType = 'web_search_preview' | 'image_generation' | 'code_interpreter' | 'file_search';
 export interface OpenAIProviderSettings {
     responseApi?: boolean;
@@ -60,6 +64,11 @@ export interface GeminiProviderSettings {
     thinkingBudget?: number;
     includeThoughts?: boolean;
     groundingContentDisplay?: boolean;
+}
+export type AnthropicPromptCacheTtl = '5m' | '1h';
+export interface AnthropicProviderSettings {
+    anthropicPromptCache?: boolean;
+    anthropicPromptCacheTtl?: AnthropicPromptCacheTtl;
 }
 export type DifyAppType = 'chat' | 'agent' | 'workflow' | 'completion';
 export interface DifyProviderSettings {
@@ -109,7 +118,7 @@ export interface ModelHubSettings {
     additionalModels: AdditionalModelEntry[];
     blacklistModels: ModelFilterEntry[];
 }
-export interface ProviderEntry extends ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings, DifyProviderSettings {
+export interface ProviderEntry extends ProviderAdvancedSettings, OpenAICompatibleProviderSettings, OpenAIProviderSettings, GeminiProviderSettings, AnthropicProviderSettings, DifyProviderSettings {
     provider: string;
     name?: string;
     platform: string;
@@ -134,18 +143,20 @@ export interface ConsoleHeaderEntry extends Omit<HeaderEntry, 'value'> {
 export interface ModelHubConsoleSettings extends Omit<ModelHubSettings, 'providers'> {
     providers: ConsoleProviderEntry[];
 }
-export type ModelHubResolvedConfig = ModelHubKoishiConfig & ModelHubSettings & ProviderAdvancedSettings & OpenAIProviderSettings & GeminiProviderSettings & DifyProviderSettings & ChatLunaPlugin.Config;
+export type ModelHubResolvedConfig = ModelHubKoishiConfig & ModelHubSettings & ProviderAdvancedSettings & OpenAICompatibleProviderSettings & OpenAIProviderSettings & GeminiProviderSettings & AnthropicProviderSettings & DifyProviderSettings & ChatLunaPlugin.Config;
 export interface ProviderModelPreset {
     name: string;
     type: ModelType;
     maxTokens: number;
     capabilities: readonly ModelCapabilities[];
 }
+export type ReasoningEffortLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export interface ProviderModelEntry {
     name: string;
     type?: ModelType;
     maxTokens?: number;
     capabilities?: ModelCapabilities[];
+    reasoningEfforts?: ReasoningEffortLevel[];
     reasoningVariantOf?: string;
 }
 export interface ProviderPreset {
@@ -168,14 +179,16 @@ export interface RuntimeProviderEntry extends ProviderEntry {
     icon: string;
     platform: string;
     apiEndpoint: string;
+    configIndex?: number;
 }
 export interface RuntimeProvider {
     provider: ProviderPreset;
     adapter: ProviderAdapterId;
     platform: string;
+    configSignature?: string;
     entries: RuntimeProviderEntry[];
 }
-export interface ModelHubClientConfig extends ClientConfig, ProviderAdvancedSettings, OpenAIProviderSettings, GeminiProviderSettings, DifyProviderSettings {
+export interface ModelHubClientConfig extends ClientConfig, ProviderAdvancedSettings, OpenAICompatibleProviderSettings, OpenAIProviderSettings, GeminiProviderSettings, AnthropicProviderSettings, DifyProviderSettings {
     provider: string;
     providerName: string;
     icon: string;

@@ -11,6 +11,7 @@ import {
 } from './providers'
 import type {
     AdditionalModelEntry,
+    AnthropicPromptCacheTtl,
     ConsoleHeaderEntry,
     ConsoleProviderEntry,
     HeaderEntry,
@@ -19,6 +20,7 @@ import type {
     ModelHubKoishiConfig,
     ModelHubResolvedConfig,
     ModelHubSettings,
+    OpenAICompatibleReasoningProtocol,
     OpenAIResponseBuiltinToolType,
     ProviderAdvancedSettings,
     ProviderEntry
@@ -257,6 +259,10 @@ function normalizeProviderSpecific(
 ): Partial<ProviderEntry> {
     if (provider === 'openai') {
         return {
+            reasoningProtocol: normalizeReasoningProtocol(
+                input.reasoningProtocol ?? previous?.reasoningProtocol,
+                defaultReasoningProtocol(provider)
+            ),
             responseApi:
                 booleanOrUndefined(input.responseApi) ??
                 previous?.responseApi ??
@@ -275,6 +281,15 @@ function normalizeProviderSpecific(
                 input.responseFileSearchVectorStoreIds ??
                     previous?.responseFileSearchVectorStoreIds,
                 []
+            )
+        }
+    }
+
+    if (isOpenAICompatibleProvider(provider)) {
+        return {
+            reasoningProtocol: normalizeReasoningProtocol(
+                input.reasoningProtocol ?? previous?.reasoningProtocol,
+                defaultReasoningProtocol(provider)
             )
         }
     }
@@ -311,6 +326,19 @@ function normalizeProviderSpecific(
                 booleanOrUndefined(input.groundingContentDisplay) ??
                 previous?.groundingContentDisplay ??
                 false
+        }
+    }
+
+    if (provider === 'anthropic') {
+        return {
+            anthropicPromptCache:
+                booleanOrUndefined(input.anthropicPromptCache) ??
+                previous?.anthropicPromptCache ??
+                false,
+            anthropicPromptCacheTtl: normalizeAnthropicPromptCacheTtl(
+                input.anthropicPromptCacheTtl ??
+                    previous?.anthropicPromptCacheTtl
+            )
         }
     }
 
@@ -484,6 +512,41 @@ function normalizeDifyAppType(value: unknown) {
         value === 'completion'
         ? value
         : 'chat'
+}
+
+function normalizeAnthropicPromptCacheTtl(
+    value: unknown
+): AnthropicPromptCacheTtl {
+    return value === '1h' ? '1h' : '5m'
+}
+
+function normalizeReasoningProtocol(
+    value: unknown,
+    fallback: OpenAICompatibleReasoningProtocol = 'openai'
+): OpenAICompatibleReasoningProtocol {
+    return value === 'deepseek' ||
+        value === 'qwen' ||
+        value === 'gemini' ||
+        value === 'anthropic' ||
+        value === 'openrouter' ||
+        value === 'auto'
+        ? value
+        : fallback
+}
+
+function isOpenAICompatibleProvider(provider: string) {
+    return (
+        provider === 'openai-compatible' ||
+        provider === 'newapi' ||
+        provider === 'openrouter' ||
+        provider === 'siliconflow'
+    )
+}
+
+function defaultReasoningProtocol(
+    provider: string
+): OpenAICompatibleReasoningProtocol {
+    return provider === 'openrouter' ? 'openrouter' : 'openai'
 }
 
 function isMeaningfulLegacyProvider(input: unknown) {

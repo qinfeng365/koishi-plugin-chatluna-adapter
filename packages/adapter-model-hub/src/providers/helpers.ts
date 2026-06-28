@@ -86,3 +86,12 @@ export function difyProvider(
         adapter: 'dify'
     }
 }
+
+export function anthropicProvider(
+    preset: Omit<ProviderPreset, 'adapter'>
+): ProviderPreset {
+    return {
+        ...preset,
+        adapter: 'anthropic'
+    }
+}

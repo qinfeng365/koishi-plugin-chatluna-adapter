@@ -8,6 +8,7 @@ import type {
 import openaiCompatible from './openai-compatible'
 import openai from './openai'
 import gemini from './gemini'
+import anthropic from './anthropic'
 import openrouter from './openrouter'
 import deepseek from './deepseek'
 import qwen from './qwen'
@@ -33,6 +34,7 @@ import dify from './dify'
 
 export {
     DEFAULT_ICON_CDN,
+    anthropicProvider,
     audio,
     difyProvider,
     embedding,
@@ -52,6 +54,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     openaiCompatible,
     openai,
     gemini,
+    anthropic,
     openrouter,
     deepseek,
     qwen,
@@ -81,6 +84,7 @@ const providerMap = new Map(PROVIDER_PRESETS.map((item) => [item.id, item]))
 export const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[] = [
     'openai',
     'gemini',
+    'anthropic',
     'openrouter',
     'deepseek',
     'qwen',
@@ -108,7 +112,10 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[] = [
         presencePenalty: 0,
         frequencyPenalty: 0,
         nonStreaming: false,
-        expandReasoningVariants: false
+        expandReasoningVariants: false,
+        reasoningProtocol: preset.id === 'openrouter' ? 'openrouter' : 'openai',
+        anthropicPromptCache: false,
+        anthropicPromptCacheTtl: '5m'
     }
 })
 
@@ -161,9 +168,19 @@ export function resolveRuntimeProviders(
 ): RuntimeProvider[] {
     const groups = new Map<string, RuntimeProvider>()
 
-    for (const entry of entries ?? []) {
+    for (const [configIndex, entry] of (entries ?? []).entries()) {
         const preset = getProviderPreset(entry.provider)
-        const platform = normalizePlatformName(entry.platform, preset.defaultPlatform)
+        const requestedPlatform = normalizePlatformName(
+            entry.platform,
+            preset.defaultPlatform
+        )
+        const configSignature = runtimeConfigSignature(entry, preset)
+        const platform = resolveRuntimePlatform(
+            groups,
+            requestedPlatform,
+            preset,
+            configSignature
+        )
         const apiKey = entry.apiKey?.trim() ?? ''
         const apiEndpoint = getEndpoint(entry, preset)
 
@@ -177,6 +194,7 @@ export function resolveRuntimeProviders(
                 provider: preset,
                 adapter: preset.adapter,
                 platform,
+                configSignature,
                 entries: []
             }
             groups.set(platform, group)
@@ -190,12 +208,110 @@ export function resolveRuntimeProviders(
             providerName: entry.name?.trim() || preset.name,
             icon: preset.icon,
             platform,
+            configIndex,
             enabled: true,
             pullModels: entry.pullModels === true
         })
     }
 
     return [...groups.values()]
+}
+
+function resolveRuntimePlatform(
+    groups: Map<string, RuntimeProvider>,
+    requestedPlatform: string,
+    preset: ProviderPreset,
+    configSignature: string
+) {
+    const existing = groups.get(requestedPlatform)
+    if (
+        existing == null ||
+        (existing.provider.id === preset.id &&
+            canShareRuntimeProvider(existing, configSignature))
+    ) {
+        return requestedPlatform
+    }
+
+    const base = `${requestedPlatform}-${preset.id}`
+    let next = base
+    let index = 2
+    while (true) {
+        const group = groups.get(next)
+        if (
+            group == null ||
+            (group.provider.id === preset.id &&
+                canShareRuntimeProvider(group, configSignature))
+        ) {
+            return next
+        }
+        next = `${base}-${index++}`
+    }
+}
+
+function canShareRuntimeProvider(
+    group: RuntimeProvider,
+    configSignature: string
+) {
+    if (group.provider.adapter === 'dify') return true
+    return group.configSignature === configSignature
+}
+
+function runtimeConfigSignature(entry: ProviderEntry, preset: ProviderPreset) {
+    if (preset.adapter === 'dify') return 'dify-apps'
+
+    return stableStringify({
+        provider: preset.id,
+        adapter: preset.adapter,
+        apiEndpoint: getEndpoint(entry, preset),
+        pullModels: entry.pullModels === true,
+        customHeaders: (entry.customHeaders ?? []).map((header) => ({
+            target: normalizeId(header.target, '*'),
+            name: header.name?.trim().toLowerCase() ?? '',
+            value: header.value ?? ''
+        })),
+        chatConcurrentMaxSize: entry.chatConcurrentMaxSize,
+        chatTimeLimit: entry.chatTimeLimit,
+        configMode: entry.configMode,
+        maxRetries: entry.maxRetries,
+        timeout: entry.timeout,
+        proxyMode: entry.proxyMode,
+        proxyAddress: entry.proxyAddress,
+        maxContextRatio: entry.maxContextRatio,
+        temperature: entry.temperature,
+        presencePenalty: entry.presencePenalty,
+        frequencyPenalty: entry.frequencyPenalty,
+        nonStreaming: entry.nonStreaming === true,
+        expandReasoningVariants: entry.expandReasoningVariants === true,
+        reasoningProtocol: entry.reasoningProtocol ?? 'openai',
+        responseApi: entry.responseApi === true,
+        responseBuiltinTools: entry.responseBuiltinTools ?? [],
+        responseBuiltinToolSupportModel:
+            entry.responseBuiltinToolSupportModel ?? [],
+        responseFileSearchVectorStoreIds:
+            entry.responseFileSearchVectorStoreIds ?? [],
+        googleSearch: entry.googleSearch === true,
+        codeExecution: entry.codeExecution === true,
+        urlContext: entry.urlContext === true,
+        imageGeneration: entry.imageGeneration === true,
+        thinkingBudget: entry.thinkingBudget,
+        includeThoughts: entry.includeThoughts === true,
+        groundingContentDisplay: entry.groundingContentDisplay === true,
+        anthropicPromptCache: entry.anthropicPromptCache === true,
+        anthropicPromptCacheTtl: entry.anthropicPromptCacheTtl
+    })
+}
+
+function stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(',')}]`
+    }
+    if (value != null && typeof value === 'object') {
+        return `{${Object.entries(value as Record<string, unknown>)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+            .join(',')}}`
+    }
+    return JSON.stringify(value)
 }
 
 export function getTargetedAdditionalModels(

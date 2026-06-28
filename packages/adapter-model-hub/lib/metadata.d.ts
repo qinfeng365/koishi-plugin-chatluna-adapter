@@ -20,4 +20,5 @@ export declare class ModelMetadataStore {
     private apply;
     private find;
     private setAlias;
+    private downloadCatalog;
 }

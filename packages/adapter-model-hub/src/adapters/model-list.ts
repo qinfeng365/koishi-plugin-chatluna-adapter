@@ -8,7 +8,12 @@ import {
     ModelCapabilities,
     ModelType
 } from 'koishi-plugin-chatluna/llm-core/platform/types'
-import type { ProviderModelEntry, ProviderPreset } from '../types'
+import type {
+    OpenAICompatibleReasoningProtocol,
+    ProviderModelEntry,
+    ProviderPreset,
+    ReasoningEffortLevel
+} from '../types'
 
 type OpenAIModelObject = {
     id?: string
@@ -57,6 +62,25 @@ type GeminiModelObject = {
     }
 }
 
+type AnthropicModelObject = {
+    id?: string
+    display_name?: string
+    max_input_tokens?: number
+    max_tokens?: number
+    context_length?: number
+    capabilities?: {
+        image_input?: boolean | { supported?: boolean }
+        pdf_input?: boolean | { supported?: boolean }
+        tool_use?: boolean | { supported?: boolean }
+        tools?: boolean | { supported?: boolean }
+        thinking?: boolean | { supported?: boolean; effort?: string[] }
+        effort?: boolean | { supported?: boolean; values?: string[] }
+    }
+    reasoning_effort?: boolean | string[]
+    reasoning_efforts?: string[]
+    supported_reasoning_efforts?: string[]
+}
+
 export function parseOpenAIModels(
     payload: unknown,
     provider?: Pick<ProviderPreset, 'id' | 'reasoningEffort'>
@@ -76,10 +100,10 @@ export function parseOpenAIModels(
 
         if (!shouldExpandReasoningVariants(provider, base)) continue
 
-        for (const variant of expandReasoningEffortModelVariants(
-            id,
-            reasoningVariantSuffixes(provider, id)
-        )) {
+        const suffixes = reasoningVariantSuffixes(provider, base)
+        if ((suffixes?.length ?? 0) < 1) continue
+
+        for (const variant of expandReasoningEffortModelVariants(id, suffixes)) {
             pushUnique(result, seen, {
                 name: variant,
                 type: ModelType.llm,
@@ -102,6 +126,9 @@ function shouldExpandReasoningVariants(
     if (!provider?.reasoningEffort || provider.reasoningEffort === 'disabled') {
         return false
     }
+    if (model.reasoningEfforts != null) {
+        return model.reasoningEfforts.length > 0 && isChatModel(model)
+    }
     if (model.capabilities?.includes(ModelCapabilities.Thinking)) {
         return isChatModel(model)
     }
@@ -110,7 +137,10 @@ function shouldExpandReasoningVariants(
 
 export function expandReasoningVariantsForProvider(
     provider: Pick<ProviderPreset, 'id' | 'reasoningEffort'> | undefined,
-    models: ProviderModelEntry[]
+    models: ProviderModelEntry[],
+    options: {
+        reasoningProtocol?: OpenAICompatibleReasoningProtocol
+    } = {}
 ) {
     const result: ProviderModelEntry[] = []
     const seen = new Set<string>()
@@ -121,9 +151,16 @@ export function expandReasoningVariantsForProvider(
         if (model.reasoningVariantOf) continue
         if (!shouldExpandReasoningVariants(provider, model)) continue
 
+        const suffixes = reasoningVariantSuffixes(
+            provider,
+            model,
+            options.reasoningProtocol
+        )
+        if ((suffixes?.length ?? 0) < 1) continue
+
         for (const variant of expandReasoningEffortModelVariants(
             model.name,
-            reasoningVariantSuffixes(provider, model.name)
+            suffixes
         )) {
             pushUnique(result, seen, {
                 name: variant,
@@ -170,6 +207,7 @@ function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
     if (provider === 'qwen') {
         return id.includes('qwen3')
     }
+    if (provider === 'anthropic') return false
     if (provider === 'siliconflow') {
         return (
             id.includes('deepseek-v4') ||
@@ -179,8 +217,20 @@ function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
     return false
 }
 
-const DEEPSEEK_REASONING_SUFFIXES = ['high-thinking', 'max-thinking'] as const
+const DEEPSEEK_REASONING_SUFFIXES = [
+    'non-thinking',
+    'high-thinking',
+    'max-thinking'
+] as const
 const NO_REASONING_SUFFIXES = [] as const
+const QWEN_REASONING_SUFFIXES = [
+    'non-thinking',
+    'minimal-thinking',
+    'low-thinking',
+    'medium-thinking',
+    'high-thinking',
+    'max-thinking'
+] as const
 const GEMINI_REASONING_SUFFIXES = [
     'minimal-thinking',
     'low-thinking',
@@ -192,33 +242,101 @@ const GEMINI_FLASH_REASONING_SUFFIXES = [
     ...GEMINI_REASONING_SUFFIXES
 ] as const
 const GEMMA_REASONING_SUFFIXES = ['minimal-thinking', 'high-thinking'] as const
+const REASONING_EFFORT_SUFFIXES: Record<ReasoningEffortLevel, string> = {
+    none: 'non-thinking',
+    minimal: 'minimal-thinking',
+    low: 'low-thinking',
+    medium: 'medium-thinking',
+    high: 'high-thinking',
+    xhigh: 'xhigh-thinking',
+    max: 'max-thinking'
+}
+const REASONING_EFFORT_ORDER: ReasoningEffortLevel[] = [
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max'
+]
 
 function reasoningVariantSuffixes(
     provider: Pick<ProviderPreset, 'id'> | undefined,
-    model: string
+    model: ProviderModelEntry,
+    reasoningProtocol?: OpenAICompatibleReasoningProtocol
 ) {
-    const id = model.toLowerCase()
+    const id = model.name.toLowerCase()
+    const protocol = resolveReasoningProtocol(reasoningProtocol, id)
+    if (protocol === 'deepseek') {
+        return DEEPSEEK_REASONING_SUFFIXES
+    }
+    if (protocol === 'qwen') {
+        return QWEN_REASONING_SUFFIXES
+    }
+    if (protocol === 'gemini') {
+        return geminiReasoningSuffixes(id)
+    }
+    if (protocol === 'anthropic') {
+        return reasoningEffortSuffixes(
+            model.reasoningEfforts ?? ['low', 'medium', 'high']
+        )
+    }
+
     if (provider?.id === 'deepseek' || id.includes('deepseek-v4')) {
         return DEEPSEEK_REASONING_SUFFIXES
+    }
+    if (provider?.id === 'qwen' && id.includes('qwen3')) {
+        return QWEN_REASONING_SUFFIXES
+    }
+    if (model.reasoningEfforts != null) {
+        return reasoningEffortSuffixes(model.reasoningEfforts)
     }
     if (provider?.id === 'minimax' || id.includes('minimax-m')) {
         return NO_REASONING_SUFFIXES
     }
+    if (provider?.id === 'anthropic' || id.includes('claude-')) return undefined
     if (id.includes('gemma-4')) return GEMMA_REASONING_SUFFIXES
     if (
         id.includes('gemini-2.5-flash') ||
         id.includes('gemini-flash-lite-latest')
     ) {
-        return GEMINI_FLASH_REASONING_SUFFIXES
+        return geminiReasoningSuffixes(id)
     }
     if (
         id.includes('gemini-2.5') ||
         id.includes('gemini-3') ||
         id.includes('gemini-pro-latest')
     ) {
-        return GEMINI_REASONING_SUFFIXES
+        return geminiReasoningSuffixes(id)
     }
     return undefined
+}
+
+function resolveReasoningProtocol(
+    protocol: OpenAICompatibleReasoningProtocol | undefined,
+    model: string
+) {
+    if (!protocol || protocol === 'openai') return 'openai'
+    if (protocol !== 'auto') return protocol
+    if (model.includes('deepseek')) return 'deepseek'
+    if (model.includes('qwen')) return 'qwen'
+    if (model.includes('gemini') || model.includes('gemma')) return 'gemini'
+    if (model.includes('claude')) return 'anthropic'
+    return 'openai'
+}
+
+function geminiReasoningSuffixes(model: string) {
+    return model.includes('gemini-3')
+        ? GEMINI_REASONING_SUFFIXES
+        : GEMINI_FLASH_REASONING_SUFFIXES
+}
+
+function reasoningEffortSuffixes(efforts: ReasoningEffortLevel[]) {
+    const set = new Set(efforts)
+    return REASONING_EFFORT_ORDER.filter((effort) => set.has(effort)).map(
+        (effort) => REASONING_EFFORT_SUFFIXES[effort]
+    )
 }
 
 function mergeCapabilities(
@@ -264,18 +382,37 @@ export function parseGeminiModels(payload: unknown): ProviderModelEntry[] {
         .filter(Boolean)
 }
 
+export function parseAnthropicModels(payload: unknown): ProviderModelEntry[] {
+    const items = Array.isArray((payload as { data?: unknown }).data)
+        ? ((payload as { data?: AnthropicModelObject[] }).data ?? [])
+        : []
+    return items
+        .map((item) => {
+            const name = item.id?.trim()
+            if (!name) return undefined
+
+            return {
+                name,
+                maxTokens:
+                    item.max_input_tokens ??
+                    item.context_length ??
+                    item.max_tokens,
+                type: ModelType.llm,
+                reasoningEfforts: anthropicReasoningEfforts(item),
+                capabilities: anthropicCapabilities(item)
+            } satisfies ProviderModelEntry
+        })
+        .filter(Boolean)
+}
+
 function geminiCapabilities(name: string) {
     const lower = name.toLowerCase()
     const result = new Set<ModelCapabilities>([ModelCapabilities.ToolCall])
-    if (
-        lower.includes('vision') ||
-        lower.includes('gemini-1.5') ||
-        lower.includes('gemini-2') ||
-        lower.includes('gemini-3') ||
-        lower.includes('gemini-pro-latest') ||
-        lower.includes('gemini-flash-latest')
-    ) {
+    if (supportsGeminiMultimodalInput(lower)) {
         result.add(ModelCapabilities.ImageInput)
+        result.add(ModelCapabilities.AudioInput)
+        result.add(ModelCapabilities.VideoInput)
+        result.add(ModelCapabilities.FileInput)
     }
     if (
         lower.includes('thinking') ||
@@ -291,6 +428,161 @@ function geminiCapabilities(name: string) {
         result.add(ModelCapabilities.ImageGeneration)
     }
     return [...result]
+}
+
+function supportsGeminiMultimodalInput(lower: string) {
+    if (lower.includes('embedding')) return false
+    if (lower.includes('image-generation')) return false
+    return (
+        lower.includes('vision') ||
+        lower.includes('gemini-1.5') ||
+        lower.includes('gemini-2') ||
+        lower.includes('gemini-3') ||
+        lower.includes('gemini-pro-latest') ||
+        lower.includes('gemini-flash-latest') ||
+        lower.includes('gemini-flash-lite-latest')
+    )
+}
+
+function anthropicCapabilities(item: AnthropicModelObject) {
+    const result = new Set<ModelCapabilities>([ModelCapabilities.ToolCall])
+    const capabilities = item.capabilities
+    const id = item.id?.toLowerCase() ?? ''
+    const reasoningEfforts = anthropicReasoningEfforts(item)
+
+    if (
+        isCapabilitySupported(capabilities?.image_input) ||
+        id.includes('sonnet') ||
+        id.includes('opus') ||
+        id.includes('haiku') ||
+        id.includes('fable') ||
+        id.includes('mythos')
+    ) {
+        result.add(ModelCapabilities.ImageInput)
+    }
+    if (
+        isCapabilitySupported(capabilities?.pdf_input) ||
+        id.includes('sonnet') ||
+        id.includes('opus') ||
+        id.includes('fable') ||
+        id.includes('mythos')
+    ) {
+        result.add(ModelCapabilities.FileInput)
+    }
+    if (
+        isCapabilitySupported(capabilities?.thinking) ||
+        isCapabilitySupported(capabilities?.effort) ||
+        reasoningEfforts != null
+    ) {
+        result.add(ModelCapabilities.Thinking)
+    }
+    if (
+        capabilities != null &&
+        (isCapabilitySupported(capabilities.tool_use) ||
+            isCapabilitySupported(capabilities.tools))
+    ) {
+        result.add(ModelCapabilities.ToolCall)
+    }
+
+    return [...result]
+}
+
+function anthropicReasoningEfforts(
+    item: AnthropicModelObject
+): ReasoningEffortLevel[] | undefined {
+    const capabilities = item.capabilities
+    const values = [
+        ...capabilityEffortValues(capabilities?.thinking),
+        ...capabilityEffortValues(capabilities?.effort),
+        ...arrayOf(item.reasoning_effort),
+        ...(item.reasoning_efforts ?? []),
+        ...(item.supported_reasoning_efforts ?? [])
+    ]
+        .map(normalizeReasoningEffort)
+        .filter((value): value is ReasoningEffortLevel => value != null)
+
+    if (values.length > 0) return [...new Set(values)]
+
+    const fallback = anthropicFallbackReasoningEfforts(item.id ?? '')
+    if (fallback) return fallback
+
+    if (
+        isCapabilitySupported(capabilities?.thinking) ||
+        isCapabilitySupported(capabilities?.effort) ||
+        item.reasoning_effort === true
+    ) {
+        return ['low', 'medium', 'high']
+    }
+}
+
+function anthropicFallbackReasoningEfforts(
+    model: string
+): ReasoningEffortLevel[] | undefined {
+    const id = model.toLowerCase()
+    if (
+        id.includes('claude-fable-5') ||
+        id.includes('claude-mythos-5') ||
+        id.includes('claude-opus-4-8') ||
+        id.includes('claude-opus-4-7')
+    ) {
+        return ['low', 'medium', 'high', 'xhigh', 'max']
+    }
+
+    if (
+        id.includes('claude-mythos-preview') ||
+        id.includes('claude-opus-4-6') ||
+        id.includes('claude-sonnet-4-6')
+    ) {
+        return ['low', 'medium', 'high', 'max']
+    }
+}
+
+function capabilityEffortValues(value: unknown): unknown[] {
+    if (Array.isArray(value)) return value
+    if (value == null || typeof value !== 'object') return []
+
+    const object = value as Record<string, unknown>
+    return [
+        ...arrayOf(object.effort),
+        ...arrayOf(object.values),
+        ...arrayOf(object.levels),
+        ...arrayOf(object.supported_values)
+    ]
+}
+
+function arrayOf(value: unknown) {
+    return Array.isArray(value) ? value : []
+}
+
+function normalizeReasoningEffort(
+    value: unknown
+): ReasoningEffortLevel | undefined {
+    if (typeof value !== 'string') return undefined
+    const normalized = value
+        .trim()
+        .toLowerCase()
+        .replace(/[-_\s]*thinking$/, '')
+
+    if (normalized === 'tiny') return 'minimal'
+    if (
+        normalized === 'none' ||
+        normalized === 'minimal' ||
+        normalized === 'low' ||
+        normalized === 'medium' ||
+        normalized === 'high' ||
+        normalized === 'xhigh' ||
+        normalized === 'max'
+    ) {
+        return normalized
+    }
+}
+
+function isCapabilitySupported(value: unknown) {
+    if (typeof value === 'boolean') return value
+    if (value != null && typeof value === 'object') {
+        return (value as { supported?: unknown }).supported === true
+    }
+    return false
 }
 
 function makeOpenAIEntry(

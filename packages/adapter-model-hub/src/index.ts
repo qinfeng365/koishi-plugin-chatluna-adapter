@@ -66,9 +66,18 @@ class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
     async get() {
         const settings = this._settings
         const configured = settings.providers ?? []
-        const providers = configured.map((entry) => {
+        const runtimeByConfigIndex = new Map<number, RuntimeProvider>()
+        for (const runtime of this._runtime.providers) {
+            for (const entry of runtime.entries) {
+                if (entry.configIndex != null) {
+                    runtimeByConfigIndex.set(entry.configIndex, runtime)
+                }
+            }
+        }
+        const providers = configured.map((entry, index) => {
             const preset = getProviderPreset(entry.provider)
-            const platform = this._platformOf(entry)
+            const runtime = runtimeByConfigIndex.get(index)
+            const platform = runtime?.platform ?? this._platformOf(entry)
             const endpoint = entry.apiEndpoint || preset.defaultEndpoint
             const readyForLoad =
                 entry.enabled !== false &&
@@ -160,7 +169,9 @@ class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             if (!client) continue
             try {
                 const refreshed = await client.reloadModels()
-                await this.ctx.chatluna.platform.refreshClient(client, name)
+                this.ctx.chatluna.platform.unregisterClient(name)
+                client.registerSelf()
+                await this.ctx.chatluna.platform.createClient(name)
                 this._runtime.errors.delete(name)
                 models += refreshed.length
             } catch (error) {

@@ -2,13 +2,17 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
 import type { Context } from 'koishi'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
-import type { ProviderModelEntry } from './types'
+import type { ProviderModelEntry, ReasoningEffortLevel } from './types'
 
 type ModelsDevModel = {
     id?: string
     name?: string
     attachment?: boolean
     reasoning?: boolean
+    reasoning_effort?: boolean | string[]
+    reasoning_efforts?: string[]
+    supported_reasoning_efforts?: string[]
+    supported_parameters?: string[]
     tool_call?: boolean
     modalities?: {
         input?: string[]
@@ -68,13 +72,8 @@ export class ModelMetadataStore {
     }
 
     async refresh() {
-        const response = await fetch(
-            this.options.url || 'https://models.dev/models.json'
-        )
-        if (!response.ok) {
-            throw new Error(`Failed to download models.dev catalog: ${response.status}`)
-        }
-        const catalog = (await response.json()) as ModelsDevCatalog
+        const url = this.options.url || 'https://models.dev/models.json'
+        const catalog = await this.downloadCatalog(url)
         this.apply(catalog)
         await mkdir(dirname(this.path), { recursive: true })
         await writeFile(this.path, `${JSON.stringify(catalog)}\n`, 'utf8')
@@ -93,7 +92,10 @@ export class ModelMetadataStore {
             capabilities: mergeCapabilities(
                 model.capabilities,
                 capabilitiesFromMetadata(metadata)
-            )
+            ),
+            reasoningEfforts:
+                model.reasoningEfforts ??
+                reasoningEffortsFromMetadata(provider, metadata)
         }
     }
 
@@ -142,6 +144,76 @@ export class ModelMetadataStore {
             this._aliases.set(alias, undefined)
         }
     }
+
+    private async downloadCatalog(url: string): Promise<ModelsDevCatalog> {
+        if (this.ctx.http != null) {
+            const response = await this.ctx.http<ModelsDevCatalog>(url, {
+                method: 'GET',
+                responseType: 'json',
+                timeout: 60_000
+            })
+            return response.data
+        }
+
+        const response = await fetch(url)
+        if (!response.ok) {
+            throw new Error(
+                `Failed to download models.dev catalog: ${response.status}`
+            )
+        }
+        return (await response.json()) as ModelsDevCatalog
+    }
+}
+
+function reasoningEffortsFromMetadata(
+    provider: string,
+    model: ModelsDevModel
+): ReasoningEffortLevel[] | undefined {
+    const values = [
+        ...(Array.isArray(model.reasoning_effort)
+            ? model.reasoning_effort
+            : []),
+        ...(model.reasoning_efforts ?? []),
+        ...(model.supported_reasoning_efforts ?? [])
+    ]
+        .map(normalizeReasoningEffort)
+        .filter((value): value is ReasoningEffortLevel => value != null)
+
+    if (values.length > 0) return [...new Set(values)]
+
+    if (provider === 'anthropic') return undefined
+
+    if (
+        model.reasoning_effort === true ||
+        model.supported_parameters?.includes('reasoning_effort')
+    ) {
+        return ['low', 'medium', 'high']
+    }
+
+    if (model.reasoning === true) return ['low', 'medium', 'high']
+}
+
+function normalizeReasoningEffort(
+    value: unknown
+): ReasoningEffortLevel | undefined {
+    if (typeof value !== 'string') return undefined
+    const normalized = value
+        .trim()
+        .toLowerCase()
+        .replace(/[-_\s]*thinking$/, '')
+
+    if (normalized === 'tiny') return 'minimal'
+    if (
+        normalized === 'none' ||
+        normalized === 'minimal' ||
+        normalized === 'low' ||
+        normalized === 'medium' ||
+        normalized === 'high' ||
+        normalized === 'xhigh' ||
+        normalized === 'max'
+    ) {
+        return normalized
+    }
 }
 
 function modelsFromCatalog(catalog: ModelsDevCatalog) {
@@ -171,6 +243,7 @@ function providerPrefixes(provider: string) {
         xai: ['xai'],
         minimax: ['minimax'],
         mistral: ['mistral'],
+        anthropic: ['anthropic'],
         groq: ['groq'],
         together: ['togetherai', 'together'],
         openrouter: []

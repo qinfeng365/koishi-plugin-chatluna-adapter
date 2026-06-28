@@ -186,16 +186,12 @@ async function* difyCompletionStream(
 ) {
     const config = resolveDifyApp(requester, params.model)
     const conversationId = resolveChatLunaConversationId(params)
-    if (!conversationId) {
-        throw new ChatLunaError(
-            ChatLunaErrorCode.UNKNOWN_ERROR,
-            new Error('Dify adapter only supports ChatLuna conversation mode.')
-        )
-    }
 
     const difyUser = resolveDifyUser(requester, params)
     const difyConversationId =
-        config.appType === 'workflow'
+        config.appType === 'workflow' ||
+        config.appType === 'completion' ||
+        !conversationId
             ? undefined
             : await getDifyConversationId(requester, conversationId, config)
     const response = await callDify(requester, params, config, {
@@ -238,6 +234,7 @@ async function* difyCompletionStream(
     }
 
     if (
+        conversationId &&
         updatedDifyConversationId &&
         config.appType !== 'workflow' &&
         config.appType !== 'completion'
@@ -261,7 +258,7 @@ async function callDify(
     params: any,
     config: DifyRuntimeAppConfig,
     context: {
-        chatLunaConversationId: string
+        chatLunaConversationId?: string
         difyConversationId?: string
         difyUser: string
     }
@@ -299,7 +296,7 @@ async function callDify(
     }
 
     if (config.appType === 'completion') {
-        const query = getMessageContent(lastMessage?.content ?? '') ?? ''
+        const query = buildDifyQuery(params, lastMessage, config, inputs)
         const body = filterEmpty({
             inputs,
             query,
@@ -316,7 +313,7 @@ async function callDify(
         )
     }
 
-    const query = getMessageContent(lastMessage?.content ?? '') ?? ''
+    const query = buildDifyQuery(params, lastMessage, config, inputs)
     const body = filterEmpty({
         query,
         inputs,
@@ -888,6 +885,61 @@ function buildDifyInputs(
     return stripUndefined(inputs)
 }
 
+function buildDifyQuery(
+    params: any,
+    lastMessage: BaseMessage | undefined,
+    config: DifyRuntimeAppConfig,
+    inputs: Record<string, unknown>
+) {
+    const query = getMessageContent(lastMessage?.content ?? '') ?? ''
+    const prefix = buildDifyCharacterQueryPrefix(params, config, inputs)
+    if (!prefix) return query
+    if (!query.trim()) return prefix
+    return `${prefix}\n\n${query}`
+}
+
+function buildDifyCharacterQueryPrefix(
+    params: any,
+    config: DifyRuntimeAppConfig,
+    inputs: Record<string, unknown>
+) {
+    if (config.appType === 'workflow') return ''
+    if (hasDeclaredCharacterInputs(config)) return ''
+
+    const variables = params.variables ?? {}
+    const source = firstDefined(variables.source, variables.built?.source)
+    const character = stringifyForPrompt(inputs.chatluna_character)
+    const persona = stringifyForPrompt(inputs.chatluna_persona)
+    const characterName = stringifyForPrompt(inputs.chatluna_character_name)
+    const system = stringifyForPrompt(inputs.chatluna_system_prompt)
+    const preset = stringifyForPrompt(inputs.chatluna_preset)
+
+    if (
+        !character &&
+        !persona &&
+        !characterName &&
+        !system &&
+        !preset &&
+        source !== 'character'
+    ) {
+        return ''
+    }
+
+    const parts: string[] = []
+    if (system) parts.push(system)
+    if (preset) parts.push(`Preset: ${preset}`)
+    if (characterName) parts.push(`Character name: ${characterName}`)
+    if (persona) parts.push(`Persona: ${persona}`)
+    if (character) parts.push(`Character data: ${character}`)
+    return parts.length > 0 ? parts.join('\n') : ''
+}
+
+function hasDeclaredCharacterInputs(config: DifyRuntimeAppConfig) {
+    return (config.parameters?.inputControls ?? []).some((control) =>
+        /(^|_)character($|_)|persona|preset|system/i.test(control.variable)
+    )
+}
+
 function firstDefined<T>(...values: T[]) {
     return values.find((value) => value !== undefined && value !== null)
 }
@@ -949,6 +1001,12 @@ function serializeDifyInputValue(value: unknown) {
     } catch {
         return String(value)
     }
+}
+
+function stringifyForPrompt(value: unknown) {
+    if (value == null) return ''
+    const text = typeof value === 'string' ? value : serializeDifyInputValue(value)
+    return String(text ?? '').trim()
 }
 
 function withWorkflowFileInputs(

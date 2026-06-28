@@ -377,6 +377,29 @@
                             </div>
                         </section>
 
+                        <section v-if="selectedProvider.provider === 'anthropic'" class="section">
+                            <div class="section-head">
+                                <h3>Prompt Cache</h3>
+                            </div>
+
+                            <div class="switch-grid">
+                                <label>
+                                    <span>启用缓存</span>
+                                    <el-switch v-model="selectedProvider.anthropicPromptCache" />
+                                </label>
+                            </div>
+
+                            <div v-if="selectedProvider.anthropicPromptCache" class="grid two">
+                                <label>
+                                    <span>缓存 TTL</span>
+                                    <el-select v-model="selectedProvider.anthropicPromptCacheTtl">
+                                        <el-option label="5 分钟" value="5m" />
+                                        <el-option label="1 小时" value="1h" />
+                                    </el-select>
+                                </label>
+                            </div>
+                        </section>
+
                         <section class="section">
                             <div class="section-head">
                                 <h3>请求</h3>
@@ -422,6 +445,24 @@
                                         :step="0.1"
                                         show-input
                                     />
+                                </label>
+                            </div>
+
+                            <div
+                                v-if="supportsReasoningProtocol(selectedProvider)"
+                                class="grid two"
+                            >
+                                <label>
+                                    <span>思考协议</span>
+                                    <el-select v-model="selectedProvider.reasoningProtocol">
+                                        <el-option label="OpenAI" value="openai" />
+                                        <el-option label="Auto" value="auto" />
+                                        <el-option label="DeepSeek" value="deepseek" />
+                                        <el-option label="Qwen" value="qwen" />
+                                        <el-option label="Gemini" value="gemini" />
+                                        <el-option label="Anthropic" value="anthropic" />
+                                        <el-option label="OpenRouter" value="openrouter" />
+                                    </el-select>
                                 </label>
                             </div>
 
@@ -960,6 +1001,7 @@ const validNewProvider = computed(
 function hydrate(settings: ModelHubConsoleSettings) {
     hydrating = true
     form.value = clone(settings)
+    form.value.providers.forEach(normalizeProviderForm)
     normalizeSelectedProvider()
     dirty.value = false
     queueMicrotask(() => {
@@ -972,6 +1014,21 @@ function emptySettings(): ModelHubConsoleSettings {
         providers: [],
         additionalModels: [],
         blacklistModels: []
+    }
+}
+
+function normalizeProviderForm(provider: ConsoleProviderEntry) {
+    if (!provider.reasoningProtocol) {
+        provider.reasoningProtocol = defaultReasoningProtocol(provider.provider)
+    }
+    if (provider.anthropicPromptCache == null) {
+        provider.anthropicPromptCache = false
+    }
+    if (
+        provider.anthropicPromptCacheTtl !== '1h' &&
+        provider.anthropicPromptCacheTtl !== '5m'
+    ) {
+        provider.anthropicPromptCacheTtl = '5m'
     }
 }
 
@@ -991,6 +1048,7 @@ function createProviderDefaults() {
         frequencyPenalty: 0,
         nonStreaming: false,
         expandReasoningVariants: false,
+        reasoningProtocol: 'openai',
         responseApi: false,
         responseBuiltinTools: [],
         responseBuiltinToolSupportModel: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'o3', 'o4'],
@@ -1002,6 +1060,8 @@ function createProviderDefaults() {
         thinkingBudget: -1,
         includeThoughts: false,
         groundingContentDisplay: false,
+        anthropicPromptCache: false,
+        anthropicPromptCacheTtl: '5m' as const,
         difyAppType: 'chat' as const,
         difyModelName: '',
         difyWorkflowId: '',
@@ -1043,6 +1103,7 @@ function selectPreset(preset: ModelHubConsolePreset) {
     selectedPreset.value = preset
     newProvider.value = {
         ...createProviderDefaults(),
+        reasoningProtocol: defaultReasoningProtocol(preset.id),
         provider: preset.id,
         name: preset.name,
         platform: uniquePlatform(preset.defaultPlatform),
@@ -1085,8 +1146,37 @@ function providerIcon(provider: ConsoleProviderEntry) {
     return providerPreset(provider)?.icon ?? provider.provider
 }
 
+function supportsReasoningProtocol(provider: ConsoleProviderEntry) {
+    return [
+        'openai',
+        'openai-compatible',
+        'newapi',
+        'openrouter',
+        'siliconflow'
+    ].includes(provider.provider)
+}
+
+function defaultReasoningProtocol(provider: string) {
+    return provider === 'openrouter' ? 'openrouter' : 'openai'
+}
+
 function runtimeProvider(provider: ConsoleProviderEntry) {
-    return data.value?.providers?.find((item) => item.platform === provider.platform)
+    const platform = normalizeTarget(provider.platform)
+    const providerId = normalizeTarget(provider.provider)
+    return (
+        data.value?.providers?.find(
+            (item) =>
+                item.id === provider.provider &&
+                normalizeTarget(item.platform) === platform
+        ) ??
+        data.value?.providers?.find(
+            (item) =>
+                item.id === provider.provider &&
+                normalizeTarget(item.platform).startsWith(
+                    `${platform}-${providerId}`
+                )
+        )
+    )
 }
 
 function modelTargetsSelectedProvider(
@@ -1095,10 +1185,13 @@ function modelTargetsSelectedProvider(
 ) {
     const target = model.target?.trim()
     const platform = provider.platform.trim()
+    const providerId = provider.provider.trim()
     return (
         target.length > 0 &&
         platform.length > 0 &&
-        normalizeTarget(target) === normalizeTarget(platform)
+        (normalizeTarget(target) === '*' ||
+            normalizeTarget(target) === normalizeTarget(platform) ||
+            normalizeTarget(target) === normalizeTarget(providerId))
     )
 }
 
@@ -1111,7 +1204,7 @@ function updateProviderPlatform(provider: ConsoleProviderEntry, platform: string
 
 function addCustomModel(provider: ConsoleProviderEntry) {
     form.value.additionalModels.push({
-        target: provider.platform,
+        target: provider.provider || provider.platform,
         model: '',
         modelType: 'LLM 大语言模型',
         modelCapabilities: [
@@ -1132,7 +1225,7 @@ function retargetCustomModels(from: string, to: string) {
     const target = to.trim()
     if (!target || source === '*') return
     for (const model of form.value.additionalModels) {
-        if (normalizeTarget(model.target) === source) {
+        if (isPlatformTarget(model.target, source)) {
             model.target = target
         }
     }
@@ -1144,6 +1237,15 @@ function normalizeTarget(value: string) {
         .toLowerCase()
         .replace(/[^a-z0-9._-]+/g, '-')
         .replace(/^-+|-+$/g, '') || '*'
+}
+
+function isPlatformTarget(target: string, normalizedPlatform: string) {
+    const normalized = normalizeTarget(target)
+    return (
+        normalizedPlatform.length > 0 &&
+        normalizedPlatform !== '*' &&
+        normalized === normalizedPlatform
+    )
 }
 
 function clearProviderKey(provider: ConsoleProviderEntry) {
@@ -1175,7 +1277,7 @@ function duplicateProvider(index: number) {
     const sourceTarget = normalizeTarget(source.platform)
     form.value.additionalModels.push(
         ...form.value.additionalModels
-            .filter((model) => normalizeTarget(model.target) === sourceTarget)
+            .filter((model) => isPlatformTarget(model.target, sourceTarget))
             .map((model) => ({
                 ...clone(model),
                 target: nextPlatform
@@ -1196,7 +1298,7 @@ function removeProvider(index: number) {
         )
     ) {
         form.value.additionalModels = form.value.additionalModels.filter(
-            (model) => normalizeTarget(model.target) !== removedTarget
+            (model) => !isPlatformTarget(model.target, removedTarget)
         )
     }
     selectedProviderIndex.value = Math.min(index, form.value.providers.length - 1)
@@ -1270,6 +1372,7 @@ const iconAliases: Record<string, string[]> = {
 }
 
 const colorIcons = new Set([
+    'anthropic',
     'baichuan',
     'deepseek',
     'dify',
