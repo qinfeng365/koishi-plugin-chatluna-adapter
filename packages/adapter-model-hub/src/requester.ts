@@ -155,9 +155,13 @@ export class ModelHubRequester
     }
 
     async post(url: string, body: Record<string, unknown>, options?: any) {
+        const current = this._config.value
+        const preset = getProviderPreset(current.provider)
         if (url === 'chat/completions') {
-            const current = this._config.value
-            const preset = getProviderPreset(current.provider)
+            if (body.stream !== true) {
+                delete body.stream_options
+            }
+
             const parsedModel = parseOpenAIModelNameWithReasoningEffort(
                 String(body.model ?? '')
             )
@@ -168,6 +172,12 @@ export class ModelHubRequester
                 current.reasoningProtocol
             )
             preset.patchCompletionBody?.(body, String(body.model ?? ''))
+        }
+        if (url === 'embeddings') {
+            preset.patchEmbeddingsBody?.(body, String(body.model ?? ''))
+        }
+        if (url === 'rerank') {
+            preset.patchRerankBody?.(body, String(body.model ?? ''))
         }
         return super.post(url, body, options)
     }

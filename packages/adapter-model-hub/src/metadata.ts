@@ -13,6 +13,10 @@ type ModelsDevModel = {
     reasoning_effort?: boolean | string[]
     reasoning_efforts?: string[]
     supported_reasoning_efforts?: string[]
+    reasoning_options?: {
+        type?: string
+        values?: string[]
+    }[]
     supported_parameters?: string[]
     tool_call?: boolean
     modalities?: {
@@ -188,7 +192,8 @@ function reasoningEffortsFromMetadata(
             ? model.reasoning_effort
             : []),
         ...(model.reasoning_efforts ?? []),
-        ...(model.supported_reasoning_efforts ?? [])
+        ...(model.supported_reasoning_efforts ?? []),
+        ...reasoningOptionEfforts(model.reasoning_options)
     ]
         .map(normalizeReasoningEffort)
         .filter((value): value is ReasoningEffortLevel => value != null)
@@ -205,6 +210,14 @@ function reasoningEffortsFromMetadata(
     }
 
     if (model.reasoning === true) return ['low', 'medium', 'high']
+}
+
+function reasoningOptionEfforts(
+    options: ModelsDevModel['reasoning_options']
+) {
+    return (options ?? [])
+        .filter((option) => option?.type === 'effort')
+        .flatMap((option) => option.values ?? [])
 }
 
 function normalizeReasoningEffort(
@@ -231,10 +244,44 @@ function normalizeReasoningEffort(
 }
 
 function modelsFromCatalog(catalog: ModelsDevCatalog) {
-    if ('models' in catalog && catalog.models != null) {
+    if (isRecord(catalog) && isModelMap(catalog.models)) {
         return catalog.models
     }
+
+    const providerModels: Record<string, ModelsDevModel> = {}
+    for (const [provider, value] of Object.entries(catalog)) {
+        if (!isRecord(value) || !isModelMap(value.models)) continue
+        for (const [id, model] of Object.entries(value.models)) {
+            providerModels[id] = model
+            providerModels[`${provider}/${id}`] = model
+        }
+    }
+    if (Object.keys(providerModels).length > 0) return providerModels
+
     return catalog as Record<string, ModelsDevModel>
+}
+
+function isModelMap(value: unknown): value is Record<string, ModelsDevModel> {
+    if (!isRecord(value)) return false
+    return Object.values(value).some(isModelsDevModel)
+}
+
+function isModelsDevModel(value: unknown): value is ModelsDevModel {
+    if (!isRecord(value)) return false
+
+    const modalities = value.modalities
+    return (
+        typeof value.id === 'string' ||
+        typeof value.name === 'string' ||
+        isRecord(value.limit) ||
+        (isRecord(modalities) && Array.isArray(modalities.input)) ||
+        typeof value.reasoning === 'boolean' ||
+        typeof value.tool_call === 'boolean'
+    )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeModelId(value: string) {
@@ -271,6 +318,7 @@ function providerPrefixes(provider: string) {
         anthropic: ['anthropic'],
         groq: ['groq'],
         together: ['togetherai', 'together'],
+        modelscope: ['modelscope'],
         openrouter: []
     }
     return map[provider] ?? [provider]

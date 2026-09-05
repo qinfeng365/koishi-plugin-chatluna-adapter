@@ -21,7 +21,7 @@ ChatLuna 多模型供应商聚合适配器，提供独立 Model Hub WebUI，用�
 
 - Node.js >= 18
 - Koishi >= 4.18.9
-- `koishi-plugin-chatluna` >= 1.4.0-alpha.32
+- `koishi-plugin-chatluna` >= 1.4.0-alpha.45
 - 推荐安装 `@koishijs/plugin-console`，用于打开 Model Hub WebUI
 - `koishi-plugin-chatluna-storage-service` 为可选依赖
 
@@ -59,7 +59,7 @@ Koishi 插件配置页只保留全局运行所需字段：
 - `frontendMode`: 前端模式，默认性能模式。
 - `iconCdn`: 图标 CDN，默认使用 LobeHub Icons CDN。
 - `settingsPath`: Model Hub 供应商配置保存路径，默认 `data/chatluna-model-hub/config.json`。
-- `metadataUrl`: 模型元数据源，默认 `https://models.dev/models.json`。
+- `metadataUrl`: 模型元数据源，默认 `https://models.dev/api.json`。
 - `metadataCachePath`: `models.dev` 元数据本地缓存路径，默认 `data/chatluna-model-hub/models.dev.models.json`。
 - `metadataUpdateHours`: 元数据定时更新间隔，默认 24 小时。
 

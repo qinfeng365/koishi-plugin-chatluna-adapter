@@ -42,7 +42,8 @@ export const DEFAULT_PROVIDER_ADVANCED_SETTINGS: ProviderAdvancedSettings = {
     presencePenalty: 0,
     frequencyPenalty: 0,
     nonStreaming: false,
-    expandReasoningVariants: false
+    expandReasoningVariants: false,
+    nonLlmInputTokenLimit: 8192
 }
 
 const DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
@@ -188,7 +189,12 @@ function normalizeProviderAdvanced(
         presencePenalty: clampNumber(merged.presencePenalty, 0, -2, 2),
         frequencyPenalty: clampNumber(merged.frequencyPenalty, 0, -2, 2),
         nonStreaming: merged.nonStreaming === true,
-        expandReasoningVariants: merged.expandReasoningVariants === true
+        expandReasoningVariants: merged.expandReasoningVariants === true,
+        nonLlmInputTokenLimit: clampNumber(
+            merged.nonLlmInputTokenLimit,
+            8192,
+            1
+        )
     }
 }
 
@@ -481,7 +487,8 @@ function pickLegacySettings(input: unknown): Partial<ModelHubSettings> | null {
         'presencePenalty',
         'frequencyPenalty',
         'nonStreaming',
-        'expandReasoningVariants'
+        'expandReasoningVariants',
+        'nonLlmInputTokenLimit'
     ] as const) {
         if (input[key] !== undefined) {
             ;(result as Record<string, unknown>)[key] = input[key]
@@ -539,14 +546,17 @@ function isOpenAICompatibleProvider(provider: string) {
         provider === 'openai-compatible' ||
         provider === 'newapi' ||
         provider === 'openrouter' ||
-        provider === 'siliconflow'
+        provider === 'siliconflow' ||
+        provider === 'modelscope'
     )
 }
 
 function defaultReasoningProtocol(
     provider: string
 ): OpenAICompatibleReasoningProtocol {
-    return provider === 'openrouter' ? 'openrouter' : 'openai'
+    if (provider === 'openrouter') return 'openrouter'
+    if (provider === 'modelscope') return 'auto'
+    return 'openai'
 }
 
 function isMeaningfulLegacyProvider(input: unknown) {

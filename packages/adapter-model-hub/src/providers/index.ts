@@ -31,6 +31,7 @@ import llamacpp from './llamacpp'
 import xinference from './xinference'
 import localai from './localai'
 import dify from './dify'
+import modelscope from './modelscope'
 
 export {
     DEFAULT_ICON_CDN,
@@ -61,6 +62,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     zhipu,
     moonshot,
     siliconflow,
+    modelscope,
     dify,
     groq,
     mistral,
@@ -113,6 +115,7 @@ export const DEFAULT_PROVIDER_CONFIGS: ProviderEntry[] = [
         frequencyPenalty: 0,
         nonStreaming: false,
         expandReasoningVariants: false,
+        nonLlmInputTokenLimit: 8192,
         reasoningProtocol: preset.id === 'openrouter' ? 'openrouter' : 'openai',
         anthropicPromptCache: false,
         anthropicPromptCacheTtl: '5m'
@@ -282,6 +285,7 @@ function runtimeConfigSignature(entry: ProviderEntry, preset: ProviderPreset) {
         frequencyPenalty: entry.frequencyPenalty,
         nonStreaming: entry.nonStreaming === true,
         expandReasoningVariants: entry.expandReasoningVariants === true,
+        nonLlmInputTokenLimit: entry.nonLlmInputTokenLimit,
         reasoningProtocol: entry.reasoningProtocol ?? 'openai',
         responseApi: entry.responseApi === true,
         responseBuiltinTools: entry.responseBuiltinTools ?? [],

@@ -288,7 +288,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             maxTokens:
                 type === ModelType.llm
                     ? maxTokens ?? this._fallbackModelMaxContextSize(name)
-                    : maxTokens ?? 8192,
+                    : maxTokens ?? this._nonLlmInputTokenLimit(),
             capabilities:
                 type === ModelType.llm
                     ? this._mergeCapabilities(name, model.capabilities)
@@ -338,6 +338,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             capabilities: []
         })
         return positiveNumber(inferred) ?? 128_000
+    }
+
+    private _nonLlmInputTokenLimit() {
+        return positiveNumber(this.config?.nonLlmInputTokenLimit) ?? 8192
     }
 
     private _mergeCapabilities(

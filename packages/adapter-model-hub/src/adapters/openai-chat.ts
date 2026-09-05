@@ -1,5 +1,5 @@
 import { ChatGenerationChunk } from '@langchain/core/outputs'
-import { BaseMessageChunk } from '@langchain/core/messages'
+import { AIMessageChunk, BaseMessageChunk } from '@langchain/core/messages'
 import {
     completion,
     completionStream,
@@ -41,11 +41,18 @@ export const openAIChatAdapter: ProviderAdapter = {
     },
 
     async *completionStreamInternal(requester, params) {
-        yield* completionStream(
+        const normalizeToolCallChunk =
+            requester.currentProviderPreset().id === 'deepseek'
+                ? createToolCallChunkNormalizer()
+                : undefined
+
+        for await (const chunk of completionStream(
             requester.requestContext(),
             preserveRealModelName(params),
             'chat/completions'
-        )
+        )) {
+            yield normalizeToolCallChunk?.(chunk) ?? chunk
+        }
     },
 
     async embeddings(requester, params) {
@@ -64,6 +71,83 @@ export const openAIChatAdapter: ProviderAdapter = {
             requester.currentProviderPreset()
         )
     }
+}
+
+type StreamToolCallChunk = {
+    index?: number
+    id?: string
+    name?: string
+    args?: string
+}
+
+function createToolCallChunkNormalizer() {
+    const ids = new Map<number, string>()
+    const indexes = new Map<string, number>()
+    let nextIndex = 0
+    let nextId = 0
+
+    return (chunk: ChatGenerationChunk) => {
+        const message = chunk.message
+        if (!(message instanceof AIMessageChunk)) return chunk
+
+        const toolCallChunks = message.tool_call_chunks as
+            | StreamToolCallChunk[]
+            | undefined
+        if ((toolCallChunks?.length ?? 0) < 1) return chunk
+
+        let changed = false
+        const repairedToolCallChunks = toolCallChunks.map((toolCall, offset) => {
+            const id = normalizeToolCallId(toolCall.id)
+            const index = resolveToolCallIndex(toolCall.index, id, offset)
+            if (id) {
+                ids.set(index, id)
+                indexes.set(id, index)
+            } else if (!ids.has(index)) {
+                ids.set(index, `call_deepseek_${nextId++}`)
+            }
+
+            changed ||= index !== toolCall.index || ids.get(index) !== toolCall.id
+
+            return {
+                ...toolCall,
+                index,
+                id: ids.get(index)
+            }
+        })
+
+        if (!changed) return chunk
+
+        return new ChatGenerationChunk({
+            generationInfo: chunk.generationInfo,
+            text: chunk.text,
+            message: new AIMessageChunk({
+                content: message.content,
+                additional_kwargs: message.additional_kwargs,
+                response_metadata: message.response_metadata,
+                tool_call_chunks: repairedToolCallChunks,
+                usage_metadata: message.usage_metadata,
+                id: message.id,
+                name: message.name
+            })
+        })
+    }
+
+    function resolveToolCallIndex(
+        index: number | undefined,
+        id: string | undefined,
+        offset: number
+    ) {
+        if (Number.isInteger(index)) return index!
+        if (id && indexes.has(id)) return indexes.get(id)!
+        if (id) return nextIndex++
+        return offset
+    }
+}
+
+function normalizeToolCallId(value: unknown) {
+    return typeof value === 'string' && value.trim().length > 0
+        ? value
+        : undefined
 }
 
 export function preserveRealModelName<

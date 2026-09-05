@@ -74,24 +74,24 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@chatluna/shared-prompt-renderer@npm:^1.0.5":
-  version: 1.0.5
-  resolution: "@chatluna/shared-prompt-renderer@npm:1.0.5"
-  checksum: 10c0/27ff62e6e295a45a2df1e159b3c30f587cd1856a86dfcde050bd1fcaa5d3bd1f021ae947faa9b317dff2b7fdbf65534144db56170057b7f797092b4927a53b59
+"@chatluna/shared-prompt-renderer@npm:^1.0.6":
+  version: 1.0.6
+  resolution: "@chatluna/shared-prompt-renderer@npm:1.0.6"
+  checksum: 10c0/b4b43a148cdcf4ddd7051bf46e937e7e2239c6e87e32cd58d652ca6fa3e93fd2e39e72049ba88db13e3b0d5ca55b92657bacef9c668cefbad078989179b60a7e
   languageName: node
   linkType: hard
 
-"@chatluna/v1-shared-adapter@npm:^1.0.43":
-  version: 1.0.43
-  resolution: "@chatluna/v1-shared-adapter@npm:1.0.43"
+"@chatluna/v1-shared-adapter@npm:^1.0.50":
+  version: 1.0.50
+  resolution: "@chatluna/v1-shared-adapter@npm:1.0.50"
   dependencies:
     "@langchain/core": "npm:^0.3.80"
     zod: "npm:3.25.76"
     zod-to-json-schema: "npm:^3.24.6"
   peerDependencies:
     koishi: ^4.18.9
-    koishi-plugin-chatluna: ^1.4.0-alpha.29
-  checksum: 10c0/d0bf5b5116ba9d84dfccf4932aacb4de942364052463e5cc150775a1974b79f34e8ac03ecb68063811bc36ef5097949943148fdde034d57ce255b4ffe3d2e14f
+    koishi-plugin-chatluna: ^1.4.0-alpha.45
+  checksum: 10c0/080541b4dae4ee0efb034fe025acdd8912e3ba067f485f454b26adf40bd07a35439a301af905c4ad5579af687aaa634e458400519995ca584727627e256e5ed7
   languageName: node
   linkType: hard
 
@@ -1137,7 +1137,7 @@ __metadata:
     eslint-plugin-prettier: "npm:^5.5.4"
     eslint-plugin-promise: "npm:^7.2.1"
     koishi: "npm:^4.18.9"
-    koishi-plugin-chatluna: "npm:^1.4.0-alpha.32"
+    koishi-plugin-chatluna: "npm:^1.4.0-alpha.45"
     koishi-plugin-chatluna-storage-service: "npm:^1.0.6"
     prettier: "npm:^3.6.2"
     sass: "npm:^1.93.2"
@@ -3511,6 +3511,44 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dom-serializer@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "dom-serializer@npm:2.0.0"
+  dependencies:
+    domelementtype: "npm:^2.3.0"
+    domhandler: "npm:^5.0.2"
+    entities: "npm:^4.2.0"
+  checksum: 10c0/d5ae2b7110ca3746b3643d3ef60ef823f5f078667baf530cec096433f1627ec4b6fa8c072f09d079d7cda915fd2c7bc1b7b935681e9b09e591e1e15f4040b8e2
+  languageName: node
+  linkType: hard
+
+"domelementtype@npm:^2.3.0":
+  version: 2.3.0
+  resolution: "domelementtype@npm:2.3.0"
+  checksum: 10c0/686f5a9ef0fff078c1412c05db73a0dce096190036f33e400a07e2a4518e9f56b1e324f5c576a0a747ef0e75b5d985c040b0d51945ce780c0dd3c625a18cd8c9
+  languageName: node
+  linkType: hard
+
+"domhandler@npm:^5.0.2, domhandler@npm:^5.0.3":
+  version: 5.0.3
+  resolution: "domhandler@npm:5.0.3"
+  dependencies:
+    domelementtype: "npm:^2.3.0"
+  checksum: 10c0/bba1e5932b3e196ad6862286d76adc89a0dbf0c773e5ced1eb01f9af930c50093a084eff14b8de5ea60b895c56a04d5de8bbc4930c5543d029091916770b2d2a
+  languageName: node
+  linkType: hard
+
+"domutils@npm:^3.2.2":
+  version: 3.2.2
+  resolution: "domutils@npm:3.2.2"
+  dependencies:
+    dom-serializer: "npm:^2.0.0"
+    domelementtype: "npm:^2.3.0"
+    domhandler: "npm:^5.0.3"
+  checksum: 10c0/47938f473b987ea71cd59e59626eb8666d3aa8feba5266e45527f3b636c7883cca7e582d901531961f742c519d7514636b7973353b648762b2e3bedbf235fada
+  languageName: node
+  linkType: hard
+
 "dotenv@npm:^16.4.5":
   version: 16.6.1
   resolution: "dotenv@npm:16.6.1"
@@ -3613,6 +3651,13 @@ __metadata:
     graceful-fs: "npm:^4.2.4"
     tapable: "npm:^2.3.3"
   checksum: 10c0/6aa9c1248ef6ba49bf30b89dc8525b24a64caeb45442a4d0f0578d0fbd0456218801944f7b7c03ce1af47706448111890d3bfc82009bd868167abbf8cc7ebcbf
+  languageName: node
+  linkType: hard
+
+"entities@npm:^4.2.0":
+  version: 4.5.0
+  resolution: "entities@npm:4.5.0"
+  checksum: 10c0/5b039739f7621f5d1ad996715e53d964035f75ad3b9a4d38c6b3804bb226e282ffeae2443624d8fdd9c47d8e926ae9ac009c54671243f0c3294c26af7cc85250
   languageName: node
   linkType: hard
 
@@ -4813,6 +4858,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"htmlparser2@npm:^10.1.0":
+  version: 10.1.0
+  resolution: "htmlparser2@npm:10.1.0"
+  dependencies:
+    domelementtype: "npm:^2.3.0"
+    domhandler: "npm:^5.0.3"
+    domutils: "npm:^3.2.2"
+    entities: "npm:^7.0.1"
+  checksum: 10c0/36394e29b80cfcc5e78e0fa4d3aa21fdaac3e6778d23e5c933e625c290987cd9a724a2eb0753ab60ed0c69dfaba0ab115f0ee50fb112fd8f0c4d522e7e0089a2
+  languageName: node
+  linkType: hard
+
 "http-assert@npm:^1.3.0":
   version: 1.5.0
   resolution: "http-assert@npm:1.5.0"
@@ -5504,13 +5561,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "koishi-plugin-chatluna-model-hub-adapter@workspace:packages/adapter-model-hub"
   dependencies:
-    "@chatluna/v1-shared-adapter": "npm:^1.0.43"
+    "@chatluna/v1-shared-adapter": "npm:^1.0.50"
     "@koishijs/client": "npm:^5.30.11"
     "@koishijs/plugin-console": "npm:^5.30.11"
     "@langchain/core": "npm:^0.3.80"
     atsc: "npm:^2.1.0"
     koishi: "npm:^4.18.9"
-    koishi-plugin-chatluna: "npm:^1.4.0-alpha.32"
+    koishi-plugin-chatluna: "npm:^1.4.0-alpha.45"
     koishi-plugin-chatluna-storage-service: "npm:^1.0.6"
     typescript: "npm:^5.9.2"
     zod: "npm:3.25.76"
@@ -5518,7 +5575,7 @@ __metadata:
   peerDependencies:
     "@koishijs/plugin-console": ^5.30.11
     koishi: ^4.18.9
-    koishi-plugin-chatluna: ^1.4.0-alpha.32
+    koishi-plugin-chatluna: ^1.4.0-alpha.45
     koishi-plugin-chatluna-storage-service: ^1.0.6
   peerDependenciesMeta:
     koishi-plugin-chatluna-storage-service:
@@ -5537,15 +5594,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"koishi-plugin-chatluna@npm:^1.4.0-alpha.32":
-  version: 1.4.0-alpha.32
-  resolution: "koishi-plugin-chatluna@npm:1.4.0-alpha.32"
+"koishi-plugin-chatluna@npm:^1.4.0-alpha.45":
+  version: 1.4.0-alpha.45
+  resolution: "koishi-plugin-chatluna@npm:1.4.0-alpha.45"
   dependencies:
-    "@chatluna/shared-prompt-renderer": "npm:^1.0.5"
+    "@chatluna/shared-prompt-renderer": "npm:^1.0.6"
     "@langchain/core": "npm:^0.3.80"
     "@vue/reactivity": "npm:^3.6.0-alpha.2"
     decimal.js: "npm:^10.6.0"
     he: "npm:^1.2.0"
+    htmlparser2: "npm:^10.1.0"
     https-proxy-agent: "npm:^7.0.6"
     js-tiktoken: "npm:@dingyi222666/js-tiktoken@^1.0.21"
     js-yaml: "npm:^4.1.0"
@@ -5555,6 +5613,7 @@ __metadata:
     socks: "npm:^2.8.7"
     socks-proxy-agent: "npm:^8.0.5"
     undici: "npm:^6.21.3"
+    unicode-segmenter: "npm:^0.17.0"
     ws: "npm:^8.18.3"
     zod: "npm:3.25.76"
     zod-to-json-schema: "npm:^3.24.6"
@@ -5564,7 +5623,7 @@ __metadata:
   peerDependenciesMeta:
     koishi-plugin-chatluna-storage-service:
       optional: true
-  checksum: 10c0/146b09ab1ead7e781e8ef03668ba46f7cc186a4bf07ca6e1a5e5a1469eff069f02b6356cf894c3df9ad06db67b33ef5e9dce5479d75f2a9b06bf19aaf555ea2a
+  checksum: 10c0/7b582b7abc37fe02bf153ecea0006611a82880f27a14a4098851858217192ab09798978d4457f94556544f1cd94f36445d6d78948e48e9cb23a93ddd8dbf289d
   languageName: node
   linkType: hard
 
@@ -7557,6 +7616,13 @@ __metadata:
   version: 6.26.0
   resolution: "undici@npm:6.26.0"
   checksum: 10c0/cf2b4caf58c33d6582970991290cc7a6486d6e738845f25dcdd16952d708ec844815c6d30362919764fcaf30f719891289341f1ada496f003ce2700310453a47
+  languageName: node
+  linkType: hard
+
+"unicode-segmenter@npm:^0.17.0":
+  version: 0.17.3
+  resolution: "unicode-segmenter@npm:0.17.3"
+  checksum: 10c0/4f960da725c953f706d17b556397d9c8226abf6590425fa43aed5ecfab64d795db87fb0cb086d73dbd80149e3cf33df439a9640fe88e6bac56261a8c938f832f
   languageName: node
   linkType: hard
 

@@ -5,6 +5,7 @@
                 <div class="title-block">
                     <strong>Model Hub</strong>
                     <span>{{ form.providers.length }} 个服务商</span>
+                    <span v-if="dirty" class="dirty-indicator">未保存更改</span>
                 </div>
                 <div class="header-actions">
                     <el-button :loading="refreshing" @click="refreshAll">
@@ -15,16 +16,24 @@
         </template>
 
         <main class="model-hub-main">
-            <div v-if="message" class="notice" :data-tone="tone">
+            <div
+                v-if="message"
+                class="notice"
+                :data-tone="tone"
+                role="status"
+                aria-live="polite"
+            >
                 {{ message }}
             </div>
 
-            <nav class="mode-tabs">
+            <nav class="mode-tabs" role="tablist" aria-label="模型中心视图">
                 <button
                     v-for="tab in tabs"
                     :key="tab.value"
                     type="button"
                     :class="{ active: activeTab === tab.value }"
+                    role="tab"
+                    :aria-selected="activeTab === tab.value"
                     @click="activeTab = tab.value"
                 >
                     {{ tab.label }}
@@ -44,11 +53,12 @@
                     </div>
 
                     <label class="search-box">
-                        <span class="search-icon"></span>
+                        <span class="search-icon" aria-hidden="true"></span>
                         <input
                             v-model.trim="providerSearch"
                             type="search"
                             placeholder="搜索服务商"
+                            aria-label="搜索服务商"
                         />
                     </label>
 
@@ -58,6 +68,7 @@
                             :key="kind.value"
                             type="button"
                             :class="{ active: providerKind === kind.value }"
+                            :aria-pressed="providerKind === kind.value"
                             @click="providerKind = kind.value"
                         >
                             {{ kind.label }}
@@ -71,6 +82,7 @@
                             type="button"
                             class="provider-row"
                             :class="{ active: selectedProviderIndex === item.index }"
+                            :aria-pressed="selectedProviderIndex === item.index"
                             @click="selectProvider(item.index)"
                         >
                             <span class="provider-icon">
@@ -92,7 +104,9 @@
                             </span>
                             <span
                                 class="status-dot"
-                                :data-status="runtimeProvider(item.provider)?.status ?? 'preset'"
+                                :data-status="item.runtime?.status ?? 'preset'"
+                                role="img"
+                                :aria-label="statusText(item.runtime?.status ?? 'preset')"
                             ></span>
                         </button>
 
@@ -147,6 +161,7 @@
                                 保存
                             </el-button>
                             <el-button
+                                :loading="refreshingProvider === selectedProvider"
                                 :disabled="!selectedRuntimeProvider"
                                 @click="refreshProvider(selectedProvider)"
                             >
@@ -416,6 +431,15 @@
                                         show-input
                                     />
                                 </label>
+                                <label>
+                                    <span>非 LLM 输入保护</span>
+                                    <el-input-number
+                                        v-model="selectedProvider.nonLlmInputTokenLimit"
+                                        :min="1"
+                                        :step="1024"
+                                        controls-position="right"
+                                    />
+                                </label>
                                 <label class="slider-field">
                                     <span>Temperature</span>
                                     <el-slider
@@ -657,8 +681,20 @@
 
             <section v-show="activeTab === 'models'" class="workspace models-workspace">
                 <div class="section-head">
-                    <h2>已加载模型</h2>
+                    <div class="model-heading">
+                        <h2>已加载模型</h2>
+                        <span>{{ filteredModels.length }} / {{ data?.models?.length ?? 0 }} 个模型</span>
+                    </div>
                     <div class="detail-actions">
+                        <label class="search-box model-search">
+                            <span class="search-icon" aria-hidden="true"></span>
+                            <input
+                                v-model.trim="modelKeyword"
+                                type="search"
+                                placeholder="搜索模型或平台"
+                                aria-label="搜索模型或平台"
+                            />
+                        </label>
                         <span class="status-pill" :data-status="data?.totals?.models ? 'loaded' : 'missing-key'">
                             {{ data?.totals?.models ?? 0 }} 个模型
                         </span>
@@ -710,11 +746,12 @@
                     <div class="catalog-panel">
                         <div class="dialog-toolbar">
                             <label class="search-box compact-search">
-                                <span class="search-icon"></span>
+                                <span class="search-icon" aria-hidden="true"></span>
                                 <input
                                     v-model.trim="presetSearch"
                                     type="search"
                                     placeholder="搜索服务商"
+                                    aria-label="搜索服务商预设"
                                 />
                             </label>
 
@@ -724,6 +761,7 @@
                                     :key="kind.value"
                                     type="button"
                                     :class="{ active: presetKind === kind.value }"
+                                    :aria-pressed="presetKind === kind.value"
                                     @click="presetKind = kind.value"
                                 >
                                     {{ kind.label }}
@@ -881,6 +919,7 @@ const activeTab = ref<(typeof tabs)[number]['value']>('providers')
 const dirty = ref(false)
 const saving = ref(false)
 const refreshing = ref(false)
+const refreshingProvider = ref<ConsoleProviderEntry>()
 const showAddDialog = ref(false)
 const message = ref('')
 const tone = ref<'success' | 'danger' | 'info'>('info')
@@ -919,7 +958,11 @@ watch(
 const visibleProviders = computed(() => {
     const text = providerSearch.value.toLowerCase()
     return form.value.providers
-        .map((provider, index) => ({ provider, index }))
+        .map((provider, index) => ({
+            provider,
+            index,
+            runtime: runtimeProvider(provider)
+        }))
         .filter(({ provider }) => {
             if (providerKind.value !== 'all') {
                 const preset = providerPreset(provider)
@@ -1021,6 +1064,9 @@ function normalizeProviderForm(provider: ConsoleProviderEntry) {
     if (!provider.reasoningProtocol) {
         provider.reasoningProtocol = defaultReasoningProtocol(provider.provider)
     }
+    if (!Number.isFinite(provider.nonLlmInputTokenLimit)) {
+        provider.nonLlmInputTokenLimit = 8192
+    }
     if (provider.anthropicPromptCache == null) {
         provider.anthropicPromptCache = false
     }
@@ -1048,6 +1094,7 @@ function createProviderDefaults() {
         frequencyPenalty: 0,
         nonStreaming: false,
         expandReasoningVariants: false,
+        nonLlmInputTokenLimit: 8192,
         reasoningProtocol: 'openai',
         responseApi: false,
         responseBuiltinTools: [],
@@ -1152,12 +1199,15 @@ function supportsReasoningProtocol(provider: ConsoleProviderEntry) {
         'openai-compatible',
         'newapi',
         'openrouter',
-        'siliconflow'
+        'siliconflow',
+        'modelscope'
     ].includes(provider.provider)
 }
 
 function defaultReasoningProtocol(provider: string) {
-    return provider === 'openrouter' ? 'openrouter' : 'openai'
+    if (provider === 'openrouter') return 'openrouter'
+    if (provider === 'modelscope') return 'auto'
+    return 'openai'
 }
 
 function runtimeProvider(provider: ConsoleProviderEntry) {
@@ -1306,8 +1356,15 @@ function removeProvider(index: number) {
 }
 
 async function copyProvider(provider: ConsoleProviderEntry) {
-    await navigator.clipboard?.writeText(JSON.stringify({ ...provider, apiKey: '' }, null, 2))
-    showMessage('已复制配置', 'success')
+    try {
+        if (!navigator.clipboard) throw new Error('当前环境不支持剪贴板')
+        await navigator.clipboard.writeText(
+            JSON.stringify({ ...provider, apiKey: '' }, null, 2)
+        )
+        showMessage('已复制配置', 'success')
+    } catch {
+        showMessage('复制失败，请检查浏览器剪贴板权限', 'danger')
+    }
 }
 
 async function saveSettings() {
@@ -1319,6 +1376,8 @@ async function saveSettings() {
             result.success ? '已保存并重新加载' : '已保存，部分服务商加载失败',
             result.success ? 'success' : 'danger'
         )
+    } catch {
+        showMessage('保存失败，请检查控制台连接', 'danger')
     } finally {
         saving.value = false
     }
@@ -1332,17 +1391,31 @@ async function refreshAll() {
             result.success ? `已刷新 ${result.models ?? 0} 个模型` : '刷新失败',
             result.success ? 'success' : 'danger'
         )
+    } catch {
+        showMessage('刷新失败，请检查控制台连接', 'danger')
     } finally {
         refreshing.value = false
     }
 }
 
 async function refreshProvider(provider: ConsoleProviderEntry) {
-    const result = (await send('chatluna-model-hub/refresh', provider.platform)) as ModelHubActionResult
-    showMessage(
-        result.success ? `已刷新 ${provider.platform}` : `${provider.platform} 刷新失败`,
-        result.success ? 'success' : 'danger'
-    )
+    refreshingProvider.value = provider
+    try {
+        const result = (await send(
+            'chatluna-model-hub/refresh',
+            provider.platform
+        )) as ModelHubActionResult
+        showMessage(
+            result.success ? `已刷新 ${provider.platform}` : `${provider.platform} 刷新失败`,
+            result.success ? 'success' : 'danger'
+        )
+    } catch {
+        showMessage(`${provider.platform} 刷新失败，请检查控制台连接`, 'danger')
+    } finally {
+        if (refreshingProvider.value === provider) {
+            refreshingProvider.value = undefined
+        }
+    }
 }
 
 function addHeader(provider: ConsoleProviderEntry) {
@@ -1378,6 +1451,7 @@ const colorIcons = new Set([
     'dify',
     'gemini',
     'minimax',
+    'modelscope',
     'mistral',
     'newapi',
     'qwen',
@@ -1524,6 +1598,15 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         color: var(--k-text-light);
         font-size: 0.85rem;
     }
+
+    .dirty-indicator {
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+        color: var(--el-color-warning);
+        font-size: 0.75rem;
+        font-weight: 650;
+        padding: 0.2rem 0.5rem;
+    }
 }
 
 .header-actions {
@@ -1576,6 +1659,15 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         font-weight: 600;
         padding: 0.55rem 0.95rem;
 
+        &:focus-visible {
+            outline: 2px solid var(--k-color-primary);
+            outline-offset: 2px;
+        }
+
+        &:active {
+            transform: translateY(1px);
+        }
+
         &.active {
             background: var(--k-color-primary);
             color: #fff;
@@ -1596,6 +1688,20 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     align-content: start;
     overflow-y: auto;
     padding-right: 0.2rem;
+}
+
+.model-heading {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+
+    h2 {
+        margin: 0;
+    }
+}
+
+.model-search {
+    width: min(18rem, 100%);
 }
 
 .provider-panel,
@@ -1645,6 +1751,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     height: 2.55rem;
     min-width: 0;
     padding: 0 0.8rem;
+
+    &:focus-within {
+        border-color: color-mix(in srgb, var(--k-color-primary), var(--k-card-border) 35%);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--k-color-primary) 16%, transparent);
+    }
 
     input {
         width: 100%;
@@ -2076,6 +2187,14 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .model-row-view {
     color: var(--k-text-dark);
 
+    &:last-of-type {
+        border-bottom: 0;
+    }
+
+    &:hover {
+        background: color-mix(in srgb, var(--k-color-primary) 5%, transparent);
+    }
+
     strong,
     span {
         min-width: 0;
@@ -2106,6 +2225,16 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     background: color-mix(in srgb, var(--k-card-bg), var(--k-page-bg) 10%);
     color: var(--k-text-light);
     cursor: pointer;
+}
+
+.empty-action {
+    transition: border-color 0.22s ease, background-color 0.22s ease, transform 0.22s ease;
+
+    &:hover {
+        border-color: color-mix(in srgb, var(--k-color-primary) 55%, var(--k-card-border));
+        background: color-mix(in srgb, var(--k-color-primary) 6%, var(--k-card-bg));
+        color: var(--k-color-primary);
+    }
 }
 
 .error-box {
@@ -2267,7 +2396,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 // --- 1. Global / All-Mode Smooth Transitions ---
 .model-hub-page {
     // Basic transitions
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: background-color 0.22s ease, color 0.22s ease;
 
     button,
     .provider-row,
@@ -2317,7 +2446,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .model-hub-main {
         position: relative;
         background-color: var(--k-page-bg, var(--k-bg-darker)) !important;
-        background-image: radial-gradient(color-mix(in srgb, var(--fg1) 6%, transparent) 1px, transparent 1px) !important;
+        background-image: radial-gradient(color-mix(in srgb, var(--k-text-light, #7f8490) 6%, transparent) 1px, transparent 1px) !important;
         background-size: 20px 20px !important;
         overflow-x: hidden;
         z-index: 1;
@@ -2333,8 +2462,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
             pointer-events: none;
             z-index: 0;
             opacity: 0.65;
-            animation: polished-bg-drift 32s infinite alternate ease-in-out;
-            will-change: transform;
+            animation: none;
         }
 
         // Place all components above the background gradient
@@ -2364,10 +2492,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     // Provider List Staggered Entry Animation
     .provider-list .provider-row {
-        animation: model-hub-polished-card-enter 0.5s var(--market-polished-ease) both;
+        animation: model-hub-polished-card-enter 0.28s var(--market-polished-ease) both;
         @for $i from 1 through 15 {
             &:nth-child(#{$i}) {
-                animation-delay: #{($i - 1) * 0.03}s;
+                animation-delay: #{($i - 1) * 0.015}s;
             }
         }
     }
@@ -2394,10 +2522,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     // Models tab list items animation
     .model-row-view {
-        animation: model-hub-polished-card-enter 0.4s var(--market-polished-ease) both;
+        animation: model-hub-polished-card-enter 0.28s var(--market-polished-ease) both;
         @for $i from 1 through 20 {
             &:nth-child(#{$i}) {
-                animation-delay: #{($i - 1) * 0.02}s;
+                animation-delay: #{($i - 1) * 0.01}s;
             }
         }
     }
@@ -2425,7 +2553,12 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
         button {
             border-radius: 6px;
-            transition: all 0.25s var(--market-polished-ease);
+            transition:
+                color 0.25s var(--market-polished-ease),
+                background-color 0.25s var(--market-polished-ease),
+                border-color 0.25s var(--market-polished-ease),
+                box-shadow 0.25s var(--market-polished-ease),
+                transform 0.25s var(--market-polished-ease);
 
             &.active {
                 background: var(--k-color-primary);
@@ -2444,10 +2577,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         border-color: var(--market-polished-line) !important;
         background: var(--market-polished-glass) !important;
         transition: 
-            transform 0.35s var(--market-polished-ease-spring), 
-            box-shadow 0.35s var(--market-polished-ease), 
-            border-color 0.25s var(--market-polished-ease), 
-            background 0.25s var(--market-polished-ease);
+            transform 0.24s var(--market-polished-ease-spring),
+            box-shadow 0.24s var(--market-polished-ease),
+            border-color 0.22s var(--market-polished-ease),
+            background-color 0.22s var(--market-polished-ease);
 
         &:hover {
             background: var(--market-polished-glass-hover) !important;
@@ -2523,30 +2656,133 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     }
 }
 
+/* Keyboard focus and compact-screen ergonomics. Keep these properties explicit
+   so the controls remain usable in light, dark, and high-contrast themes. */
+.model-hub-page {
+    :deep(.el-button:focus-visible) {
+        outline: 2px solid var(--k-color-primary);
+        outline-offset: 2px;
+    }
+
+    :deep(.el-input__wrapper:focus-within),
+    :deep(.el-select__wrapper:focus-within),
+    :deep(.el-textarea__inner:focus) {
+        box-shadow:
+            0 0 0 1px var(--k-color-primary) inset,
+            0 0 0 2px color-mix(in srgb, var(--k-color-primary) 16%, transparent) !important;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+        outline: 2px solid var(--k-color-primary);
+        outline-offset: 2px;
+    }
+
+    .kind-filter-row button,
+    .kind-switch button,
+    .empty-action,
+    .preset-card {
+        &:active {
+            transform: translateY(1px);
+        }
+    }
+
+    .secret-row button {
+        border-radius: 5px;
+        padding: 0.2rem 0.35rem;
+
+        &:hover {
+            background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+        }
+
+        &:active {
+            transform: translateY(1px);
+        }
+    }
+}
+
+@media (max-width: 900px) {
+    .model-heading,
+    .model-search {
+        width: 100%;
+    }
+
+    .models-workspace .detail-actions {
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    .models-workspace .detail-actions > * {
+        flex: 1 1 auto;
+    }
+}
+
+@media (max-width: 1180px) {
+    /* Use one page scroll on narrow screens instead of trapping content in
+       nested panels. This keeps long provider forms reachable on touch devices. */
+    .model-hub-main {
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .workspace,
+    .models-workspace {
+        height: auto;
+        overflow: visible;
+    }
+
+    .detail-panel,
+    .detail-scroll {
+        overflow: visible;
+    }
+}
+
+@media (max-width: 600px) {
+    .model-hub-main {
+        gap: 0.75rem;
+        padding: 0.75rem;
+    }
+
+    .detail-head,
+    .detail-scroll,
+    .section {
+        padding: 0.85rem !important;
+    }
+
+    .detail-actions {
+        justify-content: stretch;
+    }
+
+    .detail-actions > .el-button,
+    .detail-actions > .status-pill {
+        flex: 1 1 auto;
+    }
+
+    .compact-search {
+        min-width: 0;
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .model-hub-page,
+    .model-hub-page *,
+    .model-hub-page *::before,
+    .model-hub-page *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .model-hub-page.market-mode-polished .model-hub-main::before {
+        animation: none !important;
+    }
+}
+
 // --- 4. Animation Keyframes ---
-@keyframes polished-bg-drift {
-    0% {
-        transform: translate(0, 0) scale(1) rotate(0deg);
-    }
-    50% {
-        transform: translate(3%, 4%) scale(1.05) rotate(3deg);
-    }
-    100% {
-        transform: translate(-2%, 2%) scale(0.98) rotate(-2deg);
-    }
-}
-
-@keyframes model-hub-polished-enter {
-    from {
-        opacity: 0;
-        transform: translateY(12px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 @keyframes model-hub-polished-card-enter {
     from {
         opacity: 0;
@@ -2834,10 +3070,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 }
 
 .preset-grid .preset-card {
-    animation: model-hub-polished-card-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+    animation: model-hub-polished-card-enter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both !important;
     @for $i from 1 through 30 {
         &:nth-child(#{$i}) {
-            animation-delay: #{($i - 1) * 0.015}s !important;
+            animation-delay: #{($i - 1) * 0.008}s !important;
         }
     }
 }

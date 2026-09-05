@@ -616,9 +616,24 @@ function inferOpenAIModelType(id: string, item: OpenAIModelObject) {
     }
 
     const lower = id.toLowerCase()
-    if (isRerankerModel(lower)) return ModelType.reranker
-    if (isEmbeddingModel(lower)) return ModelType.embeddings
+    if (isRerankerModelName(lower)) return ModelType.reranker
+    if (isEmbeddingModelName(lower)) return ModelType.embeddings
     return undefined
+}
+
+function isEmbeddingModelName(lower: string) {
+    return (
+        isEmbeddingModel(lower) ||
+        lower.includes('gte') ||
+        lower.includes('text2vec') ||
+        lower.includes('e5-') ||
+        lower.includes('e5_') ||
+        lower.includes('/e5')
+    )
+}
+
+function isRerankerModelName(lower: string) {
+    return isRerankerModel(lower) || lower.includes('ranker')
 }
 
 function openAICapabilities(item: OpenAIModelObject) {

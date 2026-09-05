@@ -44,6 +44,7 @@ export interface ProviderAdvancedSettings {
     frequencyPenalty: number;
     nonStreaming: boolean;
     expandReasoningVariants: boolean;
+    nonLlmInputTokenLimit: number;
 }
 export type OpenAICompatibleReasoningProtocol = 'openai' | 'deepseek' | 'qwen' | 'gemini' | 'anthropic' | 'openrouter' | 'auto';
 export interface OpenAICompatibleProviderSettings {
@@ -172,6 +173,8 @@ export interface ProviderPreset {
     reasoningEffort?: 'passthrough' | 'deepseek' | 'qwen' | 'disabled';
     models: readonly ProviderModelPreset[];
     patchCompletionBody?: (body: Record<string, unknown>, model: string) => void;
+    patchEmbeddingsBody?: (body: Record<string, unknown>, model: string) => void;
+    patchRerankBody?: (body: Record<string, unknown>, model: string) => void;
 }
 export interface RuntimeProviderEntry extends ProviderEntry {
     provider: string;

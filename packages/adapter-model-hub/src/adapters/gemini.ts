@@ -10,6 +10,7 @@ import { ChatGeneration, ChatGenerationChunk } from '@langchain/core/outputs'
 import { isZodSchemaV3 } from '@langchain/core/utils/types'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
+    createRequestSignal,
     createUsageMetadata,
     fetchFileLikeUrl,
     fetchImageUrl,
@@ -118,17 +119,23 @@ export const geminiAdapter: ProviderAdapter = {
 async function geminiCompletion(requester: ModelHubRequester, params: any) {
     const toolNameMapper = createGeminiToolNameMapper(params.tools ?? [])
     const request = await createGeminiRequest(requester, params, toolNameMapper)
-    const response = await requester.post(
-        `models/${prepareGeminiModel(params.model, requester)}:generateContent`,
-        request,
-        { signal: params.signal }
-    )
-    await checkResponse(response)
-    return await parseGeminiResponse(
-        await response.text(),
-        requester,
-        toolNameMapper
-    )
+    const requestSignal = createRequestSignal(params)
+    try {
+        const response = await requester.post(
+            `models/${prepareGeminiModel(params.model, requester)}:generateContent`,
+            request,
+            { signal: requestSignal.signal }
+        )
+        requestSignal.clearTimeout()
+        await checkResponse(response)
+        return await parseGeminiResponse(
+            await response.text(),
+            requester,
+            toolNameMapper
+        )
+    } finally {
+        requestSignal.dispose()
+    }
 }
 
 async function* geminiCompletionStream(
@@ -137,26 +144,29 @@ async function* geminiCompletionStream(
 ) {
     const toolNameMapper = createGeminiToolNameMapper(params.tools ?? [])
     const request = await createGeminiRequest(requester, params, toolNameMapper)
-    const response = await requester.post(
-        `models/${prepareGeminiModel(params.model, requester)}:streamGenerateContent?alt=sse`,
-        request,
-        { signal: params.signal }
-    )
-    await checkResponse(response)
-
-    let pending = new ChatGenerationChunk({
-        message: new AIMessageChunk(''),
-        text: ''
-    })
-    for await (const event of sseIterable(response)) {
-        if (!event.data || event.data === '[DONE]') continue
-        const chunk = await parseGeminiResponse(
-            event.data,
-            requester,
-            toolNameMapper
+    const requestSignal = createRequestSignal(params)
+    try {
+        const response = await requester.post(
+            `models/${prepareGeminiModel(params.model, requester)}:streamGenerateContent?alt=sse`,
+            request,
+            { signal: requestSignal.signal }
         )
-        pending = pending.concat(chunk)
-        yield chunk
+        requestSignal.clearTimeout()
+        await checkResponse(response)
+
+        for await (const event of sseIterable(response, {
+            timeout: params.timeout,
+            signal: requestSignal.signal
+        })) {
+            if (!event.data || event.data === '[DONE]') continue
+            yield await parseGeminiResponse(
+                event.data,
+                requester,
+                toolNameMapper
+            )
+        }
+    } finally {
+        requestSignal.dispose()
     }
 }
 
@@ -248,22 +258,42 @@ async function messagesToGeminiContents(
 
         const ai = message as AIMessage
         if (ai.tool_calls?.length) {
+            const thoughtData = (message.additional_kwargs?.thought_data ?? {}) as Record<string, any>
             result.push({
                 role: 'model',
-                parts: ai.tool_calls.map((toolCall) => ({
-                    functionCall: {
-                        name: toolNameMapper.sanitize(toolCall.name),
-                        args: toolCall.args,
-                        id: toolCall.id
+                parts: ai.tool_calls.map((toolCall) => {
+                    const saved = thoughtData[toolCall.id]
+                    const signature = Array.isArray(saved)
+                        ? saved.find((item) => typeof item?.thoughtSignature === 'string')?.thoughtSignature
+                        : saved?.thoughtSignature
+                    return {
+                        functionCall: {
+                            name: toolNameMapper.sanitize(toolCall.name),
+                            args: toolCall.args,
+                            id: toolCall.id
+                        },
+                        ...(typeof signature === 'string'
+                            ? { thoughtSignature: signature }
+                            : {})
                     }
-                }))
+                })
             })
             continue
         }
 
+        const thoughtData = (message.additional_kwargs?.thought_data ?? {}) as Record<string, any>
         result.push({
             role: type === 'ai' ? 'model' : 'user',
-            parts: await contentToParts(requester, message.content)
+            parts: [
+                ...Object.values(thoughtData).flatMap((value: any) =>
+                    Array.isArray(value)
+                        ? value.filter((item) => item?.toolCall || item?.toolResponse)
+                        : value?.toolCall || value?.toolResponse
+                          ? [value]
+                          : []
+                ),
+                ...(await contentToParts(requester, message.content))
+            ]
         })
     }
 
@@ -281,7 +311,9 @@ async function contentToParts(
     if (typeof content === 'string') return [{ text: content }]
     const parts = await Promise.all(
         content.map(async (part) => {
-            if (isMessageContentText(part)) return { text: part.text }
+            if (isMessageContentText(part)) {
+                return part.text.length > 0 ? { text: part.text } : null
+            }
             if (isMessageContentImageUrl(part)) {
                 const url = await fetchImageUrl(requester.requestContext().plugin, part)
                 const mimeType = url.match(/^data:([^;]+);base64,/)?.[1] ?? 'image/jpeg'
@@ -529,6 +561,7 @@ async function parseGeminiResponse(
     let content = ''
     let reasoning = ''
     const toolCalls = []
+    const thoughtData: Record<string, unknown> = {}
     const images: string[] = []
 
     for (const candidate of data.candidates ?? []) {
@@ -538,11 +571,15 @@ async function parseGeminiResponse(
             } else if (part.text) {
                 content += part.text
             } else if (part.functionCall) {
+                const id = part.functionCall.id ?? `function_call_${toolCalls.length}`
                 toolCalls.push({
                     name: toolNameMapper.restore(part.functionCall.name),
                     args: part.functionCall.args,
-                    id: part.functionCall.id
+                    id
                 })
+                if (typeof part.thoughtSignature === 'string') {
+                    thoughtData[id] = { thoughtSignature: part.thoughtSignature }
+                }
             } else if (part.inlineData?.data || part.inline_data?.data) {
                 const inline = part.inlineData ?? part.inline_data
                 const mime = inline.mimeType ?? inline.mime_type ?? 'image/png'
@@ -566,7 +603,9 @@ async function parseGeminiResponse(
         usage_metadata: usage,
         additional_kwargs: {
             images: images.length > 0 ? images : undefined,
-            reasoning_content: reasoning || undefined
+            reasoning_content: reasoning || undefined,
+            thought_data:
+                Object.keys(thoughtData).length > 0 ? thoughtData : undefined
         }
     })
 

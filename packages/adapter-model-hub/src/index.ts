@@ -384,7 +384,7 @@ export const Config: Schema<Config> = Schema.object({
     iconCdn: Schema.string().default(DEFAULT_ICON_CDN),
     settingsPath: Schema.string().default(DEFAULT_SETTINGS_PATH),
     metadataUrl: Schema.string()
-        .default('https://models.dev/models.json')
+        .default('https://models.dev/api.json')
         .description('模型元数据缓存源'),
     metadataCachePath: Schema.string()
         .default('data/chatluna-model-hub/models.dev.models.json')
@@ -427,7 +427,7 @@ function normalizeKoishiConfig(config: Partial<Config>): Config {
         frontendMode: config.frontendMode || 'performance',
         iconCdn: config.iconCdn || DEFAULT_ICON_CDN,
         settingsPath: config.settingsPath || DEFAULT_SETTINGS_PATH,
-        metadataUrl: config.metadataUrl || 'https://models.dev/models.json',
+        metadataUrl: config.metadataUrl || 'https://models.dev/api.json',
         metadataCachePath:
             config.metadataCachePath ||
             'data/chatluna-model-hub/models.dev.models.json',

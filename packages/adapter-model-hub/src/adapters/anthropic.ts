@@ -11,6 +11,7 @@ import { ChatGenerationChunk } from '@langchain/core/outputs'
 import { StructuredTool } from '@langchain/core/tools'
 import { isZodSchemaV3 } from '@langchain/core/utils/types'
 import {
+    createRequestSignal,
     createUsageMetadata,
     fetchFileLikeUrl,
     fetchImageUrl,
@@ -278,14 +279,20 @@ async function anthropicCompletion(
         toolNameMapper,
         false
     )
-    const response = await requester.post('messages', request, {
-        signal: params.signal
-    })
-    await checkResponse(response)
-    return parseAnthropicResponse(
-        (await response.json()) as AnthropicResponse,
-        toolNameMapper
-    )
+    const requestSignal = createRequestSignal(params)
+    try {
+        const response = await requester.post('messages', request, {
+            signal: requestSignal.signal
+        })
+        requestSignal.clearTimeout()
+        await checkResponse(response)
+        return parseAnthropicResponse(
+            (await response.json()) as AnthropicResponse,
+            toolNameMapper
+        )
+    } finally {
+        requestSignal.dispose()
+    }
 }
 
 async function* anthropicCompletionStream(
@@ -299,15 +306,21 @@ async function* anthropicCompletionStream(
         toolNameMapper,
         true
     )
-    const response = await requester.post('messages', request, {
-        signal: params.signal
-    })
-    await checkResponse(response)
+    const requestSignal = createRequestSignal(params)
+    try {
+        const response = await requester.post('messages', request, {
+            signal: requestSignal.signal
+        })
+        requestSignal.clearTimeout()
+        await checkResponse(response)
 
-    const reasoningState = createReasoningState()
-    let usage: AnthropicUsage | undefined
+        const reasoningState = createReasoningState()
+        let usage: AnthropicUsage | undefined
 
-    for await (const event of sseIterable(response)) {
+        for await (const event of sseIterable(response, {
+            timeout: params.timeout,
+            signal: requestSignal.signal
+        })) {
         if (!event.data || event.data === '[DONE]' || event.event === 'ping') {
             continue
         }
@@ -362,8 +375,11 @@ async function* anthropicCompletionStream(
         yield chunk
     }
 
-    const reasoningChunk = createReasoningChunk(reasoningState)
-    if (reasoningChunk) yield reasoningChunk
+        const reasoningChunk = createReasoningChunk(reasoningState)
+        if (reasoningChunk) yield reasoningChunk
+    } finally {
+        requestSignal.dispose()
+    }
 }
 
 async function createAnthropicRequest(
