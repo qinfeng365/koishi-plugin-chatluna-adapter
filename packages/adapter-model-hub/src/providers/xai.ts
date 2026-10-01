@@ -1,6 +1,6 @@
-import { openAIChatProvider } from './helpers'
+import { openAIProvider } from './helpers'
 
-export default openAIChatProvider({
+export default openAIProvider({
     id: 'xai',
     name: 'xAI',
     icon: 'xai',
@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-xai',
     defaultEndpoint: 'https://api.x.ai/v1',
     website: 'https://console.x.ai',
+    reasoningEffort: 'passthrough',
     models: []
 })

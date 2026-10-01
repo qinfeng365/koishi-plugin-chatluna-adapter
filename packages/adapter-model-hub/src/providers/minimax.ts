@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-minimax',
     defaultEndpoint: 'https://api.minimax.io/v1',
     website: 'https://platform.minimax.io',
+    reasoningEffort: 'passthrough',
     models: []
 })

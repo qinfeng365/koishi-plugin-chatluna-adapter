@@ -39,8 +39,8 @@ import {
   ModelType as ModelType3
 } from "koishi-plugin-chatluna/llm-core/platform/types";
 import {
-  ChatLunaError as ChatLunaError4,
-  ChatLunaErrorCode as ChatLunaErrorCode4
+  ChatLunaError as ChatLunaError6,
+  ChatLunaErrorCode as ChatLunaErrorCode6
 } from "koishi-plugin-chatluna/utils/error";
 import {
   getModelMaxContextSize,
@@ -51,14 +51,14 @@ import {
 } from "@chatluna/v1-shared-adapter";
 
 // src/requester.ts
-import { AIMessageChunk as AIMessageChunk5 } from "@langchain/core/messages";
-import { ChatGenerationChunk as ChatGenerationChunk6 } from "@langchain/core/outputs";
+import { AIMessageChunk as AIMessageChunk7 } from "@langchain/core/messages";
+import { ChatGenerationChunk as ChatGenerationChunk8 } from "@langchain/core/outputs";
 import {
-  attachInvocationMetrics,
+  attachInvocationMetrics as attachInvocationMetrics2,
   ModelRequester,
-  readInvocationMetrics
+  readInvocationMetrics as readInvocationMetrics2
 } from "koishi-plugin-chatluna/llm-core/platform/api";
-import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort4 } from "@chatluna/v1-shared-adapter";
+import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort5 } from "@chatluna/v1-shared-adapter";
 import { createRequestContext } from "@chatluna/v1-shared-adapter";
 
 // src/capabilities.ts
@@ -71,10 +71,13 @@ import {
   ModelCapabilities as Cap
 } from "koishi-plugin-chatluna/llm-core/platform/types";
 function resolveCapabilities(adapter, model, responseApi = false) {
+  responseApi ||= adapter === "openai" && /^gpt-6/i.test(model.name);
   const result = new Set(model.capabilities ?? []);
   if (adapter !== "dify") {
     result.add(Cap.ToolCall);
-    if (supportImageInput(model.name)) result.add(Cap.ImageInput);
+    if (supportImageInput(model.name) || /^(gpt-6|kimi-k3)/i.test(model.name))
+      result.add(Cap.ImageInput);
+    if (/^kimi-k3/i.test(model.name)) result.add(Cap.VideoInput);
     if (supportAudioInput(model.name)) result.add(Cap.AudioInput);
     if (isThinkingModelName(model.name)) result.add(Cap.Thinking);
   }
@@ -97,7 +100,16 @@ function isThinkingModelName(model) {
   const lower = model.toLowerCase();
   return ["reasoner", "thinking", "reasoning", "r1"].some(
     (name2) => lower.includes(name2)
-  ) || ["o1", "o3", "o4", "gpt-5"].some((name2) => lower.startsWith(name2));
+  ) || [
+    "o1",
+    "o3",
+    "o4",
+    "gpt-5",
+    "gpt-6",
+    "kimi-k3",
+    "glm-5.3",
+    "minimax-m3.1"
+  ].some((name2) => lower.startsWith(name2));
 }
 __name(isThinkingModelName, "isThinkingModelName");
 var IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -362,6 +374,7 @@ var zhipu_default = openAIChatProvider({
   defaultPlatform: "hub-zhipu",
   defaultEndpoint: "https://open.bigmodel.cn/api/paas/v4",
   website: "https://open.bigmodel.cn",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -374,6 +387,7 @@ var moonshot_default = openAIChatProvider({
   defaultPlatform: "hub-moonshot",
   defaultEndpoint: "https://api.moonshot.cn/v1",
   website: "https://platform.moonshot.cn",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -399,6 +413,7 @@ var groq_default = openAIChatProvider({
   defaultPlatform: "hub-groq",
   defaultEndpoint: "https://api.groq.com/openai/v1",
   website: "https://console.groq.com",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -423,11 +438,12 @@ var together_default = openAIChatProvider({
   defaultPlatform: "hub-together",
   defaultEndpoint: "https://api.together.ai/v1",
   website: "https://docs.together.ai",
+  reasoningEffort: "passthrough",
   models: []
 });
 
 // src/providers/xai.ts
-var xai_default = openAIChatProvider({
+var xai_default = openAIProvider({
   id: "xai",
   name: "xAI",
   icon: "xai",
@@ -435,6 +451,7 @@ var xai_default = openAIChatProvider({
   defaultPlatform: "hub-xai",
   defaultEndpoint: "https://api.x.ai/v1",
   website: "https://console.x.ai",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -447,6 +464,7 @@ var minimax_default = openAIChatProvider({
   defaultPlatform: "hub-minimax",
   defaultEndpoint: "https://api.minimax.io/v1",
   website: "https://platform.minimax.io",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -459,6 +477,7 @@ var stepfun_default = openAIChatProvider({
   defaultPlatform: "hub-stepfun",
   defaultEndpoint: "https://api.stepfun.com/v1",
   website: "https://platform.stepfun.com",
+  reasoningEffort: "passthrough",
   models: []
 });
 
@@ -848,8 +867,8 @@ function getTargetedBlacklist(filters, platform, provider) {
 __name(getTargetedBlacklist, "getTargetedBlacklist");
 
 // src/adapters/openai-chat.ts
-import { ChatGenerationChunk } from "@langchain/core/outputs";
-import { AIMessageChunk } from "@langchain/core/messages";
+import { ChatGenerationChunk as ChatGenerationChunk2 } from "@langchain/core/outputs";
+import { AIMessageChunk as AIMessageChunk2 } from "@langchain/core/messages";
 import {
   completion,
   completionStream,
@@ -871,6 +890,259 @@ import {
   ModelCapabilities as ModelCapabilities2,
   ModelType as ModelType2
 } from "koishi-plugin-chatluna/llm-core/platform/types";
+
+// src/adapters/reasoning-protocols.ts
+function applyReasoningProtocol(protocol, body, model) {
+  if (protocol === "openai") {
+    validateNativeReasoningEffort(body, model);
+    return;
+  }
+  const effort = body.reasoning_effort;
+  if (effort == null) return;
+  delete body.reasoning_effort;
+  if (protocol === "deepseek") {
+    applyDeepSeekReasoning(body, effort);
+    return;
+  }
+  if (protocol === "qwen") {
+    applyQwenReasoning(body, effort);
+    return;
+  }
+  if (protocol === "gemini") {
+    applyGeminiReasoning(body, model, effort);
+    return;
+  }
+  if (protocol === "anthropic") {
+    applyAnthropicReasoning(body, model, effort);
+    return;
+  }
+  if (protocol === "openrouter") {
+    applyOpenRouterReasoning(body, effort);
+  }
+}
+__name(applyReasoningProtocol, "applyReasoningProtocol");
+function resolveReasoningProtocol(configured, model) {
+  if (configured == null || configured === "openai") return "openai";
+  if (configured !== "auto") return configured;
+  const lower = model.toLowerCase();
+  if (lower.includes("deepseek")) return "deepseek";
+  if (lower.includes("qwen") || lower.includes("qwq")) return "qwen";
+  if (lower.includes("gemini") || lower.includes("gemma")) return "gemini";
+  if (lower.includes("claude")) return "anthropic";
+  return "openai";
+}
+__name(resolveReasoningProtocol, "resolveReasoningProtocol");
+function normalizeDeepSeekReasoningEffort(effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized === "none" || normalized === "max") return normalized;
+  if (normalized === "minimal" || normalized === "low") return "low";
+  if (normalized != null) return "high";
+}
+__name(normalizeDeepSeekReasoningEffort, "normalizeDeepSeekReasoningEffort");
+function qwenThinkingBudgetForEffort(effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized === "none") return 0;
+  if (normalized === "minimal") return 512;
+  if (normalized === "low") return 1024;
+  if (normalized === "medium") return 4096;
+  if (normalized === "high") return 8192;
+  if (normalized === "xhigh" || normalized === "max") return 16384;
+}
+__name(qwenThinkingBudgetForEffort, "qwenThinkingBudgetForEffort");
+function geminiThinkingConfig(model, effort) {
+  if (isGemini3CompatibleModel(model)) {
+    return {
+      thinking_level: geminiThinkingLevel(effort),
+      ...normalizeReasoningEffort(effort) === "none" ? { include_thoughts: false } : {}
+    };
+  }
+  return {
+    thinking_budget: geminiThinkingBudget(effort)
+  };
+}
+__name(geminiThinkingConfig, "geminiThinkingConfig");
+function anthropicThinkingConfig(effort, model = "", maxTokens = 4096) {
+  const normalized = normalizeReasoningEffort(effort);
+  const alwaysThinking = /opus[-.]5[-.]5/.test(model.toLowerCase());
+  if (normalized === "none") {
+    if (alwaysThinking)
+      throw new Error(`${model} does not support disabling thinking`);
+    return { type: "disabled" };
+  }
+  if (normalized == null && !alwaysThinking) return void 0;
+  if (!supportsAdaptiveThinking(model)) {
+    return {
+      type: "enabled",
+      budget_tokens: Math.min(
+        Math.max(1024, qwenThinkingBudgetForEffort(normalized) ?? 4096),
+        Math.max(1024, maxTokens - 1024),
+        maxTokens - 1
+      )
+    };
+  }
+  return {
+    type: "adaptive",
+    display: "summarized"
+  };
+}
+__name(anthropicThinkingConfig, "anthropicThinkingConfig");
+function applyDeepSeekReasoning(body, effort) {
+  const reasoningEffort = normalizeDeepSeekReasoningEffort(effort);
+  if (reasoningEffort == null)
+    throw new Error(`Unsupported DeepSeek effort: ${effort}`);
+  body.reasoning_effort = reasoningEffort;
+  body.thinking = mergeObject(body.thinking, {
+    type: reasoningEffort === "none" ? "disabled" : "enabled"
+  });
+}
+__name(applyDeepSeekReasoning, "applyDeepSeekReasoning");
+function applyQwenReasoning(body, effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  body.enable_thinking = normalized !== "none";
+  const thinkingBudget = qwenThinkingBudgetForEffort(normalized);
+  if (thinkingBudget != null) body.thinking_budget = thinkingBudget;
+}
+__name(applyQwenReasoning, "applyQwenReasoning");
+function applyGeminiReasoning(body, model, effort) {
+  body.extra_body = mergeObject(body.extra_body, {
+    google: {
+      thinking_config: geminiThinkingConfig(model, effort)
+    }
+  });
+}
+__name(applyGeminiReasoning, "applyGeminiReasoning");
+function applyAnthropicReasoning(body, model, effort) {
+  const normalized = anthropicEffortForModel(model, effort);
+  const thinking2 = anthropicThinkingConfig(
+    effort,
+    model,
+    Number(body.max_tokens ?? 4096)
+  );
+  if (thinking2 == null) return;
+  body.thinking = mergeObject(body.thinking, thinking2);
+  if (normalized != null) {
+    body.output_config = mergeObject(body.output_config, {
+      effort: normalized
+    });
+  }
+}
+__name(applyAnthropicReasoning, "applyAnthropicReasoning");
+function applyOpenRouterReasoning(body, effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized == null) return;
+  body.reasoning = mergeObject(body.reasoning, { effort: normalized });
+}
+__name(applyOpenRouterReasoning, "applyOpenRouterReasoning");
+function normalizeReasoningEffort(value) {
+  if (typeof value !== "string") return void 0;
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
+  if (normalized === "tiny") return "minimal";
+  if (normalized === "ultra") return "max";
+  if (normalized === "none" || normalized === "minimal" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return normalized;
+  }
+}
+__name(normalizeReasoningEffort, "normalizeReasoningEffort");
+function supportsAdaptiveThinking(model) {
+  return /claude-(?:(?:opus|sonnet)[-.](?:4[-.][6-9]|[5-9])|(?:fable|mythos)[-.](?:[5-9]|preview))/.test(
+    model.toLowerCase()
+  );
+}
+__name(supportsAdaptiveThinking, "supportsAdaptiveThinking");
+function anthropicSupportedEfforts(model) {
+  const lower = model.toLowerCase();
+  if (/claude-opus[-.]4[-.]5/.test(lower)) return ["low", "medium", "high"];
+  if (!supportsAdaptiveThinking(lower)) return void 0;
+  const levels = [
+    "low",
+    "medium",
+    "high",
+    "max"
+  ];
+  if (!/(?:opus|sonnet)[-.]4[-.]6|mythos[-.]preview/.test(lower))
+    levels.splice(3, 0, "xhigh");
+  return levels;
+}
+__name(anthropicSupportedEfforts, "anthropicSupportedEfforts");
+function anthropicEffortForModel(model, effort) {
+  const value = normalizeReasoningEffort(effort);
+  if (value == null || value === "none") return void 0;
+  const lower = model.toLowerCase();
+  const supported = anthropicSupportedEfforts(lower);
+  if (!supported) return void 0;
+  if (value === "minimal") return "low";
+  if (!supported.includes(value))
+    throw new Error(`${model} does not support effort ${value}`);
+  return value;
+}
+__name(anthropicEffortForModel, "anthropicEffortForModel");
+function nativeReasoningEfforts(model) {
+  const lower = model.toLowerCase();
+  if (lower.startsWith("gpt-6"))
+    return ["low", "medium", "high", "xhigh", "max"];
+  if (lower.includes("kimi-k3") || /glm-5\.3/.test(lower))
+    return ["low", "high", "max"];
+  if (lower.includes("minimax-m3.1"))
+    return ["low", "medium", "high", "xhigh", "max"];
+  if (lower.includes("step-5")) return ["low", "medium", "high"];
+  if (lower.includes("step-3.5-flash-2603")) return ["low", "high"];
+}
+__name(nativeReasoningEfforts, "nativeReasoningEfforts");
+function validateNativeReasoningEffort(body, model) {
+  const supported = nativeReasoningEfforts(model);
+  if (supported && body.reasoning_effort != null && !supported.includes(body.reasoning_effort)) {
+    throw new Error(
+      `${model} supports reasoning_effort: ${supported.join(", ")}`
+    );
+  }
+  if (model.toLowerCase().includes("kimi-k3")) delete body.thinking;
+  if (supported && !supported.includes("none") && body.thinking?.type === "disabled") {
+    throw new Error(`${model} does not support disabling thinking`);
+  }
+}
+__name(validateNativeReasoningEffort, "validateNativeReasoningEffort");
+function isGemini3CompatibleModel(model) {
+  return model.toLowerCase().includes("gemini-3");
+}
+__name(isGemini3CompatibleModel, "isGemini3CompatibleModel");
+function geminiThinkingBudget(effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized === "none") return 0;
+  if (normalized === "minimal") return 128;
+  if (normalized === "low") return 1024;
+  if (normalized === "medium") return 8192;
+  if (normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return 24576;
+  }
+  return -1;
+}
+__name(geminiThinkingBudget, "geminiThinkingBudget");
+function geminiThinkingLevel(effort) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (normalized === "none" || normalized === "minimal" || normalized === "low") {
+    return "low";
+  }
+  if (normalized === "medium") return "medium";
+  return "high";
+}
+__name(geminiThinkingLevel, "geminiThinkingLevel");
+function mergeObject(current, extra) {
+  const object = current != null && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  for (const [key, value] of Object.entries(extra)) {
+    if (value != null && typeof value === "object" && !Array.isArray(value) && object[key] != null && typeof object[key] === "object" && !Array.isArray(object[key])) {
+      object[key] = mergeObject(
+        object[key],
+        value
+      );
+      continue;
+    }
+    object[key] = value;
+  }
+  return object;
+}
+__name(mergeObject, "mergeObject");
+
+// src/adapters/model-list.ts
 function parseOpenAIModels(payload, provider) {
   const items = Array.isArray(payload.data) ? payload.data ?? [] : [];
   const result = [];
@@ -958,7 +1230,7 @@ __name(isChatModel, "isChatModel");
 function modelSupportsReasoning(provider, model) {
   const id = model.name.toLowerCase();
   if (provider === "openai") {
-    return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4") || id.startsWith("gpt-5");
+    return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4") || id.startsWith("gpt-5") || id.startsWith("gpt-6");
   }
   if (provider === "deepseek") {
     return id.includes("reasoner") || id.includes("r1") || id.includes("deepseek-v4");
@@ -970,11 +1242,12 @@ function modelSupportsReasoning(provider, model) {
   if (provider === "siliconflow") {
     return id.includes("deepseek-v4") || id.includes("deepseek") && id.includes("reason");
   }
-  return false;
+  return nativeReasoningEfforts(id) != null;
 }
 __name(modelSupportsReasoning, "modelSupportsReasoning");
 var DEEPSEEK_REASONING_SUFFIXES = [
   "non-thinking",
+  "low-thinking",
   "high-thinking",
   "max-thinking"
 ];
@@ -1018,7 +1291,7 @@ var REASONING_EFFORT_ORDER = [
 ];
 function reasoningVariantSuffixes(provider, model, reasoningProtocol) {
   const id = model.name.toLowerCase();
-  const protocol = resolveReasoningProtocol(reasoningProtocol, id);
+  const protocol = resolveReasoningProtocol2(reasoningProtocol, id);
   if (protocol === "deepseek") {
     return DEEPSEEK_REASONING_SUFFIXES;
   }
@@ -1042,6 +1315,8 @@ function reasoningVariantSuffixes(provider, model, reasoningProtocol) {
   if (model.reasoningEfforts != null) {
     return reasoningEffortSuffixes(model.reasoningEfforts);
   }
+  const native = nativeReasoningEfforts(id);
+  if (native) return reasoningEffortSuffixes(native);
   if (provider?.id === "minimax" || id.includes("minimax-m")) {
     return NO_REASONING_SUFFIXES;
   }
@@ -1056,7 +1331,7 @@ function reasoningVariantSuffixes(provider, model, reasoningProtocol) {
   return void 0;
 }
 __name(reasoningVariantSuffixes, "reasoningVariantSuffixes");
-function resolveReasoningProtocol(protocol, model) {
+function resolveReasoningProtocol2(protocol, model) {
   if (!protocol || protocol === "openai") return "openai";
   if (protocol !== "auto") return protocol;
   if (model.includes("deepseek")) return "deepseek";
@@ -1065,7 +1340,7 @@ function resolveReasoningProtocol(protocol, model) {
   if (model.includes("claude")) return "anthropic";
   return "openai";
 }
-__name(resolveReasoningProtocol, "resolveReasoningProtocol");
+__name(resolveReasoningProtocol2, "resolveReasoningProtocol");
 function geminiReasoningSuffixes(model) {
   return model.includes("gemini-3") ? GEMINI_REASONING_SUFFIXES : GEMINI_FLASH_REASONING_SUFFIXES;
 }
@@ -1167,7 +1442,7 @@ function anthropicReasoningEfforts(item) {
     ...arrayOf(item.reasoning_effort),
     ...item.reasoning_efforts ?? [],
     ...item.supported_reasoning_efforts ?? []
-  ].map(normalizeReasoningEffort).filter((value) => value != null);
+  ].map(normalizeReasoningEffort2).filter((value) => value != null);
   if (values.length > 0) return [...new Set(values)];
   const fallback = anthropicFallbackReasoningEfforts(item.id ?? "");
   if (fallback) return fallback;
@@ -1177,13 +1452,7 @@ function anthropicReasoningEfforts(item) {
 }
 __name(anthropicReasoningEfforts, "anthropicReasoningEfforts");
 function anthropicFallbackReasoningEfforts(model) {
-  const id = model.toLowerCase();
-  if (id.includes("claude-fable-5") || id.includes("claude-mythos-5") || id.includes("claude-opus-4-8") || id.includes("claude-opus-4-7")) {
-    return ["low", "medium", "high", "xhigh", "max"];
-  }
-  if (id.includes("claude-mythos-preview") || id.includes("claude-opus-4-6") || id.includes("claude-sonnet-4-6")) {
-    return ["low", "medium", "high", "max"];
-  }
+  return anthropicSupportedEfforts(model);
 }
 __name(anthropicFallbackReasoningEfforts, "anthropicFallbackReasoningEfforts");
 function capabilityEffortValues(value) {
@@ -1202,7 +1471,7 @@ function arrayOf(value) {
   return Array.isArray(value) ? value : [];
 }
 __name(arrayOf, "arrayOf");
-function normalizeReasoningEffort(value) {
+function normalizeReasoningEffort2(value) {
   if (typeof value !== "string") return void 0;
   const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
   if (normalized === "tiny") return "minimal";
@@ -1210,7 +1479,7 @@ function normalizeReasoningEffort(value) {
     return normalized;
   }
 }
-__name(normalizeReasoningEffort, "normalizeReasoningEffort");
+__name(normalizeReasoningEffort2, "normalizeReasoningEffort");
 function isCapabilitySupported(value) {
   if (typeof value === "boolean") return value;
   if (value != null && typeof value === "object") {
@@ -1350,6 +1619,298 @@ function pushUnique(result, seen, entry) {
 }
 __name(pushUnique, "pushUnique");
 
+// src/adapters/openai-bridge.ts
+import { AIMessageChunk } from "@langchain/core/messages";
+import {
+  ChatGenerationChunk
+} from "@langchain/core/outputs";
+import {
+  attachInvocationMetrics,
+  readInvocationMetrics
+} from "koishi-plugin-chatluna/llm-core/platform/api";
+function usesResponses(requester, params) {
+  const model = String(
+    params.overrideRequestParams?.model ?? params.model ?? ""
+  ).toLowerCase();
+  return requester.currentConfig().responseApi === true || requester.currentProviderPreset().id === "openai" && model.startsWith("gpt-6");
+}
+__name(usesResponses, "usesResponses");
+function createOpenAIBridge(requester, params) {
+  const context = requester.requestContext();
+  const provider = requester.currentConfig().provider;
+  const state = {};
+  const proxy = Object.create(context.modelRequester);
+  proxy.post = async (url, body, options) => {
+    state.model = body.model;
+    if (url === "responses") {
+      if (!Object.hasOwn(params.overrideRequestParams ?? {}, "input")) {
+        body.input = restoreResponseInput(
+          body.input,
+          params.input,
+          provider,
+          body.model
+        );
+      }
+      const configured = requester.currentConfig();
+      if (configured.promptCacheMode === "explicit" && !Object.hasOwn(params.overrideRequestParams ?? {}, "input")) {
+        markCacheBoundary(
+          body.input.filter((item) => item.type === "message"),
+          true
+        );
+      }
+      if (body.store === false && provider === "openai") {
+        body.include = [
+          .../* @__PURE__ */ new Set([
+            ...body.include ?? [],
+            "reasoning.encrypted_content"
+          ])
+        ];
+      }
+      const effort = params.overrideRequestParams?.reasoning_effort;
+      if (effort != null && !Object.hasOwn(params.overrideRequestParams ?? {}, "reasoning")) {
+        body.reasoning = { ...body.reasoning, effort };
+      }
+      delete body.reasoning_effort;
+    } else if (url === "chat/completions" && !Object.hasOwn(params.overrideRequestParams ?? {}, "messages")) {
+      body.messages?.forEach((message, index) => {
+        message.content = restoreContent(
+          message.content,
+          params.input[index]?.content,
+          false
+        );
+      });
+      if (requester.currentConfig().promptCacheMode === "explicit")
+        markCacheBoundary(body.messages, false);
+    }
+    const response = await requester.post(url, body, options);
+    if (!response.ok) return response;
+    const observe = /* @__PURE__ */ __name((data) => {
+      const raw = data.response ?? data;
+      if (raw.usage) {
+        state.usage = raw.usage;
+        const details = raw.usage.prompt_tokens_details;
+        const cached = raw.usage.cached_tokens ?? raw.usage.prompt_cache_hit_tokens;
+        if (cached != null && details?.cached_tokens == null) {
+          raw.usage.prompt_tokens_details = {
+            ...details,
+            cached_tokens: cached
+          };
+        }
+      }
+      if (Array.isArray(raw.output)) state.output = raw.output;
+      if (raw.id) state.id = raw.id;
+      if (data.type === "response.output_item.done" && data.item) {
+        state.output ??= [];
+        state.output[data.output_index ?? state.output.length] = data.item;
+      }
+      for (const choice of data.choices ?? []) {
+        for (const message of [choice.message, choice.delta]) {
+          if (message?.reasoning_content == null && typeof message?.reasoning === "string") {
+            message.reasoning_content = message.reasoning;
+          }
+          if (message === choice.delta && typeof message?.reasoning_content === "string") {
+            state.reasoning = (state.reasoning ?? "") + message.reasoning_content;
+          }
+        }
+      }
+      return data;
+    }, "observe");
+    if (body.stream !== true) {
+      const data = observe(JSON.parse(await response.text()));
+      return new Response(JSON.stringify(data), {
+        status: response.status,
+        headers: response.headers
+      });
+    }
+    if (!response.body) return response;
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    let buffer = "";
+    const rewrite = /* @__PURE__ */ __name((frame) => frame.replace(/^data: ?(.*)$/gm, (line, payload) => {
+      if (!payload.trim() || payload.trim() === "[DONE]") return line;
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        return line;
+      }
+      return `data: ${JSON.stringify(observe(parsed))}`;
+    }), "rewrite");
+    const stream = response.body.pipeThrough(
+      new TransformStream({
+        transform(bytes, controller) {
+          buffer += decoder.decode(bytes, { stream: true });
+          let match;
+          while (match = /\r?\n\r?\n/.exec(buffer)) {
+            controller.enqueue(
+              encoder.encode(
+                rewrite(buffer.slice(0, match.index)) + "\n\n"
+              )
+            );
+            buffer = buffer.slice(match.index + match[0].length);
+          }
+        },
+        flush(controller) {
+          buffer += decoder.decode();
+          if (buffer)
+            controller.enqueue(
+              encoder.encode(rewrite(buffer) + "\n\n")
+            );
+        }
+      })
+    );
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    return new Response(stream, { status: response.status, headers });
+  };
+  function enrich(generation) {
+    const message = generation.message;
+    if (Object.hasOwn(message.additional_kwargs, "reasoning_content") && state.reasoning != null) {
+      message.additional_kwargs.reasoning_content = state.reasoning;
+    }
+    const usage2 = message.usage_metadata;
+    if (usage2 && state.usage) {
+      const raw = state.usage;
+      const detail = raw.input_tokens_details ?? raw.prompt_tokens_details ?? {};
+      const write = detail.cache_write_tokens ?? detail.cache_creation_input_tokens ?? raw.cache_creation_input_tokens;
+      const read = detail.cached_tokens ?? raw.cached_tokens ?? raw.prompt_cache_hit_tokens;
+      usage2.input_token_details = {
+        ...usage2.input_token_details,
+        ...write == null ? {} : { cache_creation: write },
+        ...read == null ? {} : { cache_read: read }
+      };
+      const metrics = readInvocationMetrics(generation);
+      attachInvocationMetrics(generation, {
+        ...metrics,
+        usageMetadata: usage2
+      });
+    }
+    return generation;
+  }
+  __name(enrich, "enrich");
+  function history() {
+    const output = state.output?.filter(Boolean);
+    return output?.length ? {
+      hub_response: {
+        provider,
+        model: state.model,
+        id: state.id,
+        output
+      }
+    } : {};
+  }
+  __name(history, "history");
+  return {
+    context: { ...context, modelRequester: proxy },
+    enrich,
+    finish(generation) {
+      enrich(generation);
+      Object.assign(generation.message.additional_kwargs, history());
+      return generation;
+    },
+    historyChunk() {
+      return new ChatGenerationChunk({
+        text: "",
+        message: new AIMessageChunk({
+          content: "",
+          additional_kwargs: history()
+        })
+      });
+    }
+  };
+}
+__name(createOpenAIBridge, "createOpenAIBridge");
+function restoreResponseInput(input, messages, provider, model) {
+  const result = [];
+  let offset = 0;
+  for (const message of messages) {
+    const type = message.getType();
+    const count = type === "tool" || type === "function" ? 1 : (message.content !== "" ? 1 : 0) + (type === "ai" ? message.tool_calls?.length ?? 0 : 0);
+    const group = input.slice(offset, offset + count);
+    offset += count;
+    const raw = message.additional_kwargs?.hub_response;
+    if (type === "ai" && raw?.provider === provider && raw.model === model && Array.isArray(raw.output)) {
+      result.push(...structuredClone(raw.output));
+      continue;
+    }
+    for (const item of group) {
+      if (item.content)
+        item.content = restoreContent(
+          item.content,
+          message.content,
+          true
+        );
+      if (item.output)
+        item.output = restoreContent(item.output, message.content, true);
+      result.push(item);
+    }
+  }
+  result.push(...input.slice(offset));
+  return result;
+}
+__name(restoreResponseInput, "restoreResponseInput");
+function markCacheBoundary(messages, responses) {
+  const stable = messages.slice(0, -1).at(-1) ?? messages[0];
+  if (!stable) return;
+  const type = responses ? "input_text" : "text";
+  if (typeof stable.content === "string")
+    stable.content = [{ type, text: stable.content }];
+  const lastText = stable.content?.filter((part) => part.type === type).at(-1);
+  if (lastText) lastText.prompt_cache_breakpoint ??= { mode: "explicit" };
+}
+__name(markCacheBoundary, "markCacheBoundary");
+function restoreContent(content, original, responses) {
+  if (!Array.isArray(content) || !Array.isArray(original)) return content;
+  const images = original.filter((part) => part.type === "image_url");
+  const texts = original.filter(
+    (part) => part.type === "text" && part.text?.length > 0
+  );
+  const files = original.filter((part) => part.type === "file_url");
+  let imageIndex = 0;
+  let textIndex = 0;
+  let fileIndex = 0;
+  return content.map((part) => {
+    if (part.type === "image_url" || part.type === "input_image") {
+      const source = images[imageIndex++];
+      if (!source) return part;
+      const { type: _type, image_url: _image, ...blockOptions } = source;
+      const options = typeof source.image_url === "object" ? source.image_url : {};
+      const { url: _url, ...extensions } = options;
+      if (responses)
+        return {
+          ...part,
+          ...blockOptions,
+          ...extensions,
+          detail: options.detail ?? "auto"
+        };
+      return {
+        ...source,
+        image_url: {
+          ...extensions,
+          url: part.image_url.url,
+          detail: options.detail ?? "auto"
+        }
+      };
+    }
+    if (part.type === "text" || part.type === "input_text") {
+      const source = texts[textIndex++];
+      if (!source) return part;
+      const { type: _type, ...extensions } = source;
+      return { ...part, ...extensions };
+    }
+    if (part.type === "input_file") {
+      const source = files[fileIndex++];
+      if (!source) return part;
+      const options = typeof source.file_url === "object" ? source.file_url : {};
+      const { url: _url, ...extensions } = options;
+      const { type: _type, file_url: _file, ...blockOptions } = source;
+      return { ...part, ...blockOptions, ...extensions };
+    }
+    return part;
+  });
+}
+__name(restoreContent, "restoreContent");
+
 // src/adapters/openai-chat.ts
 var openAIChatAdapter = {
   id: "openai-chat",
@@ -1357,14 +1918,17 @@ var openAIChatAdapter = {
     if (!requester.currentConfig().nonStreaming) {
       return requester.defaultCompletion(params);
     }
-    return completion(
-      requester.requestContext(),
-      preserveRealModelName(params),
-      "chat/completions",
-      void 0,
-      requester.supportsCapability(
-        params.model,
-        ModelCapabilities3.ImageInput
+    const bridge = createOpenAIBridge(requester, params);
+    return bridge.finish(
+      await completion(
+        bridge.context,
+        preserveRealModelName(params),
+        "chat/completions",
+        void 0,
+        requester.supportsCapability(
+          params.model,
+          ModelCapabilities3.ImageInput
+        )
       )
     );
   },
@@ -1374,7 +1938,7 @@ var openAIChatAdapter = {
       return;
     }
     const generation = await this.completion(requester, params);
-    yield new ChatGenerationChunk({
+    yield new ChatGenerationChunk2({
       generationInfo: generation.generationInfo,
       message: generation.message,
       text: generation.text
@@ -1382,8 +1946,9 @@ var openAIChatAdapter = {
   },
   async *completionStreamInternal(requester, params) {
     const normalizeToolCallChunk = requester.currentProviderPreset().id === "deepseek" ? createToolCallChunkNormalizer() : void 0;
+    const bridge = createOpenAIBridge(requester, params);
     for await (const chunk of completionStream(
-      requester.requestContext(),
+      bridge.context,
       preserveRealModelName(params),
       "chat/completions",
       void 0,
@@ -1392,7 +1957,7 @@ var openAIChatAdapter = {
         ModelCapabilities3.ImageInput
       )
     )) {
-      yield normalizeToolCallChunk?.(chunk) ?? chunk;
+      yield bridge.enrich(normalizeToolCallChunk?.(chunk) ?? chunk);
     }
   },
   async embeddings(requester, params) {
@@ -1421,7 +1986,7 @@ function createToolCallChunkNormalizer() {
   let nextId = 0;
   return (chunk) => {
     const message = chunk.message;
-    if (!(message instanceof AIMessageChunk)) return chunk;
+    if (!(message instanceof AIMessageChunk2)) return chunk;
     const toolCallChunks = message.tool_call_chunks;
     if ((toolCallChunks?.length ?? 0) < 1) return chunk;
     let changed = false;
@@ -1444,10 +2009,10 @@ function createToolCallChunkNormalizer() {
       }
     );
     if (!changed) return chunk;
-    return new ChatGenerationChunk({
+    return new ChatGenerationChunk2({
       generationInfo: chunk.generationInfo,
       text: chunk.text,
-      message: new AIMessageChunk({
+      message: new AIMessageChunk2({
         content: message.content,
         additional_kwargs: message.additional_kwargs,
         response_metadata: message.response_metadata,
@@ -1485,16 +2050,16 @@ function preserveRealModelName(params) {
   return {
     ...params,
     overrideRequestParams: {
-      ...params.overrideRequestParams,
       model,
-      ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort }
+      ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort },
+      ...params.overrideRequestParams
     }
   };
 }
 __name(preserveRealModelName, "preserveRealModelName");
 
 // src/adapters/openai.ts
-import { ChatGenerationChunk as ChatGenerationChunk2 } from "@langchain/core/outputs";
+import { ChatGenerationChunk as ChatGenerationChunk3 } from "@langchain/core/outputs";
 import {
   completion as completion2,
   completionStream as completionStream2,
@@ -1512,32 +2077,37 @@ var openAIAdapter = {
   id: "openai",
   async completion(requester, params) {
     const current = requester.currentConfig();
-    if (!current.nonStreaming && !current.responseApi) {
+    if (!current.nonStreaming) {
       return requester.defaultCompletion(params);
     }
-    const requestContext = requester.requestContext();
-    if (current.responseApi) {
-      return await responseApiCompletion(
+    const bridge = createOpenAIBridge(requester, params);
+    const requestContext = bridge.context;
+    if (usesResponses(requester, params)) {
+      return bridge.finish(
+        await responseApiCompletion(
+          requestContext,
+          params,
+          {
+            builtinTools: requester.responseBuiltinTools(params)
+          },
+          requester.supportsCapability(
+            params.model,
+            ModelCapabilities4.ImageInput
+          ),
+          requester.responseImageProvider()
+        )
+      );
+    }
+    return bridge.finish(
+      await completion2(
         requestContext,
         params,
-        {
-          builtinTools: requester.responseBuiltinTools(params)
-        },
+        "chat/completions",
+        void 0,
         requester.supportsCapability(
           params.model,
           ModelCapabilities4.ImageInput
-        ),
-        requester.responseImageProvider()
-      );
-    }
-    return await completion2(
-      requestContext,
-      params,
-      "chat/completions",
-      void 0,
-      requester.supportsCapability(
-        params.model,
-        ModelCapabilities4.ImageInput
+        )
       )
     );
   },
@@ -1548,17 +2118,17 @@ var openAIAdapter = {
       return;
     }
     const generation = await this.completion(requester, params);
-    yield new ChatGenerationChunk2({
+    yield new ChatGenerationChunk3({
       generationInfo: generation.generationInfo,
       message: generation.message,
       text: generation.text
     });
   },
   async *completionStreamInternal(requester, params) {
-    const current = requester.currentConfig();
-    const requestContext = requester.requestContext();
-    if (current.responseApi) {
-      yield* responseApiCompletionStream(
+    const bridge = createOpenAIBridge(requester, params);
+    const requestContext = bridge.context;
+    if (usesResponses(requester, params)) {
+      for await (const chunk of responseApiCompletionStream(
         requestContext,
         params,
         {
@@ -1569,10 +2139,12 @@ var openAIAdapter = {
           ModelCapabilities4.ImageInput
         ),
         requester.responseImageProvider()
-      );
+      ))
+        yield bridge.enrich(chunk);
+      yield bridge.historyChunk();
       return;
     }
-    yield* completionStream2(
+    for await (const chunk of completionStream2(
       requestContext,
       params,
       "chat/completions",
@@ -1581,7 +2153,8 @@ var openAIAdapter = {
         params.model,
         ModelCapabilities4.ImageInput
       )
-    );
+    ))
+      yield bridge.enrich(chunk);
   },
   async embeddings(requester, params) {
     const requestContext = requester.requestContext();
@@ -1611,32 +2184,379 @@ var openAIAdapter = {
 
 // src/adapters/gemini.ts
 import {
-  AIMessageChunk as AIMessageChunk2
+  AIMessageChunk as AIMessageChunk4
 } from "@langchain/core/messages";
-import { ChatGenerationChunk as ChatGenerationChunk3 } from "@langchain/core/outputs";
+import { ChatGenerationChunk as ChatGenerationChunk5 } from "@langchain/core/outputs";
 import { isZodSchemaV3 } from "@langchain/core/utils/types";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import {
-  createRequestSignal,
-  createUsageMetadata,
+  createRequestSignal as createRequestSignal2,
+  createUsageMetadata as createUsageMetadata2,
   fetchFileLikeUrl as fetchFileLikeUrl2,
   fetchImageUrl,
-  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort2,
+  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort3,
   removeAdditionalProperties
 } from "@chatluna/v1-shared-adapter";
-import { checkResponse as checkResponse3, sseIterable } from "koishi-plugin-chatluna/utils/sse";
+import { checkResponse as checkResponse4, sseIterable as sseIterable2 } from "koishi-plugin-chatluna/utils/sse";
 import {
   getMessageContent,
   isMessageContentImageUrl,
   isMessageContentText
 } from "koishi-plugin-chatluna/utils/string";
+import {
+  ChatLunaError as ChatLunaError3,
+  ChatLunaErrorCode as ChatLunaErrorCode3
+} from "koishi-plugin-chatluna/utils/error";
+
+// src/adapters/gemini-interactions.ts
+import { AIMessageChunk as AIMessageChunk3 } from "@langchain/core/messages";
+import { ChatGenerationChunk as ChatGenerationChunk4 } from "@langchain/core/outputs";
+import {
+  createRequestSignal,
+  createUsageMetadata,
+  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort2
+} from "@chatluna/v1-shared-adapter";
+import { checkResponse as checkResponse3, sseIterable } from "koishi-plugin-chatluna/utils/sse";
+import {
+  ChatLunaError as ChatLunaError2,
+  ChatLunaErrorCode as ChatLunaErrorCode2
+} from "koishi-plugin-chatluna/utils/error";
+async function buildInteraction(requester, params, mapper, stream) {
+  const config = requester.currentConfig();
+  if (config.geminiCachedContent)
+    throw new Error(
+      "cachedContents references require generateContent, not Interactions"
+    );
+  const customInput = Object.hasOwn(
+    params.overrideRequestParams ?? {},
+    "input"
+  );
+  const generated = await createGeminiRequest(
+    requester,
+    {
+      ...params,
+      input: customInput ? [] : params.input,
+      overrideRequestParams: void 0
+    },
+    mapper
+  );
+  const model = parseOpenAIModelNameWithReasoningEffort2(
+    String(params.overrideRequestParams?.model ?? params.model)
+  ).model.replace(/^models\//, "");
+  const input = [];
+  let index = 0;
+  let previousTool = false;
+  let toolContent;
+  for (const message of customInput ? [] : params.input) {
+    if (message.getType() === "system") continue;
+    if (message.getType() === "tool") {
+      if (!previousTool) toolContent = generated.contents[index++];
+      previousTool = true;
+      const tool2 = message;
+      const response = toolContent?.parts?.find(
+        (part) => part.functionResponse?.id === tool2.tool_call_id
+      )?.functionResponse;
+      const text = typeof tool2.content === "string" ? tool2.content : tool2.content.filter((part) => part.type === "text").map((part) => part.text).join("");
+      input.push({
+        type: "function_result",
+        name: response?.name ?? mapper.sanitize(tool2.name),
+        call_id: tool2.tool_call_id,
+        result: [
+          { type: "text", text },
+          ...(response?.parts ?? []).map(partToContent)
+        ]
+      });
+      continue;
+    }
+    previousTool = false;
+    const content = generated.contents[index++];
+    const saved = message.additional_kwargs.hub_gemini_interaction;
+    if (message.getType() === "ai" && saved?.model === model && Array.isArray(saved.steps)) {
+      input.push(...structuredClone(saved.steps));
+      continue;
+    }
+    if (!content) continue;
+    let ordinary = [];
+    for (const part of content.parts) {
+      if (part.functionCall) {
+        if (ordinary.length) {
+          input.push({ type: "model_output", content: ordinary });
+          ordinary = [];
+        }
+        const call = part.functionCall;
+        input.push({
+          type: "function_call",
+          id: call.id,
+          name: call.name,
+          arguments: call.args
+        });
+      } else ordinary.push(partToContent(part));
+    }
+    if (ordinary.length)
+      input.push({
+        type: message.getType() === "ai" ? "model_output" : "user_input",
+        content: ordinary
+      });
+  }
+  const tools = [];
+  for (const tool2 of generated.tools ?? []) {
+    for (const fn of tool2.functionDeclarations ?? [])
+      tools.push({ type: "function", ...fn });
+    if (tool2.googleSearch) tools.push({ type: "google_search" });
+    if (tool2.codeExecution) tools.push({ type: "code_execution" });
+    if (tool2.urlContext) tools.push({ type: "url_context" });
+  }
+  const g = generated.generationConfig ?? {};
+  const schema = config.geminiResponseJsonSchema;
+  const base = {
+    model,
+    input,
+    stream,
+    store: false,
+    system_instruction: generated.systemInstruction?.parts?.map((p) => p.text ?? "").join("\n"),
+    tools: tools.length ? tools : void 0,
+    generation_config: {
+      temperature: g.temperature,
+      top_p: g.topP,
+      max_output_tokens: g.maxOutputTokens,
+      thinking_level: g.thinkingConfig?.thinkingLevel,
+      thinking_summaries: config.includeThoughts ? "auto" : void 0
+    },
+    response_format: schema ? [{ type: "text", mime_type: "application/json", schema }] : config.geminiResponseMimeType ? [{ type: "text", mime_type: config.geminiResponseMimeType }] : void 0
+  };
+  const { reasoning_effort: _effort, ...override } = params.overrideRequestParams ?? {};
+  return mergeGeminiRequest(base, override);
+}
+__name(buildInteraction, "buildInteraction");
+function partToContent(part) {
+  if (part.text != null) return { type: "text", text: part.text };
+  const media = part.inlineData ?? part.inline_data ?? part.fileData ?? part.file_data;
+  if (media) {
+    const mime = media.mimeType ?? media.mime_type;
+    const type = mime?.startsWith("image/") ? "image" : mime?.startsWith("audio/") ? "audio" : mime?.startsWith("video/") ? "video" : "document";
+    return {
+      type,
+      mime_type: mime,
+      ...media.data ? { data: media.data } : { uri: media.fileUri ?? media.file_uri }
+    };
+  }
+  throw new Error(
+    "Cannot convert generateContent-specific context to Interactions; start a new conversation or supply overrideRequestParams.input"
+  );
+}
+__name(partToContent, "partToContent");
+function ensureSuccess(data) {
+  if (data.error || ["failed", "cancelled"].includes(data.status)) {
+    throw new ChatLunaError2(
+      ChatLunaErrorCode2.API_REQUEST_FAILED,
+      new Error(
+        `Gemini interaction failed: ${data.error?.message ?? data.status}`
+      )
+    );
+  }
+}
+__name(ensureSuccess, "ensureSuccess");
+function parseGeminiInteraction(data, mapper, metadataOnly = false) {
+  ensureSuccess(data);
+  const steps = data.steps ?? [];
+  const content = [];
+  const calls = [];
+  let reasoning = "";
+  for (const step of steps) {
+    if (step.type === "model_output")
+      for (const part of step.content ?? []) {
+        if (part.type === "text")
+          content.push({ type: "text", text: part.text });
+        else if (["image", "audio", "video", "document"].includes(part.type)) {
+          const url = part.uri ?? `data:${part.mime_type};base64,${part.data}`;
+          const type = part.type === "image" ? "image_url" : part.type === "audio" ? "audio_url" : part.type === "video" ? "video_url" : "file_url";
+          content.push({
+            type,
+            [type]: type === "image_url" ? url : { url, mimeType: part.mime_type }
+          });
+        }
+      }
+    if (step.type === "function_call")
+      calls.push({
+        name: mapper.restore(step.name),
+        id: step.id,
+        args: typeof step.arguments === "string" ? step.arguments : JSON.stringify(step.arguments ?? {}),
+        index: calls.length
+      });
+    if (step.type === "thought")
+      reasoning += (step.summary ?? []).map((p) => p.text ?? "").join("");
+  }
+  const usage2 = data.usage;
+  const metadata = usage2 ? createUsageMetadata({
+    inputTokens: usage2.total_input_tokens ?? 0,
+    outputTokens: usage2.total_output_tokens ?? 0,
+    totalTokens: usage2.total_tokens ?? 0,
+    cacheReadTokens: usage2.total_cached_tokens,
+    reasoningTokens: usage2.total_thought_tokens
+  }) : void 0;
+  const text = metadataOnly ? "" : content.filter((p) => p.type === "text").map((p) => p.text).join("");
+  return new ChatGenerationChunk4({
+    text,
+    generationInfo: { status: data.status, usage_metadata: metadata },
+    message: new AIMessageChunk3({
+      content: metadataOnly ? "" : content,
+      tool_call_chunks: metadataOnly ? [] : calls,
+      usage_metadata: metadata,
+      additional_kwargs: {
+        hub_gemini_interaction: {
+          model: data.model,
+          id: data.id,
+          steps
+        },
+        ...reasoning ? { reasoning_content: reasoning } : {}
+      }
+    })
+  });
+}
+__name(parseGeminiInteraction, "parseGeminiInteraction");
+async function geminiInteractionCompletion(requester, params) {
+  const mapper = createGeminiToolNameMapper(params.tools ?? []);
+  const signal = createRequestSignal(params);
+  try {
+    const request = await buildInteraction(
+      requester,
+      { ...params, signal: signal.signal },
+      mapper,
+      false
+    );
+    const response = await requester.post("interactions", request, {
+      signal: signal.signal
+    });
+    await checkResponse3(response);
+    const data = JSON.parse(await response.text());
+    data.model ??= request.model;
+    return parseGeminiInteraction(data, mapper);
+  } finally {
+    signal.dispose();
+  }
+}
+__name(geminiInteractionCompletion, "geminiInteractionCompletion");
+async function* geminiInteractionStream(requester, params) {
+  const mapper = createGeminiToolNameMapper(params.tools ?? []);
+  const signal = createRequestSignal(params);
+  const steps = [];
+  const args = /* @__PURE__ */ new Map();
+  let interaction = {};
+  let completed = false;
+  try {
+    const request = await buildInteraction(
+      requester,
+      { ...params, signal: signal.signal },
+      mapper,
+      true
+    );
+    const response = await requester.post("interactions", request, {
+      signal: signal.signal
+    });
+    signal.clearTimeout();
+    await checkResponse3(response);
+    for await (const event of sseIterable(response, {
+      signal: signal.signal,
+      timeout: params.timeout
+    })) {
+      if (!event.data || event.data.trim() === "[DONE]") continue;
+      const data = JSON.parse(event.data);
+      const type = data.event_type ?? event.event;
+      if (type === "error" || data.error)
+        ensureSuccess({ error: data.error ?? data, status: "failed" });
+      if (data.interaction)
+        interaction = { ...interaction, ...data.interaction };
+      if (type === "interaction.status_update")
+        ensureSuccess({ ...data, status: data.status });
+      if (type === "step.start")
+        steps[data.index] = structuredClone(data.step);
+      if (type === "step.delta") {
+        const step = steps[data.index];
+        const delta = data.delta;
+        if (!step)
+          throw new Error(
+            "Gemini interaction delta has no step.start"
+          );
+        if (delta.type === "arguments_delta")
+          args.set(
+            data.index,
+            (args.get(data.index) ?? "") + delta.arguments
+          );
+        else if (delta.type === "thought_signature")
+          step.signature = delta.signature;
+        else if (delta.type === "thought_summary")
+          (step.summary ??= []).push(delta.content);
+        else if (step.type === "model_output") {
+          ;
+          (step.content ??= []).push(delta);
+          if (delta.type === "text")
+            yield new ChatGenerationChunk4({
+              text: delta.text,
+              message: new AIMessageChunk3({ content: delta.text })
+            });
+          else {
+            const chunk = parseGeminiInteraction(
+              { steps: [{ ...step, content: [delta] }] },
+              mapper
+            );
+            delete chunk.message.additional_kwargs.hub_gemini_interaction;
+            yield chunk;
+          }
+        } else
+          Object.assign(
+            step,
+            Object.fromEntries(
+              Object.entries(delta).filter(
+                ([key]) => key !== "type"
+              )
+            )
+          );
+      }
+      if (type === "step.stop") {
+        if (data.step) steps[data.index] = data.step;
+        if (args.has(data.index))
+          steps[data.index].arguments = JSON.parse(
+            args.get(data.index)
+          );
+        if (steps[data.index]?.type === "function_call") {
+          const chunk = parseGeminiInteraction(
+            { steps: [steps[data.index]] },
+            mapper
+          );
+          delete chunk.message.additional_kwargs.hub_gemini_interaction;
+          const calls = chunk.message.tool_call_chunks;
+          calls.forEach((call) => {
+            call.index = data.index;
+          });
+          yield chunk;
+        }
+      }
+      if (type === "interaction.completed") {
+        ensureSuccess(interaction);
+        completed = true;
+      }
+    }
+    if (!completed)
+      throw new Error(
+        "Gemini interaction stream ended without completion"
+      );
+    interaction.steps ??= steps.filter(Boolean);
+    interaction.model ??= request.model;
+    yield parseGeminiInteraction(interaction, mapper, true);
+  } finally {
+    signal.dispose();
+  }
+}
+__name(geminiInteractionStream, "geminiInteractionStream");
+
+// src/adapters/gemini.ts
 var geminiAdapter = {
   id: "gemini",
   async completion(requester, params) {
     if (!requester.currentConfig().nonStreaming) {
       return requester.defaultCompletion(params);
     }
-    const generation = await geminiCompletion(requester, params);
+    const generation = requester.currentConfig().geminiApi === "interactions" ? await geminiInteractionCompletion(requester, params) : await geminiCompletion(requester, params);
     return generation;
   },
   async *completionStream(requester, params) {
@@ -1645,13 +2565,17 @@ var geminiAdapter = {
       return;
     }
     const generation = await this.completion(requester, params);
-    yield new ChatGenerationChunk3({
+    yield new ChatGenerationChunk5({
       generationInfo: generation.generationInfo,
       message: generation.message,
       text: generation.text
     });
   },
   async *completionStreamInternal(requester, params) {
+    if (requester.currentConfig().geminiApi === "interactions") {
+      yield* geminiInteractionStream(requester, params);
+      return;
+    }
     yield* geminiCompletionStream(requester, params);
   },
   async embeddings(requester, params) {
@@ -1668,7 +2592,7 @@ var geminiAdapter = {
       },
       { signal: params.signal }
     );
-    await checkResponse3(response);
+    await checkResponse4(response);
     const data = JSON.parse(await response.text());
     return data.embeddings?.map((item) => item.values) ?? [];
   },
@@ -1681,22 +2605,26 @@ var geminiAdapter = {
       {},
       { signal: config?.signal }
     );
-    await checkResponse3(response);
+    await checkResponse4(response);
     return parseGeminiModels(JSON.parse(await response.text()));
   }
 };
 async function geminiCompletion(requester, params) {
   const toolNameMapper = createGeminiToolNameMapper(params.tools ?? []);
-  const request = await createGeminiRequest(requester, params, toolNameMapper);
-  const requestSignal = createRequestSignal(params);
+  const requestSignal = createRequestSignal2(params);
   try {
+    const request = await createGeminiRequest(
+      requester,
+      { ...params, signal: requestSignal.signal },
+      toolNameMapper
+    );
     const response = await requester.post(
-      `models/${prepareGeminiModel(params.model, requester)}:generateContent`,
+      `models/${prepareGeminiModel(params.overrideRequestParams?.model ?? params.model, requester)}:generateContent`,
       request,
       { signal: requestSignal.signal }
     );
     requestSignal.clearTimeout();
-    await checkResponse3(response);
+    await checkResponse4(response);
     return await parseGeminiResponse(
       await response.text(),
       requester,
@@ -1709,18 +2637,22 @@ async function geminiCompletion(requester, params) {
 __name(geminiCompletion, "geminiCompletion");
 async function* geminiCompletionStream(requester, params) {
   const toolNameMapper = createGeminiToolNameMapper(params.tools ?? []);
-  const request = await createGeminiRequest(requester, params, toolNameMapper);
-  const requestSignal = createRequestSignal(params);
+  const requestSignal = createRequestSignal2(params);
   const streamState = { nextToolIndex: 0, partIndex: 0 };
   try {
+    const request = await createGeminiRequest(
+      requester,
+      { ...params, signal: requestSignal.signal },
+      toolNameMapper
+    );
     const response = await requester.post(
-      `models/${prepareGeminiModel(params.model, requester)}:streamGenerateContent?alt=sse`,
+      `models/${prepareGeminiModel(params.overrideRequestParams?.model ?? params.model, requester)}:streamGenerateContent?alt=sse`,
       request,
       { signal: requestSignal.signal }
     );
     requestSignal.clearTimeout();
-    await checkResponse3(response);
-    for await (const event of sseIterable(response, {
+    await checkResponse4(response);
+    for await (const event of sseIterable2(response, {
       timeout: params.timeout,
       signal: requestSignal.signal
     })) {
@@ -1742,15 +2674,16 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
     requester,
     params.input,
     toolNameMapper,
-    params.model
+    params.overrideRequestParams?.model ?? params.model,
+    params.signal
   );
   const current = requester.currentConfig();
-  const parsedModel = parseOpenAIModelNameWithReasoningEffort2(
+  const parsedModel = parseOpenAIModelNameWithReasoningEffort3(
     params.model ?? ""
   );
   const thinkingConfig = createGeminiThinkingConfig(
     parsedModel.model,
-    parsedModel.reasoningEffort,
+    params.overrideRequestParams?.reasoning_effort ?? parsedModel.reasoningEffort,
     current
   );
   const tools = geminiTools(
@@ -1764,11 +2697,14 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
     topP: params.topP,
     maxOutputTokens: params.maxTokens,
     stopSequences: params.stop,
+    responseMimeType: current.geminiResponseMimeType || (current.geminiResponseJsonSchema ? "application/json" : void 0),
+    responseJsonSchema: current.geminiResponseJsonSchema,
     responseModalities: current.imageGeneration && supportsGeminiImageGeneration(parsedModel.model) ? ["TEXT", "IMAGE"] : void 0,
     thinkingConfig
   });
-  return filterEmpty({
+  const base = filterEmpty({
     ...messageContents,
+    cachedContent: current.geminiCachedContent || void 0,
     generationConfig,
     safetySettings: createSafetySettings(),
     tools,
@@ -1776,17 +2712,45 @@ async function createGeminiRequest(requester, params, toolNameMapper) {
       (tool2) => tool2.googleSearch != null || tool2.codeExecution != null || tool2.urlContext != null
     ) && isGemini3Model(params.model) ? { includeServerSideToolInvocations: true } : void 0
   });
+  if (base.cachedContent || params.overrideRequestParams?.cachedContent) {
+    delete base.systemInstruction;
+    delete base.tools;
+    delete base.toolConfig;
+  }
+  const {
+    model: _model,
+    reasoning_effort: _effort,
+    ...override
+  } = params.overrideRequestParams ?? {};
+  return mergeGeminiRequest(base, override);
 }
 __name(createGeminiRequest, "createGeminiRequest");
-async function messagesToGeminiContents(requester, messages, toolNameMapper, model) {
+function mergeGeminiRequest(base, override) {
+  const result = Object.assign(/* @__PURE__ */ Object.create(null), base);
+  for (const [key, value] of Object.entries(override)) {
+    result[key] = value && typeof value === "object" && !Array.isArray(value) ? mergeGeminiRequest(
+      result[key] && typeof result[key] === "object" ? result[key] : {},
+      value
+    ) : value;
+  }
+  return result;
+}
+__name(mergeGeminiRequest, "mergeGeminiRequest");
+async function messagesToGeminiContents(requester, messages, toolNameMapper, model, signal) {
   const result = [];
   const systemParts = [];
+  const toolNames = /* @__PURE__ */ new Map();
   let previousWasTool = false;
   for (const message of messages) {
     const type = message.getType();
     if (type === "system") {
       systemParts.push(
-        ...await contentToParts(requester, message.content, model)
+        ...await contentToParts(
+          requester,
+          message.content,
+          model,
+          signal
+        )
       );
       previousWasTool = false;
       continue;
@@ -1795,7 +2759,9 @@ async function messagesToGeminiContents(requester, messages, toolNameMapper, mod
       const tool2 = message;
       const text = typeof tool2.content === "string" ? tool2.content : tool2.content.filter(isMessageContentText).map((part) => part.text).join("");
       const response = {
-        name: toolNameMapper.sanitize(tool2.name),
+        name: toolNameMapper.sanitize(
+          tool2.name ?? toolNames.get(tool2.tool_call_id)
+        ),
         response: parseToolResponse(text),
         id: tool2.tool_call_id
       };
@@ -1806,7 +2772,8 @@ async function messagesToGeminiContents(requester, messages, toolNameMapper, mod
           tool2.content.filter(
             (part) => isMessageContentImageUrl(part) || isFileLikePart(part)
           ),
-          model
+          model,
+          signal
         );
         for (const part of media) {
           if (part.mediaProcessing || part.media_processing)
@@ -1829,10 +2796,12 @@ async function messagesToGeminiContents(requester, messages, toolNameMapper, mod
       const parts = await contentToParts(
         requester,
         message.content,
-        model
+        model,
+        signal
       );
       parts.push(...getContextParts(shared));
       for (const toolCall of ai.tool_calls) {
+        if (toolCall.id) toolNames.set(toolCall.id, toolCall.name);
         const saved = thoughtData2[toolCall.id] ?? thoughtData2;
         if (toolCall.id && thoughtData2[toolCall.id])
           parts.push(...getContextParts(saved));
@@ -1857,7 +2826,12 @@ async function messagesToGeminiContents(requester, messages, toolNameMapper, mod
       role: type === "ai" ? "model" : "user",
       parts: [
         ...getContextParts(thoughtData),
-        ...await contentToParts(requester, message.content, model)
+        ...await contentToParts(
+          requester,
+          message.content,
+          model,
+          signal
+        )
       ]
     });
   }
@@ -1867,7 +2841,7 @@ async function messagesToGeminiContents(requester, messages, toolNameMapper, mod
   });
 }
 __name(messagesToGeminiContents, "messagesToGeminiContents");
-async function contentToParts(requester, content, model) {
+async function contentToParts(requester, content, model, signal) {
   if (typeof content === "string") return content ? [{ text: content }] : [];
   const config = requester.currentConfig();
   const agentic = config.agenticVideo && AGENTIC_VIDEO_MODELS.some(
@@ -1883,6 +2857,19 @@ async function contentToParts(requester, content, model) {
       media_processing: mode
     });
   }, "mediaPart");
+  const prepareMedia = /* @__PURE__ */ __name(async (mimeType, buffer) => {
+    if (!config.geminiFileUpload)
+      return mediaPart(mimeType, buffer.toString("base64"));
+    const file2 = await requester.geminiResources().upload(buffer, mimeType, signal);
+    const mode = agentic && mimeType.startsWith("video/") ? "AGENTIC" : void 0;
+    return config.useCamelCaseMediaFields ? filterEmpty({
+      fileData: { mimeType, fileUri: file2.uri },
+      mediaProcessing: mode
+    }) : filterEmpty({
+      file_data: { mime_type: mimeType, file_uri: file2.uri },
+      media_processing: mode
+    });
+  }, "prepareMedia");
   const parts = await Promise.all(
     content.map(async (part) => {
       if (isMessageContentText(part)) {
@@ -1894,17 +2881,33 @@ async function contentToParts(requester, content, model) {
           part
         );
         const mimeType = url.match(/^data:([^;]+);base64,/)?.[1] ?? "image/jpeg";
-        return mediaPart(
+        return prepareMedia(
           mimeType,
-          url.replace(/^data:[^;]+;base64,/, "")
+          Buffer.from(
+            url.replace(/^data:[^;]+;base64,/, ""),
+            "base64"
+          )
         );
       }
       if (isFileLikePart(part)) {
+        const value = part[part.type];
+        if (value?.fileUri || value?.file_uri)
+          return config.useCamelCaseMediaFields ? {
+            fileData: {
+              fileUri: value.fileUri ?? value.file_uri,
+              mimeType: value.mimeType ?? value.mime_type
+            }
+          } : {
+            file_data: {
+              file_uri: value.fileUri ?? value.file_uri,
+              mime_type: value.mimeType ?? value.mime_type
+            }
+          };
         const file2 = await fetchFileLikeUrl2(
           requester.requestContext().plugin,
           part
         );
-        return mediaPart(file2.mimeType, file2.buffer.toString("base64"));
+        return prepareMedia(file2.mimeType, file2.buffer);
       }
       return part;
     })
@@ -2087,7 +3090,7 @@ function supportsGeminiImageGeneration(model) {
 __name(supportsGeminiImageGeneration, "supportsGeminiImageGeneration");
 function prepareGeminiModelId(model) {
   const normalized = (model ?? "").replace(/^models\//, "");
-  return parseOpenAIModelNameWithReasoningEffort2(
+  return parseOpenAIModelNameWithReasoningEffort3(
     normalized
   ).model.toLowerCase();
 }
@@ -2139,7 +3142,24 @@ function sanitizeGeminiToolName(name2, used) {
 __name(sanitizeGeminiToolName, "sanitizeGeminiToolName");
 async function parseGeminiResponse(text, requester, toolNameMapper, streamState = { nextToolIndex: 0, partIndex: 0 }) {
   const data = JSON.parse(text);
-  const usage2 = data.usageMetadata ? createUsageMetadata({
+  const candidate = data.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+  const failure = data.error?.message ?? data.promptFeedback?.blockReason ?? (finishReason && !["STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"].includes(
+    finishReason
+  ) ? finishReason : void 0);
+  if (failure) {
+    throw new ChatLunaError3(
+      ChatLunaErrorCode3.API_REQUEST_FAILED,
+      new Error(`Gemini generation failed: ${failure}`)
+    );
+  }
+  if (!candidate && !data.usageMetadata) {
+    throw new ChatLunaError3(
+      ChatLunaErrorCode3.API_REQUEST_FAILED,
+      new Error("Gemini returned no candidate")
+    );
+  }
+  const usage2 = data.usageMetadata ? createUsageMetadata2({
     inputTokens: data.usageMetadata.promptTokenCount,
     outputTokens: data.usageMetadata.candidatesTokenCount ?? data.candidates?.[0]?.tokenCount,
     totalTokens: data.usageMetadata.totalTokenCount,
@@ -2151,8 +3171,9 @@ async function parseGeminiResponse(text, requester, toolNameMapper, streamState 
   const toolCalls = [];
   const thoughtData = {};
   const images = [];
-  for (const candidate of (data.candidates ?? []).slice(0, 1)) {
-    for (const part of candidate.content?.parts ?? []) {
+  const mediaContent = [];
+  for (const candidate2 of (data.candidates ?? []).slice(0, 1)) {
+    for (const part of candidate2.content?.parts ?? []) {
       const key = `part_${streamState.partIndex++}`;
       if (part.toolCall || part.toolResponse || part.executableCode || part.codeExecutionResult) {
         if (!isMediaProcessingPart(part))
@@ -2187,17 +3208,31 @@ async function parseGeminiResponse(text, requester, toolNameMapper, streamState 
       } else if (part.inlineData?.data || part.inline_data?.data) {
         const inline = part.inlineData ?? part.inline_data;
         const mime = inline.mimeType ?? inline.mime_type ?? "image/png";
-        images.push(`data:${mime};base64,${inline.data}`);
+        const url = `data:${mime};base64,${inline.data}`;
+        if (mime.startsWith("image/")) {
+          images.push(url);
+          mediaContent.push({ type: "image_url", image_url: url });
+        } else if (mime.startsWith("audio/")) {
+          mediaContent.push({
+            type: "audio_url",
+            audio_url: { url, mimeType: mime }
+          });
+        } else {
+          mediaContent.push({
+            type: "file_url",
+            file_url: { url, mimeType: mime }
+          });
+        }
       }
     }
     if (requester.currentConfig().groundingContentDisplay) {
-      const grounding = formatGrounding(candidate.groundingMetadata);
+      const grounding = formatGrounding(candidate2.groundingMetadata);
       if (grounding) content += `
 ${grounding}`;
     }
   }
-  const message = new AIMessageChunk2({
-    content: images.length > 0 ? [{ type: "text", text: content }] : content,
+  const message = new AIMessageChunk4({
+    content: mediaContent.length > 0 ? [{ type: "text", text: content }, ...mediaContent] : content,
     tool_call_chunks: toolCalls.map((toolCall) => ({
       name: toolCall.name,
       args: typeof toolCall.args === "string" ? toolCall.args : JSON.stringify(toolCall.args ?? {}),
@@ -2205,21 +3240,26 @@ ${grounding}`;
       index: toolCall.index
     })),
     usage_metadata: usage2,
+    response_metadata: filterEmpty({
+      finishReason,
+      finishMessage: candidate?.finishMessage,
+      promptFeedback: data.promptFeedback
+    }),
     additional_kwargs: {
       images: images.length > 0 ? images : void 0,
       reasoning_content: reasoning || void 0,
       thought_data: Object.keys(thoughtData).length > 0 ? thoughtData : void 0
     }
   });
-  return new ChatGenerationChunk3({
-    generationInfo: usage2 ? { usage_metadata: usage2 } : void 0,
+  return new ChatGenerationChunk5({
+    generationInfo: filterEmpty({ usage_metadata: usage2, finishReason }),
     message,
     text: getMessageContent(message.content) ?? content
   });
 }
 __name(parseGeminiResponse, "parseGeminiResponse");
 function prepareGeminiModel(model, requester) {
-  let result = parseOpenAIModelNameWithReasoningEffort2(model).model;
+  let result = parseOpenAIModelNameWithReasoningEffort3(model).model;
   if (requester.currentConfig().googleSearch && result.endsWith("-search")) {
     result = result.slice(0, -"-search".length);
   }
@@ -2266,30 +3306,30 @@ __name(isFileLikePart, "isFileLikePart");
 
 // src/adapters/dify.ts
 import {
-  AIMessageChunk as AIMessageChunk3
+  AIMessageChunk as AIMessageChunk5
 } from "@langchain/core/messages";
-import { ChatGenerationChunk as ChatGenerationChunk4 } from "@langchain/core/outputs";
+import { ChatGenerationChunk as ChatGenerationChunk6 } from "@langchain/core/outputs";
 import fs from "fs";
 import path from "path";
 import { readFile } from "fs/promises";
 import { fileURLToPath } from "url";
-import { checkResponse as checkResponse4, sseIterable as sseIterable2 } from "koishi-plugin-chatluna/utils/sse";
+import { checkResponse as checkResponse5, sseIterable as sseIterable3 } from "koishi-plugin-chatluna/utils/sse";
 import {
   getMessageContent as getMessageContent2,
   isMessageContentImageUrl as isMessageContentImageUrl2,
   isMessageContentText as isMessageContentText2
 } from "koishi-plugin-chatluna/utils/string";
 import {
-  ChatLunaError as ChatLunaError2,
-  ChatLunaErrorCode as ChatLunaErrorCode2
+  ChatLunaError as ChatLunaError4,
+  ChatLunaErrorCode as ChatLunaErrorCode4
 } from "koishi-plugin-chatluna/utils/error";
-import { createUsageMetadata as createUsageMetadata2 } from "@chatluna/v1-shared-adapter";
+import { createUsageMetadata as createUsageMetadata3 } from "@chatluna/v1-shared-adapter";
 import { ModelCapabilities as ModelCapabilities5 } from "koishi-plugin-chatluna/llm-core/platform/types";
 var difyAdapter = {
   id: "dify",
   async completion(requester, params) {
-    let generation = new ChatGenerationChunk4({
-      message: new AIMessageChunk3({ content: "" }),
+    let generation = new ChatGenerationChunk6({
+      message: new AIMessageChunk5({ content: "" }),
       text: ""
     });
     for await (const chunk of difyCompletionStream(requester, params)) {
@@ -2304,14 +3344,14 @@ var difyAdapter = {
     yield* difyCompletionStream(requester, params);
   },
   async embeddings(requester, params) {
-    throw new ChatLunaError2(
-      ChatLunaErrorCode2.API_REQUEST_FAILED,
+    throw new ChatLunaError4(
+      ChatLunaErrorCode4.API_REQUEST_FAILED,
       new Error(`Dify does not provide embeddings for ${params.model}.`)
     );
   },
   async rerank(requester, params) {
-    throw new ChatLunaError2(
-      ChatLunaErrorCode2.API_REQUEST_FAILED,
+    throw new ChatLunaError4(
+      ChatLunaErrorCode4.API_REQUEST_FAILED,
       new Error(`Dify does not provide rerank for ${params.model}.`)
     );
   },
@@ -2332,15 +3372,15 @@ async function* difyCompletionStream(requester, params) {
     difyConversationId,
     difyUser
   });
-  await checkResponse4(response);
+  await checkResponse5(response);
   let updatedDifyConversationId;
   let usage2;
-  for await (const event of sseIterable2(response)) {
+  for await (const event of sseIterable3(response)) {
     if (!event.data || event.data === "[DONE]") continue;
     const data = parseDifyEvent(event.data);
     if (isDifyErrorEvent(data)) {
-      throw new ChatLunaError2(
-        ChatLunaErrorCode2.API_REQUEST_FAILED,
+      throw new ChatLunaError4(
+        ChatLunaErrorCode4.API_REQUEST_FAILED,
         new Error(formatDifyError(data, event.data))
       );
     }
@@ -2454,8 +3494,8 @@ function resolveDifyApp(requester, model) {
   const app = key ? apps[key] : Object.values(apps)[0];
   if (app) return app;
   if (key && Object.keys(apps).length > 0) {
-    throw new ChatLunaError2(
-      ChatLunaErrorCode2.MODEL_NOT_FOUND,
+    throw new ChatLunaError4(
+      ChatLunaErrorCode4.MODEL_NOT_FOUND,
       new Error(`Dify app not found for model: ${key}`)
     );
   }
@@ -2705,8 +3745,8 @@ function parseDifyEvent(data) {
   try {
     return JSON.parse(data);
   } catch (error) {
-    throw new ChatLunaError2(
-      ChatLunaErrorCode2.API_REQUEST_FAILED,
+    throw new ChatLunaError4(
+      ChatLunaErrorCode4.API_REQUEST_FAILED,
       new Error(`Failed to parse Dify stream event: ${data}`)
     );
   }
@@ -2754,11 +3794,11 @@ function formatDifyError(data, raw) {
 }
 __name(formatDifyError, "formatDifyError");
 function createDifyChunk(content, usage2) {
-  const message = new AIMessageChunk3({
+  const message = new AIMessageChunk5({
     content,
     usage_metadata: usage2
   });
-  return new ChatGenerationChunk4({
+  return new ChatGenerationChunk6({
     generationInfo: usage2 ? { usage_metadata: usage2 } : void 0,
     message,
     text: content
@@ -2771,7 +3811,7 @@ function usageFromDify(usage2) {
   const outputTokens = numberOrUndefined(usage2.completion_tokens) ?? 0;
   const totalTokens = numberOrUndefined(usage2.total_tokens) ?? inputTokens + outputTokens;
   if (totalTokens < 1 && inputTokens < 1 && outputTokens < 1) return void 0;
-  return createUsageMetadata2({
+  return createUsageMetadata3({
     inputTokens,
     outputTokens,
     totalTokens
@@ -2781,7 +3821,7 @@ __name(usageFromDify, "usageFromDify");
 function usageFromWorkflowData(data) {
   const totalTokens = numberOrUndefined(data?.total_tokens) ?? numberOrUndefined(data?.execution_metadata?.total_tokens);
   if (totalTokens == null) return void 0;
-  return createUsageMetadata2({
+  return createUsageMetadata3({
     inputTokens: 0,
     outputTokens: 0,
     totalTokens
@@ -3449,29 +4489,29 @@ __name(fileNameFromUrl, "fileNameFromUrl");
 // src/adapters/anthropic.ts
 import {
   AIMessage as AIMessage2,
-  AIMessageChunk as AIMessageChunk4,
+  AIMessageChunk as AIMessageChunk6,
   ToolMessage as ToolMessage2
 } from "@langchain/core/messages";
-import { ChatGenerationChunk as ChatGenerationChunk5 } from "@langchain/core/outputs";
+import { ChatGenerationChunk as ChatGenerationChunk7 } from "@langchain/core/outputs";
 import { isZodSchemaV3 as isZodSchemaV32 } from "@langchain/core/utils/types";
 import {
-  createRequestSignal as createRequestSignal2,
-  createUsageMetadata as createUsageMetadata3,
+  createRequestSignal as createRequestSignal3,
+  createUsageMetadata as createUsageMetadata4,
   fetchFileLikeUrl as fetchFileLikeUrl3,
   fetchImageUrl as fetchImageUrl2,
-  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort3,
+  parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort4,
   removeAdditionalProperties as removeAdditionalProperties2
 } from "@chatluna/v1-shared-adapter";
 import { zodToJsonSchema as zodToJsonSchema2 } from "zod-to-json-schema";
-import { checkResponse as checkResponse5, sseIterable as sseIterable3 } from "koishi-plugin-chatluna/utils/sse";
+import { checkResponse as checkResponse6, sseIterable as sseIterable4 } from "koishi-plugin-chatluna/utils/sse";
 import {
   getMessageContent as getMessageContent3,
   isMessageContentImageUrl as isMessageContentImageUrl3,
   isMessageContentText as isMessageContentText3
 } from "koishi-plugin-chatluna/utils/string";
 import {
-  ChatLunaError as ChatLunaError3,
-  ChatLunaErrorCode as ChatLunaErrorCode3
+  ChatLunaError as ChatLunaError5,
+  ChatLunaErrorCode as ChatLunaErrorCode5
 } from "koishi-plugin-chatluna/utils/error";
 var anthropicAdapter = {
   id: "anthropic",
@@ -3487,7 +4527,7 @@ var anthropicAdapter = {
       return;
     }
     const generation = await this.completion(requester, params);
-    yield new ChatGenerationChunk5({
+    yield new ChatGenerationChunk7({
       generationInfo: generation.generationInfo,
       message: generation.message,
       text: generation.text
@@ -3497,14 +4537,16 @@ var anthropicAdapter = {
     yield* anthropicCompletionStream(requester, params);
   },
   async embeddings(_requester, params) {
-    throw new ChatLunaError3(
-      ChatLunaErrorCode3.API_REQUEST_FAILED,
-      new Error(`Anthropic does not provide embeddings for ${params.model}.`)
+    throw new ChatLunaError5(
+      ChatLunaErrorCode5.API_REQUEST_FAILED,
+      new Error(
+        `Anthropic does not provide embeddings for ${params.model}.`
+      )
     );
   },
   async rerank(_requester, params) {
-    throw new ChatLunaError3(
-      ChatLunaErrorCode3.API_REQUEST_FAILED,
+    throw new ChatLunaError5(
+      ChatLunaErrorCode5.API_REQUEST_FAILED,
       new Error(`Anthropic does not provide rerank for ${params.model}.`)
     );
   },
@@ -3520,13 +4562,13 @@ async function anthropicCompletion(requester, params) {
     toolNameMapper,
     false
   );
-  const requestSignal = createRequestSignal2(params);
+  const requestSignal = createRequestSignal3(params);
   try {
     const response = await requester.post("messages", request, {
       signal: requestSignal.signal
     });
     requestSignal.clearTimeout();
-    await checkResponse5(response);
+    await checkResponse6(response);
     return parseAnthropicResponse(
       await response.json(),
       toolNameMapper
@@ -3544,16 +4586,18 @@ async function* anthropicCompletionStream(requester, params) {
     toolNameMapper,
     true
   );
-  const requestSignal = createRequestSignal2(params);
+  const requestSignal = createRequestSignal3(params);
   try {
     const response = await requester.post("messages", request, {
       signal: requestSignal.signal
     });
     requestSignal.clearTimeout();
-    await checkResponse5(response);
+    await checkResponse6(response);
     const reasoningState = createReasoningState();
+    const rawBlocks = [];
+    const rawArguments = /* @__PURE__ */ new Map();
     let usage2;
-    for await (const event of sseIterable3(response, {
+    for await (const event of sseIterable4(response, {
       timeout: params.timeout,
       signal: requestSignal.signal
     })) {
@@ -3561,12 +4605,35 @@ async function* anthropicCompletionStream(requester, params) {
         continue;
       }
       if (event.event === "error") {
-        throw new ChatLunaError3(
-          ChatLunaErrorCode3.API_REQUEST_FAILED,
+        throw new ChatLunaError5(
+          ChatLunaErrorCode5.API_REQUEST_FAILED,
           new Error(event.data)
         );
       }
       const data = JSON.parse(event.data);
+      if (data.type === "content_block_start") {
+        rawBlocks[data.index] = structuredClone(data.content_block);
+      } else if (data.type === "content_block_delta") {
+        const block = rawBlocks[data.index];
+        const delta = data.delta;
+        if (block && delta.type === "text_delta")
+          block.text = (block.text ?? "") + delta.text;
+        if (block && delta.type === "thinking_delta")
+          block.thinking = (block.thinking ?? "") + delta.thinking;
+        if (block && delta.type === "signature_delta")
+          block.signature = delta.signature;
+        if (block && delta.type === "citations_delta")
+          (block.citations ??= []).push(delta.citation);
+        if (delta.type === "input_json_delta")
+          rawArguments.set(
+            data.index,
+            (rawArguments.get(data.index) ?? "") + delta.partial_json
+          );
+      } else if (data.type === "content_block_stop" && rawArguments.has(data.index)) {
+        rawBlocks[data.index].input = JSON.parse(
+          rawArguments.get(data.index)
+        );
+      }
       const usageDelta = data.type === "message_start" ? data.message.usage : data.type === "message_delta" ? data.usage : void 0;
       if (usageDelta != null) {
         usage2 = mergeAnthropicUsage(usage2, usageDelta);
@@ -3586,6 +4653,8 @@ async function* anthropicCompletionStream(requester, params) {
         reasoningState,
         toolNameMapper
       );
+      if (data.type === "content_block_delta" && data.delta.type === "input_json_delta" && rawBlocks[data.index]?.type !== "tool_use")
+        continue;
       if (chunk == null) continue;
       if (reasoningState.endedAt == null && hasAnthropicResponseChunk(chunk)) {
         reasoningState.endedAt = Date.now();
@@ -3594,13 +4663,25 @@ async function* anthropicCompletionStream(requester, params) {
     }
     const reasoningChunk = createReasoningChunk(reasoningState);
     if (reasoningChunk) yield reasoningChunk;
+    if (rawBlocks.length)
+      yield new ChatGenerationChunk7({
+        text: "",
+        message: new AIMessageChunk6({
+          content: "",
+          additional_kwargs: {
+            hub_anthropic_content: rawBlocks.filter(Boolean)
+          }
+        })
+      });
   } finally {
     requestSignal.dispose();
   }
 }
 __name(anthropicCompletionStream, "anthropicCompletionStream");
 async function createAnthropicRequest(requester, params, toolNameMapper, stream) {
-  const parsedModel = parseOpenAIModelNameWithReasoningEffort3(params.model ?? "");
+  const parsedModel = parseOpenAIModelNameWithReasoningEffort4(
+    params.model ?? ""
+  );
   const override = {
     ...params.overrideRequestParams ?? {}
   };
@@ -3608,17 +4689,24 @@ async function createAnthropicRequest(requester, params, toolNameMapper, stream)
   delete override.reasoning_effort;
   const model = String(override.model ?? parsedModel.model);
   const maxTokens = normalizeMaxTokens(params.maxTokens);
-  const effort = normalizeAnthropicEffort(
-    overrideEffort ?? parsedModel.reasoningEffort
-  );
+  const requestedEffort = overrideEffort ?? parsedModel.reasoningEffort;
+  const effort = anthropicEffortForModel(model, requestedEffort);
   const contents = await messagesToAnthropicContents(
     requester,
     params.input,
     toolNameMapper
   );
   const hasAssistantPrefill = contents.messages[contents.messages.length - 1]?.role === "assistant";
-  const generatedThinking = createThinkingConfig(effort, hasAssistantPrefill);
-  const tools = formatToolsToAnthropicTools(params.tools ?? [], toolNameMapper);
+  const generatedThinking = hasAssistantPrefill || override.thinking !== void 0 ? void 0 : anthropicThinkingConfig(requestedEffort, model, maxTokens);
+  if (generatedThinking?.type === "enabled" && generatedThinking.budget_tokens < 1024) {
+    throw new Error(
+      "Claude manual thinking requires max_tokens greater than 1024"
+    );
+  }
+  const tools = formatToolsToAnthropicTools(
+    params.tools ?? [],
+    toolNameMapper
+  );
   const outputConfig = effort == null ? void 0 : {
     ...objectOf(override.output_config),
     effort
@@ -3661,7 +4749,9 @@ async function messagesToAnthropicContents(requester, messages, toolNameMapper) 
       continue;
     }
     if (message instanceof ToolMessage2 || type === "tool") {
-      result.push(await toolMessageToAnthropic(message, requester));
+      result.push(
+        await toolMessageToAnthropic(message, requester)
+      );
       continue;
     }
     if (message instanceof AIMessage2 || type === "ai") {
@@ -3686,6 +4776,13 @@ async function messagesToAnthropicContents(requester, messages, toolNameMapper) 
 }
 __name(messagesToAnthropicContents, "messagesToAnthropicContents");
 async function aiMessageToAnthropic(message, requester, toolNameMapper) {
+  const raw = message.additional_kwargs.hub_anthropic_content;
+  if (Array.isArray(raw)) {
+    return {
+      role: "assistant",
+      content: structuredClone(raw)
+    };
+  }
   const blocks = [];
   const reasoningBlocks = message.additional_kwargs.reasoning_blocks;
   if (Array.isArray(reasoningBlocks) && reasoningBlocks.length > 0) {
@@ -3740,7 +4837,8 @@ async function userContentToAnthropic(requester, content) {
 }
 __name(userContentToAnthropic, "userContentToAnthropic");
 async function contentToAnthropicBlocks(requester, content) {
-  if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
+  if (typeof content === "string")
+    return content ? [{ type: "text", text: content }] : [];
   const blocks = [];
   for (const part of content) {
     const block = await contentPartToAnthropicBlock(requester, part);
@@ -3769,7 +4867,10 @@ async function contentPartToAnthropicBlock(requester, part) {
 __name(contentPartToAnthropicBlock, "contentPartToAnthropicBlock");
 async function imageContentToAnthropic(requester, part) {
   try {
-    const url = await fetchImageUrl2(requester.requestContext().plugin, part);
+    const url = await fetchImageUrl2(
+      requester.requestContext().plugin,
+      part
+    );
     if (/^https?:\/\//i.test(url)) {
       return {
         type: "image",
@@ -3831,7 +4932,9 @@ async function fileContentToAnthropic(requester, part) {
         }
       };
     }
-    requester.logger.warn(`Unsupported Anthropic file mime type: ${mimeType}`);
+    requester.logger.warn(
+      `Unsupported Anthropic file mime type: ${mimeType}`
+    );
     return null;
   } catch (error) {
     requester.logger.warn(error);
@@ -3880,15 +4983,18 @@ function inlineDataToAnthropic(requester, part) {
 __name(inlineDataToAnthropic, "inlineDataToAnthropic");
 function formatToolsToAnthropicTools(tools, toolNameMapper) {
   if (tools.length < 1) return void 0;
-  return tools.map((tool2) => ({
-    name: toolNameMapper.sanitize(tool2.name),
-    description: tool2.description,
-    input_schema: normalizeToolInputSchema(
-      removeAdditionalProperties2(
-        isZodSchemaV32(tool2.schema) ? zodToJsonSchema2(tool2.schema) : tool2.schema
-      )
-    )
-  }));
+  return tools.map((tool2) => {
+    const strict = (tool2.metadata?.strict ?? tool2.strict) === true;
+    const schema = isZodSchemaV32(tool2.schema) ? zodToJsonSchema2(tool2.schema) : tool2.schema;
+    return {
+      name: toolNameMapper.sanitize(tool2.name),
+      description: tool2.description,
+      input_schema: normalizeToolInputSchema(
+        strict ? schema : removeAdditionalProperties2(schema)
+      ),
+      ...strict ? { strict: true } : {}
+    };
+  });
 }
 __name(formatToolsToAnthropicTools, "formatToolsToAnthropicTools");
 function parseAnthropicResponse(data, toolNameMapper) {
@@ -3906,20 +5012,27 @@ function parseAnthropicResponse(data, toolNameMapper) {
         index: toolCalls.length
       });
     } else if (block.type === "thinking") {
-      pushThinkingBlock(reasoningState, reasoningState.blocks.length, block);
+      pushThinkingBlock(
+        reasoningState,
+        reasoningState.blocks.length,
+        block
+      );
     } else if (block.type === "redacted_thinking") {
       reasoningState.blocks.push(block);
     }
   }
   const usage2 = data.usage ? anthropicUsageToMetadata(data.usage) : void 0;
-  const additional = reasoningAdditionalKwargs(reasoningState);
-  const message = new AIMessageChunk4({
+  const additional = {
+    ...reasoningAdditionalKwargs(reasoningState),
+    hub_anthropic_content: structuredClone(data.content ?? [])
+  };
+  const message = new AIMessageChunk6({
     content,
     tool_call_chunks: toolCalls,
     usage_metadata: usage2,
     additional_kwargs: additional
   });
-  return new ChatGenerationChunk5({
+  return new ChatGenerationChunk7({
     generationInfo: stripUndefined2({
       id: data.id,
       model: data.model,
@@ -3986,8 +5099,12 @@ async function getAnthropicModels(requester, signal) {
   while (true) {
     const query = new URLSearchParams({ limit: "100" });
     if (afterId) query.set("after_id", afterId);
-    const response = await requester.get(`models?${query.toString()}`, {}, { signal });
-    await checkResponse5(response);
+    const response = await requester.get(
+      `models?${query.toString()}`,
+      {},
+      { signal }
+    );
+    await checkResponse6(response);
     const payload = JSON.parse(await response.text());
     result.push(...parseAnthropicModels(payload));
     if (!payload.has_more || !payload.last_id) break;
@@ -3998,12 +5115,12 @@ async function getAnthropicModels(requester, signal) {
 __name(getAnthropicModels, "getAnthropicModels");
 function createAnthropicChunk(text, options = {}) {
   const usage2 = options.usage ? anthropicUsageToMetadata(options.usage) : void 0;
-  return new ChatGenerationChunk5({
+  return new ChatGenerationChunk7({
     generationInfo: stripUndefined2({
       ...options.generationInfo,
       usage_metadata: usage2
     }),
-    message: new AIMessageChunk4({
+    message: new AIMessageChunk6({
       content: text,
       usage_metadata: usage2
     }),
@@ -4012,8 +5129,8 @@ function createAnthropicChunk(text, options = {}) {
 }
 __name(createAnthropicChunk, "createAnthropicChunk");
 function createAnthropicToolChunk(toolCall) {
-  return new ChatGenerationChunk5({
-    message: new AIMessageChunk4({
+  return new ChatGenerationChunk7({
+    message: new AIMessageChunk6({
       content: "",
       tool_call_chunks: [toolCall]
     }),
@@ -4024,8 +5141,8 @@ __name(createAnthropicToolChunk, "createAnthropicToolChunk");
 function createReasoningChunk(reasoningState) {
   const additional = reasoningAdditionalKwargs(reasoningState);
   if (Object.keys(additional).length < 1) return void 0;
-  return new ChatGenerationChunk5({
-    message: new AIMessageChunk4({
+  return new ChatGenerationChunk7({
+    message: new AIMessageChunk6({
       content: "",
       additional_kwargs: additional
     }),
@@ -4068,7 +5185,7 @@ function anthropicUsageToMetadata(usage2) {
   const cacheCreationTokens = usage2.cache_creation_input_tokens ?? 0;
   const inputTokens = (usage2.input_tokens ?? 0) + cacheReadTokens + cacheCreationTokens;
   const outputTokens = usage2.output_tokens ?? 0;
-  const metadata = createUsageMetadata3({
+  const metadata = createUsageMetadata4({
     inputTokens,
     outputTokens,
     totalTokens: inputTokens + outputTokens,
@@ -4122,14 +5239,6 @@ function mergeAnthropicCacheCreation(previous, next) {
   };
 }
 __name(mergeAnthropicCacheCreation, "mergeAnthropicCacheCreation");
-function createThinkingConfig(effort, hasAssistantPrefill) {
-  if (effort == null || hasAssistantPrefill) return void 0;
-  return {
-    type: "adaptive",
-    display: "summarized"
-  };
-}
-__name(createThinkingConfig, "createThinkingConfig");
 function createAnthropicCacheControl(requester) {
   const config = requester.currentConfig();
   if (config.anthropicPromptCache !== true) return void 0;
@@ -4139,15 +5248,6 @@ function createAnthropicCacheControl(requester) {
   };
 }
 __name(createAnthropicCacheControl, "createAnthropicCacheControl");
-function normalizeAnthropicEffort(effort) {
-  if (effort === "none" || effort === "minimal" || effort === "tiny") {
-    return void 0;
-  }
-  if (effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh" || effort === "max") {
-    return effort;
-  }
-}
-__name(normalizeAnthropicEffort, "normalizeAnthropicEffort");
 function normalizeMaxTokens(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 1) return 4096;
@@ -4297,176 +5397,181 @@ function getProviderAdapter(id) {
 }
 __name(getProviderAdapter, "getProviderAdapter");
 
-// src/adapters/reasoning-protocols.ts
-function applyReasoningProtocol(protocol, body, model) {
-  if (protocol === "openai") return;
-  const effort = body.reasoning_effort;
-  if (effort == null) return;
-  delete body.reasoning_effort;
-  if (protocol === "deepseek") {
-    applyDeepSeekReasoning(body, effort);
-    return;
+// src/adapters/gemini-resources.ts
+import { createHash } from "crypto";
+import { checkResponse as checkResponse7 } from "koishi-plugin-chatluna/utils/sse";
+var GeminiResources = class {
+  constructor(requester) {
+    this.requester = requester;
+    requester.koishiContext().on?.("dispose", () => this.dispose());
   }
-  if (protocol === "qwen") {
-    applyQwenReasoning(body, effort);
-    return;
+  static {
+    __name(this, "GeminiResources");
   }
-  if (protocol === "gemini") {
-    applyGeminiReasoning(body, model, effort);
-    return;
-  }
-  if (protocol === "anthropic") {
-    applyAnthropicReasoning(body, effort);
-    return;
-  }
-  if (protocol === "openrouter") {
-    applyOpenRouterReasoning(body, effort);
-  }
-}
-__name(applyReasoningProtocol, "applyReasoningProtocol");
-function resolveReasoningProtocol2(configured, model) {
-  if (configured == null || configured === "openai") return "openai";
-  if (configured !== "auto") return configured;
-  const lower = model.toLowerCase();
-  if (lower.includes("deepseek")) return "deepseek";
-  if (lower.includes("qwen") || lower.includes("qwq")) return "qwen";
-  if (lower.includes("gemini") || lower.includes("gemma")) return "gemini";
-  if (lower.includes("claude")) return "anthropic";
-  return "openai";
-}
-__name(resolveReasoningProtocol2, "resolveReasoningProtocol");
-function normalizeDeepSeekReasoningEffort(effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized === "none") return void 0;
-  if (normalized === "max" || normalized === "xhigh" || normalized === "high") {
-    return normalized === "xhigh" ? "max" : normalized;
-  }
-  return "high";
-}
-__name(normalizeDeepSeekReasoningEffort, "normalizeDeepSeekReasoningEffort");
-function qwenThinkingBudgetForEffort(effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized === "none") return 0;
-  if (normalized === "minimal") return 512;
-  if (normalized === "low") return 1024;
-  if (normalized === "medium") return 4096;
-  if (normalized === "high") return 8192;
-  if (normalized === "xhigh" || normalized === "max") return 16384;
-}
-__name(qwenThinkingBudgetForEffort, "qwenThinkingBudgetForEffort");
-function geminiThinkingConfig(model, effort) {
-  if (isGemini3CompatibleModel(model)) {
-    return {
-      thinking_level: geminiThinkingLevel(effort),
-      ...normalizeReasoningEffort2(effort) === "none" ? { include_thoughts: false } : {}
+  uploads = /* @__PURE__ */ new Map();
+  lifetime = new AbortController();
+  async request(request, signal) {
+    if (this.lifetime.signal.aborted) throw this.lifetime.signal.reason;
+    signal ??= AbortSignal.timeout(
+      this.requester.currentConfig().timeout ?? 6e4
+    );
+    if (this.requester.currentProviderPreset().adapter !== "gemini")
+      throw new Error("Gemini resources require a Gemini provider");
+    const { resource, action, name: name2, body } = request;
+    if (!["files", "cachedContents", "interactions"].includes(resource))
+      throw new Error("Unknown Gemini resource");
+    const methods = {
+      list: "GET",
+      get: "GET",
+      create: "POST",
+      update: "PATCH",
+      delete: "DELETE",
+      cancel: "POST"
     };
-  }
-  return {
-    thinking_budget: geminiThinkingBudget(effort)
-  };
-}
-__name(geminiThinkingConfig, "geminiThinkingConfig");
-function anthropicThinkingConfig(effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized === "none") return { type: "disabled" };
-  if (normalized == null) return void 0;
-  return {
-    type: "adaptive",
-    display: "summarized"
-  };
-}
-__name(anthropicThinkingConfig, "anthropicThinkingConfig");
-function applyDeepSeekReasoning(body, effort) {
-  const reasoningEffort = normalizeDeepSeekReasoningEffort(effort);
-  if (reasoningEffort == null) {
-    body.thinking = { type: "disabled" };
-    return;
-  }
-  body.thinking = mergeObject(body.thinking, {
-    type: "enabled",
-    reasoning_effort: reasoningEffort
-  });
-}
-__name(applyDeepSeekReasoning, "applyDeepSeekReasoning");
-function applyQwenReasoning(body, effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  body.enable_thinking = normalized !== "none";
-  const thinkingBudget = qwenThinkingBudgetForEffort(normalized);
-  if (thinkingBudget != null) body.thinking_budget = thinkingBudget;
-}
-__name(applyQwenReasoning, "applyQwenReasoning");
-function applyGeminiReasoning(body, model, effort) {
-  body.extra_body = mergeObject(body.extra_body, {
-    google: {
-      thinking_config: geminiThinkingConfig(model, effort)
+    const allowed = resource === "cachedContents" ? ["list", "get", "create", "update", "delete"] : resource === "files" ? ["list", "get", "delete"] : ["get", "create", "delete", "cancel"];
+    if (!allowed.includes(action))
+      throw new Error(`Unsupported ${resource} action: ${action}`);
+    if (!["list", "create"].includes(action) && !new RegExp(`^${resource}/[A-Za-z0-9_-]+$`).test(name2 ?? "")) {
+      throw new Error("Invalid Gemini resource name");
     }
-  });
-}
-__name(applyGeminiReasoning, "applyGeminiReasoning");
-function applyAnthropicReasoning(body, effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  const thinking2 = anthropicThinkingConfig(effort);
-  if (thinking2 == null) return;
-  body.thinking = mergeObject(body.thinking, thinking2);
-  if (normalized != null && normalized !== "none") {
-    body.output_config = mergeObject(body.output_config, {
-      effort: normalized
+    let path2 = ["list", "create"].includes(action) ? resource : name2;
+    if (action === "cancel") path2 += ":cancel";
+    if (request.pageToken)
+      path2 += `?pageToken=${encodeURIComponent(request.pageToken)}`;
+    const response = await this.fetch(this.requester.concatUrl(path2), {
+      method: methods[action],
+      signal,
+      headers: this.requester.buildHeaders(),
+      ...body ? { body: JSON.stringify(body) } : {}
     });
-  }
-}
-__name(applyAnthropicReasoning, "applyAnthropicReasoning");
-function applyOpenRouterReasoning(body, effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized == null) return;
-  body.reasoning = mergeObject(body.reasoning, { effort: normalized });
-}
-__name(applyOpenRouterReasoning, "applyOpenRouterReasoning");
-function normalizeReasoningEffort2(value) {
-  if (typeof value !== "string") return void 0;
-  const normalized = value.trim().toLowerCase().replace(/[-_\s]*thinking$/, "");
-  if (normalized === "tiny") return "minimal";
-  if (normalized === "none" || normalized === "minimal" || normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh" || normalized === "max") {
-    return normalized;
-  }
-}
-__name(normalizeReasoningEffort2, "normalizeReasoningEffort");
-function isGemini3CompatibleModel(model) {
-  return model.toLowerCase().includes("gemini-3");
-}
-__name(isGemini3CompatibleModel, "isGemini3CompatibleModel");
-function geminiThinkingBudget(effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized === "none") return 0;
-  if (normalized === "minimal") return 128;
-  if (normalized === "low") return 1024;
-  if (normalized === "medium") return 8192;
-  if (normalized === "high" || normalized === "xhigh" || normalized === "max") {
-    return 24576;
-  }
-  return -1;
-}
-__name(geminiThinkingBudget, "geminiThinkingBudget");
-function geminiThinkingLevel(effort) {
-  const normalized = normalizeReasoningEffort2(effort);
-  if (normalized === "none" || normalized === "minimal" || normalized === "low") {
-    return "low";
-  }
-  if (normalized === "medium") return "medium";
-  return "high";
-}
-__name(geminiThinkingLevel, "geminiThinkingLevel");
-function mergeObject(current, extra) {
-  const object = current != null && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
-  for (const [key, value] of Object.entries(extra)) {
-    if (value != null && typeof value === "object" && !Array.isArray(value) && object[key] != null && typeof object[key] === "object" && !Array.isArray(object[key])) {
-      object[key] = mergeObject(object[key], value);
-      continue;
+    await checkResponse7(response);
+    if (resource === "files" && action === "delete") {
+      for (const [key, value] of this.uploads)
+        if (value.file.name === name2) this.uploads.delete(key);
     }
-    object[key] = value;
+    const text = await response.text();
+    return text ? JSON.parse(text) : {};
   }
-  return object;
+  async upload(buffer, mimeType, signal) {
+    if (this.lifetime.signal.aborted) throw this.lifetime.signal.reason;
+    if (signal?.aborted) throw signal.reason;
+    signal ??= AbortSignal.timeout(
+      this.requester.currentConfig().timeout ?? 6e4
+    );
+    const config = this.requester.currentConfig();
+    if (!config.geminiFileUpload)
+      throw new Error("Gemini file upload is disabled");
+    const limit = Math.min(config.geminiMaxFileSizeMb ?? 64, 2048) * 1024 * 1024;
+    if (buffer.length > limit)
+      throw new Error(
+        `Gemini file exceeds configured upload limit (${limit} bytes)`
+      );
+    const key = createHash("sha256").update(config.apiEndpoint).update(config.apiKey).update(mimeType).update(buffer).digest("hex");
+    const saved = this.uploads.get(key);
+    if (saved && saved.expires > Date.now() + 6e4) return saved.file;
+    const url = new URL(this.requester.concatUrl("files"));
+    url.pathname = url.pathname.replace(
+      /\/(v1(?:beta)?)\/files$/,
+      "/upload/$1/files"
+    );
+    const start = await this.fetch(url.toString(), {
+      method: "POST",
+      signal,
+      redirect: "error",
+      headers: {
+        ...this.requester.buildHeaders(),
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": String(buffer.length),
+        "X-Goog-Upload-Header-Content-Type": mimeType
+      },
+      body: JSON.stringify({
+        file: { display_name: `chatluna-${key.slice(0, 12)}` }
+      })
+    });
+    await checkResponse7(start);
+    const location = start.headers.get("x-goog-upload-url");
+    if (!location) throw new Error("Gemini did not return an upload URL");
+    const uploadUrl = new URL(location, url);
+    if (uploadUrl.origin !== url.origin)
+      throw new Error("Gemini upload URL changed origin");
+    const response = await this.fetch(uploadUrl.toString(), {
+      method: "POST",
+      signal,
+      redirect: "error",
+      headers: {
+        ...this.requester.buildHeaders(),
+        "Content-Type": mimeType,
+        "X-Goog-Upload-Offset": "0",
+        "X-Goog-Upload-Command": "upload, finalize"
+      },
+      body: buffer
+    });
+    await checkResponse7(response);
+    let file2 = JSON.parse(await response.text()).file;
+    for (let attempt = 0; file2?.state === "PROCESSING" && attempt < 60; attempt++) {
+      await abortableDelay(1e3, signal);
+      file2 = await this.request(
+        { resource: "files", action: "get", name: file2.name },
+        signal
+      );
+    }
+    if (!file2?.uri || file2.state === "FAILED" || file2.state === "PROCESSING")
+      throw new Error("Gemini file is not ready");
+    const expires = Date.parse(file2.expirationTime ?? "") || Date.now() + 48 * 36e5;
+    if (this.uploads.size >= 64)
+      this.uploads.delete(this.uploads.keys().next().value);
+    this.uploads.set(key, { file: file2, expires });
+    return file2;
+  }
+  async fetch(url, init) {
+    const controller = new AbortController();
+    const cancelCaller = /* @__PURE__ */ __name(() => controller.abort(init.signal?.reason), "cancelCaller");
+    const cancelLifetime = /* @__PURE__ */ __name(() => controller.abort(this.lifetime.signal.reason), "cancelLifetime");
+    if (init.signal?.aborted) cancelCaller();
+    if (this.lifetime.signal.aborted) cancelLifetime();
+    init.signal?.addEventListener("abort", cancelCaller, { once: true });
+    this.lifetime.signal.addEventListener("abort", cancelLifetime, {
+      once: true
+    });
+    try {
+      const response = await this.requester.vendorFetch(url, {
+        ...init,
+        signal: controller.signal
+      });
+      const buffer = await response.arrayBuffer();
+      return new Response(
+        [204, 205, 304].includes(response.status) ? null : buffer,
+        { status: response.status, headers: response.headers }
+      );
+    } finally {
+      init.signal?.removeEventListener("abort", cancelCaller);
+      this.lifetime.signal.removeEventListener("abort", cancelLifetime);
+    }
+  }
+  dispose() {
+    this.lifetime.abort(new Error("Gemini resource client disposed"));
+    this.uploads.clear();
+  }
+};
+function abortableDelay(ms, signal) {
+  return new Promise((resolve4, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const abort = /* @__PURE__ */ __name(() => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    }, "abort");
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve4();
+    }, ms);
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
-__name(mergeObject, "mergeObject");
+__name(abortableDelay, "abortableDelay");
 
 // src/requester.ts
 var ModelHubRequester = class extends ModelRequester {
@@ -4474,6 +5579,13 @@ var ModelHubRequester = class extends ModelRequester {
     __name(this, "ModelHubRequester");
   }
   _modelCapabilities = /* @__PURE__ */ new Map();
+  _geminiResources = new GeminiResources(this);
+  geminiResources() {
+    return this._geminiResources;
+  }
+  vendorFetch(url, init) {
+    return this._plugin.fetch(url, init);
+  }
   setModelCapabilities(models) {
     this._modelCapabilities = new Map(
       models.map((model) => [model.name, model.capabilities])
@@ -4509,8 +5621,8 @@ var ModelHubRequester = class extends ModelRequester {
       yield chunk;
     }
     yield tracker.attachTo(
-      new ChatGenerationChunk6({
-        message: new AIMessageChunk5({ content: "" }),
+      new ChatGenerationChunk8({
+        message: new AIMessageChunk7({ content: "" }),
         text: ""
       })
     );
@@ -4528,6 +5640,7 @@ var ModelHubRequester = class extends ModelRequester {
     return await this._adapter().rerank(this, params);
   }
   async dispose(model, id) {
+    if (model == null && id == null) this._geminiResources.dispose();
     await this._adapter().dispose?.(this, model, id);
   }
   async getModels(config) {
@@ -4564,11 +5677,24 @@ var ModelHubRequester = class extends ModelRequester {
   async post(url, body, options) {
     const current = this._config.value;
     const preset = getProviderPreset(current.provider);
+    if (url === "chat/completions" || url === "responses") {
+      if (current.promptCacheMode && current.promptCacheMode !== "default") {
+        body.prompt_cache_options ??= {
+          mode: current.promptCacheMode,
+          ttl: current.promptCacheTtl ?? (current.provider === "moonshot" ? "5m" : "30m")
+        };
+      }
+      if (current.promptCacheKey)
+        body.prompt_cache_key ??= current.promptCacheKey;
+      if (current.promptCacheRetention && current.provider === "openai")
+        body.prompt_cache_retention ??= current.promptCacheRetention;
+    }
     if (url === "chat/completions") {
+      validateNativeReasoningEffort(body, String(body.model ?? ""));
       if (body.stream !== true) {
         delete body.stream_options;
       }
-      const parsedModel = parseOpenAIModelNameWithReasoningEffort4(
+      const parsedModel = parseOpenAIModelNameWithReasoningEffort5(
         String(body.model ?? "")
       );
       applyReasoningEffortStrategy(
@@ -4583,6 +5709,10 @@ var ModelHubRequester = class extends ModelRequester {
       preset.patchEmbeddingsBody?.(body, String(body.model ?? ""));
     }
     if (url === "responses" && Array.isArray(body.input)) {
+      validateNativeReasoningEffort(
+        { reasoning_effort: body.reasoning?.effort },
+        String(body.model ?? "")
+      );
       for (const item of body.input) {
         if (!Array.isArray(item.content)) continue;
         for (const part of item.content) {
@@ -4625,7 +5755,7 @@ var ModelHubRequester = class extends ModelRequester {
   }
   responseBuiltinTools(params) {
     const current = this._config.value;
-    if (!current.responseApi) return [];
+    if (!usesResponses(this, params)) return [];
     if (!matchesResponseBuiltinToolModel(
       params.model,
       current.responseBuiltinToolSupportModel
@@ -4644,7 +5774,9 @@ var ModelHubRequester = class extends ModelRequester {
         continue;
       }
       if (type === "code_interpreter") {
-        result.push({ type, container: { type: "auto" } });
+        result.push(
+          current.provider === "xai" ? { type } : { type, container: { type: "auto" } }
+        );
         continue;
       }
       result.push({ type });
@@ -4684,16 +5816,17 @@ var ModelHubRequester = class extends ModelRequester {
       this._modelCapabilities.get(params.model),
       this.currentProviderPreset().adapter,
       this._plugin,
-      this.currentConfig().responseApi === true
+      usesResponses(this, params)
     );
-    const { model, reasoningEffort } = parseOpenAIModelNameWithReasoningEffort4(params.model);
+    const { model, reasoningEffort } = parseOpenAIModelNameWithReasoningEffort5(params.model);
     if (model === params.model && reasoningEffort == null) return params;
     return {
       ...params,
       overrideRequestParams: {
         ...params.overrideRequestParams,
         model,
-        ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort }
+        ...reasoningEffort == null ? {} : { reasoning_effort: reasoningEffort },
+        ...params.overrideRequestParams
       }
     };
   }
@@ -4703,7 +5836,7 @@ function applyReasoningEffortStrategy(strategy, body, model, configuredProtocol)
   if (effort == null) return;
   if (strategy === "passthrough") {
     applyReasoningProtocol(
-      resolveReasoningProtocol2(configuredProtocol, model),
+      resolveReasoningProtocol(configuredProtocol, model),
       body,
       model
     );
@@ -4731,7 +5864,7 @@ function matchesResponseBuiltinToolModel(model, supported) {
 }
 __name(matchesResponseBuiltinToolModel, "matchesResponseBuiltinToolModel");
 function normalizeResponseToolModel(model) {
-  return parseOpenAIModelNameWithReasoningEffort4(model).model.trim().toLowerCase();
+  return parseOpenAIModelNameWithReasoningEffort5(model).model.trim().toLowerCase();
 }
 __name(normalizeResponseToolModel, "normalizeResponseToolModel");
 function isResponseModelPrefix(model, prefix) {
@@ -4757,7 +5890,7 @@ var ModelHubStreamMetricsTracker = class {
     }
   }
   attachTo(chunk) {
-    attachInvocationMetrics(chunk, {
+    attachInvocationMetrics2(chunk, {
       usageMetadata: this.usage,
       timing: createModelHubUsageTiming(
         this.start,
@@ -4769,10 +5902,10 @@ var ModelHubStreamMetricsTracker = class {
   }
 };
 function attachGenerationMetrics(generation, start) {
-  const metrics = readInvocationMetrics(generation);
+  const metrics = readInvocationMetrics2(generation);
   if (isUsableTiming(metrics.timing)) return;
   const usage2 = metrics.usageMetadata ?? readChunkUsage(generation);
-  attachInvocationMetrics(generation, {
+  attachInvocationMetrics2(generation, {
     usageMetadata: usage2,
     timing: createModelHubUsageTiming(start, void 0, usage2)
   });
@@ -4871,15 +6004,18 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
       this._requester.setModelCapabilities(models);
       return models;
     } catch (e) {
-      if (e instanceof ChatLunaError4) {
+      if (e instanceof ChatLunaError6) {
         throw e;
       }
-      throw new ChatLunaError4(ChatLunaErrorCode4.MODEL_INIT_ERROR, e);
+      throw new ChatLunaError6(ChatLunaErrorCode6.MODEL_INIT_ERROR, e);
     }
   }
   async reloadModels(config) {
     this._modelInfos = {};
     return await this.getModels(config);
+  }
+  async geminiResource(request) {
+    return this._requester.geminiResources().request(request);
   }
   registerSelf() {
     this.ctx.chatluna.platform.registerClient(this.platform, () => this);
@@ -4932,8 +6068,8 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
         `Model ${model} not found`,
         JSON.stringify(this._modelInfos)
       );
-      throw new ChatLunaError4(
-        ChatLunaErrorCode4.MODEL_NOT_FOUND,
+      throw new ChatLunaError6(
+        ChatLunaErrorCode6.MODEL_NOT_FOUND,
         new Error(`The model ${model} is not found in ${this.platform}`)
       );
     }
@@ -5066,10 +6202,19 @@ var ModelHubClient = class extends PlatformModelEmbeddingsAndRerankerClient {
       return supportedMimeTypes.size > 0 ? { ...ANTHROPIC_FILE_HANDLING_CONFIG, supportedMimeTypes } : void 0;
     }
     if (this._runtime.provider.adapter !== "dify") {
-      return capabilityFileHandling(
+      const config = capabilityFileHandling(
         this._runtime.provider.adapter,
         info.capabilities
       );
+      if (config && this._runtime.provider.adapter === "gemini" && this.config.geminiFileUpload) {
+        const limit = Math.min(this.config.geminiMaxFileSizeMb ?? 64, 2048) * 1024 * 1024;
+        return {
+          ...config,
+          maxFileSizeBytes: limit,
+          maxTotalSizeBytes: limit
+        };
+      }
+      return config;
     }
     if (!info.capabilities.includes(ModelCapabilities6.FileInput)) {
       return void 0;
@@ -5148,7 +6293,7 @@ var ANTHROPIC_FILE_HANDLING_CONFIG = {
 import { mkdir, readFile as readFile2, rename, rm, writeFile } from "fs/promises";
 import { randomUUID } from "crypto";
 import { dirname, resolve } from "path";
-import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort5 } from "@chatluna/v1-shared-adapter";
+import { parseOpenAIModelNameWithReasoningEffort as parseOpenAIModelNameWithReasoningEffort6 } from "@chatluna/v1-shared-adapter";
 import { ModelCapabilities as ModelCapabilities7 } from "koishi-plugin-chatluna/llm-core/platform/types";
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
@@ -5397,7 +6542,7 @@ function normalizeModelId(value) {
 __name(normalizeModelId, "normalizeModelId");
 function metadataLookupCandidates(model) {
   const exact = model.trim();
-  const realModel = parseOpenAIModelNameWithReasoningEffort5(exact).model.trim();
+  const realModel = parseOpenAIModelNameWithReasoningEffort6(exact).model.trim();
   return unique([exact, realModel].filter(Boolean));
 }
 __name(metadataLookupCandidates, "metadataLookupCandidates");
@@ -5515,6 +6660,7 @@ var DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
   "gpt-4o",
   "gpt-4.1",
   "gpt-5",
+  "gpt-6",
   "o3",
   "o4"
 ];
@@ -5683,20 +6829,53 @@ function normalizeProvider(input, previous, legacyAdvanced = DEFAULT_PROVIDER_AD
   };
 }
 __name(normalizeProvider, "normalizeProvider");
+function enumOf(value, choices, fallback) {
+  return choices.includes(value) ? value : fallback;
+}
+__name(enumOf, "enumOf");
+function jsonObject(value) {
+  if (value == null) return void 0;
+  if (typeof value !== "object" || Array.isArray(value))
+    throw new Error("JSON Schema must be an object");
+  return structuredClone(value);
+}
+__name(jsonObject, "jsonObject");
 function normalizeProviderSpecific(input, previous, provider) {
-  if (provider === "openai") {
+  const cache = {
+    promptCacheMode: enumOf(
+      input.promptCacheMode ?? previous?.promptCacheMode,
+      ["default", "implicit", "explicit"],
+      "default"
+    ),
+    promptCacheTtl: enumOf(
+      input.promptCacheTtl ?? previous?.promptCacheTtl,
+      ["5m", "30m", "1h"],
+      provider === "moonshot" ? "5m" : "30m"
+    ),
+    promptCacheRetention: input.promptCacheRetention == null ? previous?.promptCacheRetention : enumOf(
+      input.promptCacheRetention,
+      ["24h", "in-memory"],
+      "in-memory"
+    ),
+    promptCacheKey: stringOf(
+      input.promptCacheKey ?? previous?.promptCacheKey,
+      ""
+    )
+  };
+  if (provider === "openai" || provider === "xai") {
     return {
+      ...cache,
       reasoningProtocol: normalizeReasoningProtocol(
         input.reasoningProtocol ?? previous?.reasoningProtocol,
         defaultReasoningProtocol(provider)
       ),
-      responseApi: booleanOrUndefined(input.responseApi) ?? previous?.responseApi ?? false,
+      responseApi: booleanOrUndefined(input.responseApi) ?? previous?.responseApi ?? provider === "xai",
       responseBuiltinTools: arrayOf2(
         input.responseBuiltinTools ?? previous?.responseBuiltinTools ?? []
       ).filter(isResponseBuiltinTool),
       responseBuiltinToolSupportModel: stringArrayOf(
         input.responseBuiltinToolSupportModel ?? previous?.responseBuiltinToolSupportModel,
-        DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS
+        provider === "xai" ? ["grok"] : DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS
       ),
       responseFileSearchVectorStoreIds: stringArrayOf(
         input.responseFileSearchVectorStoreIds ?? previous?.responseFileSearchVectorStoreIds,
@@ -5706,6 +6885,7 @@ function normalizeProviderSpecific(input, previous, provider) {
   }
   if (isOpenAICompatibleProvider(provider)) {
     return {
+      ...cache,
       reasoningProtocol: normalizeReasoningProtocol(
         input.reasoningProtocol ?? previous?.reasoningProtocol,
         defaultReasoningProtocol(provider)
@@ -5714,6 +6894,29 @@ function normalizeProviderSpecific(input, previous, provider) {
   }
   if (provider === "gemini") {
     return {
+      geminiApi: enumOf(
+        input.geminiApi ?? previous?.geminiApi,
+        ["generateContent", "interactions"],
+        "generateContent"
+      ),
+      geminiFileUpload: booleanOrUndefined(input.geminiFileUpload) ?? previous?.geminiFileUpload ?? false,
+      geminiMaxFileSizeMb: clampNumber(
+        input.geminiMaxFileSizeMb ?? previous?.geminiMaxFileSizeMb,
+        64,
+        1,
+        2048
+      ),
+      geminiCachedContent: stringOf(
+        input.geminiCachedContent ?? previous?.geminiCachedContent,
+        ""
+      ),
+      geminiResponseMimeType: stringOf(
+        input.geminiResponseMimeType ?? previous?.geminiResponseMimeType,
+        ""
+      ),
+      geminiResponseJsonSchema: jsonObject(
+        input.geminiResponseJsonSchema ?? previous?.geminiResponseJsonSchema
+      ),
       agenticVideo: booleanOrUndefined(input.agenticVideo) ?? previous?.agenticVideo ?? false,
       useCamelCaseMediaFields: booleanOrUndefined(input.useCamelCaseMediaFields) ?? previous?.useCamelCaseMediaFields ?? false,
       googleSearch: booleanOrUndefined(input.googleSearch) ?? previous?.googleSearch ?? false,
@@ -5865,7 +7068,7 @@ function pickLegacySettings(input) {
 }
 __name(pickLegacySettings, "pickLegacySettings");
 function isResponseBuiltinTool(value) {
-  return value === "web_search_preview" || value === "image_generation" || value === "code_interpreter" || value === "file_search";
+  return value === "web_search" || value === "x_search" || value === "web_search_preview" || value === "image_generation" || value === "code_interpreter" || value === "file_search";
 }
 __name(isResponseBuiltinTool, "isResponseBuiltinTool");
 function booleanOrUndefined(value) {
@@ -6063,6 +7266,14 @@ var ModelHubConsoleService = class extends DataService {
       errors: Object.fromEntries(this._runtime.errors)
     };
   }
+  async geminiResource(platform, request) {
+    const client = this._runtime.clients.get(platform);
+    if (!client)
+      throw new Error(
+        "Gemini provider is not loaded; save settings first"
+      );
+    return client.geminiResource(request);
+  }
   _modelsFor(runtime) {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
@@ -6234,6 +7445,14 @@ function apply(ctx, config) {
       ),
       { authority: 1 }
     );
+    ctx2.console.addListener(
+      "chatluna-model-hub/geminiResource",
+      async (platform, request) => ctx2.console.services.chatluna_model_hub.geminiResource(
+        platform,
+        request
+      ),
+      { authority: 4 }
+    );
     ctx2.console.addEntry({
       dev: resolve3(__dirname, "../client/index.ts"),
       prod: resolve3(__dirname, "../dist")
@@ -6261,7 +7480,7 @@ var usage = `
 
 统一管理多个模型服务商。Koishi 配置页只保留 WebUI 入口；供应商、请求参数和密钥请在「Model Hub」WebUI 中配置。
 
-OpenAI-compatible 服务商默认只走 Chat Completions（/chat/completions）。OpenAI 本家可在服务商详情里单独启用 Responses API；Gemini 本家可在服务商详情里单独启用 Google Search 等 Gemini 工具。
+OpenAI-compatible 服务商默认走 Chat Completions（/chat/completions）。OpenAI 本家可启用 Responses API，GPT-6 自动使用 Responses；xAI 可选择 Responses 并启用服务端工具。Gemini 默认 generateContent，可显式选择 stateless Interactions、Files 上传和缓存资源管理。
 
 配置文件默认保存在 \`data/chatluna-model-hub/config.json\`。WebUI 不会把已保存的 API Key 明文回传到浏览器，留空密钥输入框会保留原值。
 模型上下文大小和思考能力优先读取服务商 /models 返回值。未提供时，再用 models.dev 的本地缓存补全；可在配置页调整更新间隔。

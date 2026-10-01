@@ -35,6 +35,9 @@ import {
     applyReasoningProtocol,
     resolveReasoningProtocol
 } from './adapters/reasoning-protocols'
+import { validateNativeReasoningEffort } from './adapters/reasoning-protocols'
+import { usesResponses } from './adapters/openai-bridge'
+import { GeminiResources } from './adapters/gemini-resources'
 import type {
     ModelHubClientConfig,
     ModelHubResolvedConfig,
@@ -47,6 +50,15 @@ export class ModelHubRequester
     implements EmbeddingsRequester, RerankerRequester
 {
     private _modelCapabilities = new Map<string, ModelCapabilities[]>()
+    private _geminiResources = new GeminiResources(this)
+
+    geminiResources() {
+        return this._geminiResources
+    }
+
+    vendorFetch(url: string, init: Record<string, any>) {
+        return this._plugin.fetch(url, init)
+    }
 
     setModelCapabilities(models: ModelInfo[]) {
         this._modelCapabilities = new Map(
@@ -130,6 +142,7 @@ export class ModelHubRequester
     }
 
     async dispose(model?: string, id?: string): Promise<void> {
+        if (model == null && id == null) this._geminiResources.dispose()
         await this._adapter().dispose?.(this, model, id)
     }
 
@@ -181,7 +194,25 @@ export class ModelHubRequester
     async post(url: string, body: Record<string, unknown>, options?: any) {
         const current = this._config.value
         const preset = getProviderPreset(current.provider)
+        if (url === 'chat/completions' || url === 'responses') {
+            if (
+                current.promptCacheMode &&
+                current.promptCacheMode !== 'default'
+            ) {
+                body.prompt_cache_options ??= {
+                    mode: current.promptCacheMode,
+                    ttl:
+                        current.promptCacheTtl ??
+                        (current.provider === 'moonshot' ? '5m' : '30m')
+                }
+            }
+            if (current.promptCacheKey)
+                body.prompt_cache_key ??= current.promptCacheKey
+            if (current.promptCacheRetention && current.provider === 'openai')
+                body.prompt_cache_retention ??= current.promptCacheRetention
+        }
         if (url === 'chat/completions') {
+            validateNativeReasoningEffort(body, String(body.model ?? ''))
             if (body.stream !== true) {
                 delete body.stream_options
             }
@@ -201,6 +232,10 @@ export class ModelHubRequester
             preset.patchEmbeddingsBody?.(body, String(body.model ?? ''))
         }
         if (url === 'responses' && Array.isArray(body.input)) {
+            validateNativeReasoningEffort(
+                { reasoning_effort: (body.reasoning as any)?.effort },
+                String(body.model ?? '')
+            )
             for (const item of body.input) {
                 if (!Array.isArray(item.content)) continue
                 for (const part of item.content) {
@@ -254,7 +289,7 @@ export class ModelHubRequester
 
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[] {
         const current = this._config.value
-        if (!current.responseApi) return []
+        if (!usesResponses(this, params)) return []
         if (
             !matchesResponseBuiltinToolModel(
                 params.model,
@@ -279,10 +314,14 @@ export class ModelHubRequester
                 continue
             }
             if (type === 'code_interpreter') {
-                result.push({ type, container: { type: 'auto' } })
+                result.push(
+                    current.provider === 'xai'
+                        ? ({ type } as ResponseBuiltinTool)
+                        : { type, container: { type: 'auto' } }
+                )
                 continue
             }
-            result.push({ type })
+            result.push({ type } as ResponseBuiltinTool)
         }
         return result
     }
@@ -334,7 +373,7 @@ export class ModelHubRequester
             this._modelCapabilities.get(params.model),
             this.currentProviderPreset().adapter,
             this._plugin,
-            this.currentConfig().responseApi === true
+            usesResponses(this, params)
         )
 
         const { model, reasoningEffort } =
@@ -349,7 +388,8 @@ export class ModelHubRequester
                 model,
                 ...(reasoningEffort == null
                     ? {}
-                    : { reasoning_effort: reasoningEffort })
+                    : { reasoning_effort: reasoningEffort }),
+                ...params.overrideRequestParams
             }
         }
     }

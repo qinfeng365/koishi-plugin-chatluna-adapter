@@ -14,7 +14,10 @@ export function applyReasoningProtocol(
     body: Record<string, unknown>,
     model: string
 ) {
-    if (protocol === 'openai') return
+    if (protocol === 'openai') {
+        validateNativeReasoningEffort(body, model)
+        return
+    }
 
     const effort = body.reasoning_effort
     if (effort == null) return
@@ -37,7 +40,7 @@ export function applyReasoningProtocol(
     }
 
     if (protocol === 'anthropic') {
-        applyAnthropicReasoning(body, effort)
+        applyAnthropicReasoning(body, model, effort)
         return
     }
 
@@ -63,11 +66,9 @@ export function resolveReasoningProtocol(
 
 export function normalizeDeepSeekReasoningEffort(effort: unknown) {
     const normalized = normalizeReasoningEffort(effort)
-    if (normalized === 'none') return undefined
-    if (normalized === 'max' || normalized === 'xhigh' || normalized === 'high') {
-        return normalized === 'xhigh' ? 'max' : normalized
-    }
-    return 'high'
+    if (normalized === 'none' || normalized === 'max') return normalized
+    if (normalized === 'minimal' || normalized === 'low') return 'low'
+    if (normalized != null) return 'high'
 }
 
 export function qwenThinkingBudgetForEffort(effort: unknown) {
@@ -95,10 +96,29 @@ export function geminiThinkingConfig(model: string, effort: unknown) {
     }
 }
 
-export function anthropicThinkingConfig(effort: unknown) {
+export function anthropicThinkingConfig(
+    effort: unknown,
+    model = '',
+    maxTokens = 4096
+) {
     const normalized = normalizeReasoningEffort(effort)
-    if (normalized === 'none') return { type: 'disabled' }
-    if (normalized == null) return undefined
+    const alwaysThinking = /opus[-.]5[-.]5/.test(model.toLowerCase())
+    if (normalized === 'none') {
+        if (alwaysThinking)
+            throw new Error(`${model} does not support disabling thinking`)
+        return { type: 'disabled' }
+    }
+    if (normalized == null && !alwaysThinking) return undefined
+    if (!supportsAdaptiveThinking(model)) {
+        return {
+            type: 'enabled',
+            budget_tokens: Math.min(
+                Math.max(1024, qwenThinkingBudgetForEffort(normalized) ?? 4096),
+                Math.max(1024, maxTokens - 1024),
+                maxTokens - 1
+            )
+        }
+    }
 
     return {
         type: 'adaptive',
@@ -111,13 +131,11 @@ function applyDeepSeekReasoning(
     effort: unknown
 ) {
     const reasoningEffort = normalizeDeepSeekReasoningEffort(effort)
-    if (reasoningEffort == null) {
-        body.thinking = { type: 'disabled' }
-        return
-    }
+    if (reasoningEffort == null)
+        throw new Error(`Unsupported DeepSeek effort: ${effort}`)
+    body.reasoning_effort = reasoningEffort
     body.thinking = mergeObject(body.thinking, {
-        type: 'enabled',
-        reasoning_effort: reasoningEffort
+        type: reasoningEffort === 'none' ? 'disabled' : 'enabled'
     })
 }
 
@@ -142,13 +160,18 @@ function applyGeminiReasoning(
 
 function applyAnthropicReasoning(
     body: Record<string, unknown>,
+    model: string,
     effort: unknown
 ) {
-    const normalized = normalizeReasoningEffort(effort)
-    const thinking = anthropicThinkingConfig(effort)
+    const normalized = anthropicEffortForModel(model, effort)
+    const thinking = anthropicThinkingConfig(
+        effort,
+        model,
+        Number(body.max_tokens ?? 4096)
+    )
     if (thinking == null) return
     body.thinking = mergeObject(body.thinking, thinking)
-    if (normalized != null && normalized !== 'none') {
+    if (normalized != null) {
         body.output_config = mergeObject(body.output_config, {
             effort: normalized
         })
@@ -165,7 +188,9 @@ function applyOpenRouterReasoning(
     body.reasoning = mergeObject(body.reasoning, { effort: normalized })
 }
 
-function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
+export function normalizeReasoningEffort(
+    value: unknown
+): ReasoningEffort | undefined {
     if (typeof value !== 'string') return undefined
     const normalized = value
         .trim()
@@ -173,6 +198,7 @@ function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
         .replace(/[-_\s]*thinking$/, '')
 
     if (normalized === 'tiny') return 'minimal'
+    if (normalized === 'ultra') return 'max'
     if (
         normalized === 'none' ||
         normalized === 'minimal' ||
@@ -186,6 +212,80 @@ function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
     }
 }
 
+export function supportsAdaptiveThinking(model: string) {
+    return /claude-(?:(?:opus|sonnet)[-.](?:4[-.][6-9]|[5-9])|(?:fable|mythos)[-.](?:[5-9]|preview))/.test(
+        model.toLowerCase()
+    )
+}
+
+export function anthropicSupportedEfforts(
+    model: string
+): Exclude<ReasoningEffort, 'none' | 'minimal'>[] | undefined {
+    const lower = model.toLowerCase()
+    if (/claude-opus[-.]4[-.]5/.test(lower)) return ['low', 'medium', 'high']
+    if (!supportsAdaptiveThinking(lower)) return undefined
+    const levels: Exclude<ReasoningEffort, 'none' | 'minimal'>[] = [
+        'low',
+        'medium',
+        'high',
+        'max'
+    ]
+    if (!/(?:opus|sonnet)[-.]4[-.]6|mythos[-.]preview/.test(lower))
+        levels.splice(3, 0, 'xhigh')
+    return levels
+}
+
+/** Only emit output_config.effort on model families whose API supports it. */
+export function anthropicEffortForModel(model: string, effort: unknown) {
+    const value = normalizeReasoningEffort(effort)
+    if (value == null || value === 'none') return undefined
+    const lower = model.toLowerCase()
+    const supported = anthropicSupportedEfforts(lower)
+    if (!supported) return undefined
+    if (value === 'minimal') return 'low'
+    if (!supported.includes(value))
+        throw new Error(`${model} does not support effort ${value}`)
+    return value
+}
+
+export function nativeReasoningEfforts(
+    model: string
+): ReasoningEffort[] | undefined {
+    const lower = model.toLowerCase()
+    if (lower.startsWith('gpt-6'))
+        return ['low', 'medium', 'high', 'xhigh', 'max']
+    if (lower.includes('kimi-k3') || /glm-5\.3/.test(lower))
+        return ['low', 'high', 'max']
+    if (lower.includes('minimax-m3.1'))
+        return ['low', 'medium', 'high', 'xhigh', 'max']
+    if (lower.includes('step-5')) return ['low', 'medium', 'high']
+    if (lower.includes('step-3.5-flash-2603')) return ['low', 'high']
+}
+
+export function validateNativeReasoningEffort(
+    body: Record<string, unknown>,
+    model: string
+) {
+    const supported = nativeReasoningEfforts(model)
+    if (
+        supported &&
+        body.reasoning_effort != null &&
+        !supported.includes(body.reasoning_effort as ReasoningEffort)
+    ) {
+        throw new Error(
+            `${model} supports reasoning_effort: ${supported.join(', ')}`
+        )
+    }
+    if (model.toLowerCase().includes('kimi-k3')) delete body.thinking
+    if (
+        supported &&
+        !supported.includes('none') &&
+        (body.thinking as { type?: string })?.type === 'disabled'
+    ) {
+        throw new Error(`${model} does not support disabling thinking`)
+    }
+}
+
 function isGemini3CompatibleModel(model: string) {
     return model.toLowerCase().includes('gemini-3')
 }
@@ -196,7 +296,11 @@ function geminiThinkingBudget(effort: unknown) {
     if (normalized === 'minimal') return 128
     if (normalized === 'low') return 1024
     if (normalized === 'medium') return 8192
-    if (normalized === 'high' || normalized === 'xhigh' || normalized === 'max') {
+    if (
+        normalized === 'high' ||
+        normalized === 'xhigh' ||
+        normalized === 'max'
+    ) {
         return 24576
     }
     return -1
@@ -204,7 +308,11 @@ function geminiThinkingBudget(effort: unknown) {
 
 function geminiThinkingLevel(effort: unknown) {
     const normalized = normalizeReasoningEffort(effort)
-    if (normalized === 'none' || normalized === 'minimal' || normalized === 'low') {
+    if (
+        normalized === 'none' ||
+        normalized === 'minimal' ||
+        normalized === 'low'
+    ) {
         return 'low'
     }
     if (normalized === 'medium') return 'medium'
@@ -213,7 +321,9 @@ function geminiThinkingLevel(effort: unknown) {
 
 function mergeObject(current: unknown, extra: Record<string, unknown>) {
     const object =
-        current != null && typeof current === 'object' && !Array.isArray(current)
+        current != null &&
+        typeof current === 'object' &&
+        !Array.isArray(current)
             ? { ...(current as Record<string, unknown>) }
             : {}
 
@@ -226,7 +336,10 @@ function mergeObject(current: unknown, extra: Record<string, unknown>) {
             typeof object[key] === 'object' &&
             !Array.isArray(object[key])
         ) {
-            object[key] = mergeObject(object[key], value as Record<string, unknown>)
+            object[key] = mergeObject(
+                object[key],
+                value as Record<string, unknown>
+            )
             continue
         }
         object[key] = value

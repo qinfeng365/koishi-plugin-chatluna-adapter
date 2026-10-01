@@ -15,41 +15,47 @@ import {
 } from 'koishi-plugin-chatluna/utils/error'
 import type { ProviderAdapter } from './types'
 import { parseOpenAIModels } from './model-list'
+import { createOpenAIBridge, usesResponses } from './openai-bridge'
 
 export const openAIAdapter: ProviderAdapter = {
     id: 'openai',
 
     async completion(requester, params) {
         const current = requester.currentConfig()
-        if (!current.nonStreaming && !current.responseApi) {
+        if (!current.nonStreaming) {
             return requester.defaultCompletion(params)
         }
 
-        const requestContext = requester.requestContext()
+        const bridge = createOpenAIBridge(requester, params)
+        const requestContext = bridge.context
 
-        if (current.responseApi) {
-            return await responseApiCompletion(
-                requestContext,
-                params,
-                {
-                    builtinTools: requester.responseBuiltinTools(params)
-                },
-                requester.supportsCapability(
-                    params.model,
-                    ModelCapabilities.ImageInput
-                ),
-                requester.responseImageProvider()
+        if (usesResponses(requester, params)) {
+            return bridge.finish(
+                await responseApiCompletion(
+                    requestContext,
+                    params,
+                    {
+                        builtinTools: requester.responseBuiltinTools(params)
+                    },
+                    requester.supportsCapability(
+                        params.model,
+                        ModelCapabilities.ImageInput
+                    ),
+                    requester.responseImageProvider()
+                )
             )
         }
 
-        return await completion(
-            requestContext,
-            params,
-            'chat/completions',
-            undefined,
-            requester.supportsCapability(
-                params.model,
-                ModelCapabilities.ImageInput
+        return bridge.finish(
+            await completion(
+                requestContext,
+                params,
+                'chat/completions',
+                undefined,
+                requester.supportsCapability(
+                    params.model,
+                    ModelCapabilities.ImageInput
+                )
             )
         )
     },
@@ -71,11 +77,11 @@ export const openAIAdapter: ProviderAdapter = {
     },
 
     async *completionStreamInternal(requester, params) {
-        const current = requester.currentConfig()
-        const requestContext = requester.requestContext()
+        const bridge = createOpenAIBridge(requester, params)
+        const requestContext = bridge.context
 
-        if (current.responseApi) {
-            yield* responseApiCompletionStream(
+        if (usesResponses(requester, params)) {
+            for await (const chunk of responseApiCompletionStream(
                 requestContext,
                 params,
                 {
@@ -86,11 +92,13 @@ export const openAIAdapter: ProviderAdapter = {
                     ModelCapabilities.ImageInput
                 ),
                 requester.responseImageProvider()
-            )
+            ))
+                yield bridge.enrich(chunk)
+            yield bridge.historyChunk()
             return
         }
 
-        yield* completionStream(
+        for await (const chunk of completionStream(
             requestContext,
             params,
             'chat/completions',
@@ -99,7 +107,8 @@ export const openAIAdapter: ProviderAdapter = {
                 params.model,
                 ModelCapabilities.ImageInput
             )
-        )
+        ))
+            yield bridge.enrich(chunk)
     },
 
     async embeddings(requester, params) {

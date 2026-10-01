@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-together',
     defaultEndpoint: 'https://api.together.ai/v1',
     website: 'https://docs.together.ai',
+    reasoningEffort: 'passthrough',
     models: []
 })

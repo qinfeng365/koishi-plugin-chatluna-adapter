@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-groq',
     defaultEndpoint: 'https://api.groq.com/openai/v1',
     website: 'https://console.groq.com',
+    reasoningEffort: 'passthrough',
     models: []
 })

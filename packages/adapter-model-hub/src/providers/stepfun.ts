@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-stepfun',
     defaultEndpoint: 'https://api.stepfun.com/v1',
     website: 'https://platform.stepfun.com',
+    reasoningEffort: 'passthrough',
     models: []
 })

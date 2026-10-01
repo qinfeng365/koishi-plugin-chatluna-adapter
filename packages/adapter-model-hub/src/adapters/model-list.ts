@@ -14,6 +14,10 @@ import type {
     ProviderPreset,
     ReasoningEffortLevel
 } from '../types'
+import {
+    anthropicSupportedEfforts,
+    nativeReasoningEfforts
+} from './reasoning-protocols'
 
 type OpenAIModelObject = {
     id?: string
@@ -203,7 +207,8 @@ function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
             id.startsWith('o1') ||
             id.startsWith('o3') ||
             id.startsWith('o4') ||
-            id.startsWith('gpt-5')
+            id.startsWith('gpt-5') ||
+            id.startsWith('gpt-6')
         )
     }
     if (provider === 'deepseek') {
@@ -223,11 +228,12 @@ function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
             (id.includes('deepseek') && id.includes('reason'))
         )
     }
-    return false
+    return nativeReasoningEfforts(id) != null
 }
 
 const DEEPSEEK_REASONING_SUFFIXES = [
     'non-thinking',
+    'low-thinking',
     'high-thinking',
     'max-thinking'
 ] as const
@@ -301,6 +307,8 @@ function reasoningVariantSuffixes(
     if (model.reasoningEfforts != null) {
         return reasoningEffortSuffixes(model.reasoningEfforts)
     }
+    const native = nativeReasoningEfforts(id)
+    if (native) return reasoningEffortSuffixes(native)
     if (provider?.id === 'minimax' || id.includes('minimax-m')) {
         return NO_REASONING_SUFFIXES
     }
@@ -526,23 +534,7 @@ function anthropicReasoningEfforts(
 function anthropicFallbackReasoningEfforts(
     model: string
 ): ReasoningEffortLevel[] | undefined {
-    const id = model.toLowerCase()
-    if (
-        id.includes('claude-fable-5') ||
-        id.includes('claude-mythos-5') ||
-        id.includes('claude-opus-4-8') ||
-        id.includes('claude-opus-4-7')
-    ) {
-        return ['low', 'medium', 'high', 'xhigh', 'max']
-    }
-
-    if (
-        id.includes('claude-mythos-preview') ||
-        id.includes('claude-opus-4-6') ||
-        id.includes('claude-sonnet-4-6')
-    ) {
-        return ['low', 'medium', 'high', 'max']
-    }
+    return anthropicSupportedEfforts(model)
 }
 
 function capabilityEffortValues(value: unknown): unknown[] {

@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-zhipu',
     defaultEndpoint: 'https://open.bigmodel.cn/api/paas/v4',
     website: 'https://open.bigmodel.cn',
+    reasoningEffort: 'passthrough',
     models: []
 })

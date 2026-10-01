@@ -50,6 +50,7 @@ const DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
     'gpt-4o',
     'gpt-4.1',
     'gpt-5',
+    'gpt-6',
     'o3',
     'o4'
 ]
@@ -260,13 +261,53 @@ function normalizeProvider(
     }
 }
 
+function enumOf<T extends string>(
+    value: unknown,
+    choices: readonly T[],
+    fallback: T
+): T {
+    return choices.includes(value as T) ? (value as T) : fallback
+}
+
+function jsonObject(value: unknown): Record<string, unknown> | undefined {
+    if (value == null) return undefined
+    if (typeof value !== 'object' || Array.isArray(value))
+        throw new Error('JSON Schema must be an object')
+    return structuredClone(value as Record<string, unknown>)
+}
+
 function normalizeProviderSpecific(
     input: Record<string, unknown>,
     previous: ProviderEntry | undefined,
     provider: string
 ): Partial<ProviderEntry> {
-    if (provider === 'openai') {
+    const cache = {
+        promptCacheMode: enumOf(
+            input.promptCacheMode ?? previous?.promptCacheMode,
+            ['default', 'implicit', 'explicit'] as const,
+            'default'
+        ),
+        promptCacheTtl: enumOf(
+            input.promptCacheTtl ?? previous?.promptCacheTtl,
+            ['5m', '30m', '1h'] as const,
+            provider === 'moonshot' ? '5m' : '30m'
+        ),
+        promptCacheRetention:
+            input.promptCacheRetention == null
+                ? previous?.promptCacheRetention
+                : enumOf(
+                      input.promptCacheRetention,
+                      ['24h', 'in-memory'] as const,
+                      'in-memory'
+                  ),
+        promptCacheKey: stringOf(
+            input.promptCacheKey ?? previous?.promptCacheKey,
+            ''
+        )
+    }
+    if (provider === 'openai' || provider === 'xai') {
         return {
+            ...cache,
             reasoningProtocol: normalizeReasoningProtocol(
                 input.reasoningProtocol ?? previous?.reasoningProtocol,
                 defaultReasoningProtocol(provider)
@@ -274,7 +315,7 @@ function normalizeProviderSpecific(
             responseApi:
                 booleanOrUndefined(input.responseApi) ??
                 previous?.responseApi ??
-                false,
+                provider === 'xai',
             responseBuiltinTools: arrayOf(
                 input.responseBuiltinTools ??
                     previous?.responseBuiltinTools ??
@@ -283,7 +324,9 @@ function normalizeProviderSpecific(
             responseBuiltinToolSupportModel: stringArrayOf(
                 input.responseBuiltinToolSupportModel ??
                     previous?.responseBuiltinToolSupportModel,
-                DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS
+                provider === 'xai'
+                    ? ['grok']
+                    : DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS
             ),
             responseFileSearchVectorStoreIds: stringArrayOf(
                 input.responseFileSearchVectorStoreIds ??
@@ -295,6 +338,7 @@ function normalizeProviderSpecific(
 
     if (isOpenAICompatibleProvider(provider)) {
         return {
+            ...cache,
             reasoningProtocol: normalizeReasoningProtocol(
                 input.reasoningProtocol ?? previous?.reasoningProtocol,
                 defaultReasoningProtocol(provider)
@@ -304,6 +348,34 @@ function normalizeProviderSpecific(
 
     if (provider === 'gemini') {
         return {
+            geminiApi: enumOf(
+                input.geminiApi ?? previous?.geminiApi,
+                ['generateContent', 'interactions'] as const,
+                'generateContent'
+            ),
+            geminiFileUpload:
+                booleanOrUndefined(input.geminiFileUpload) ??
+                previous?.geminiFileUpload ??
+                false,
+            geminiMaxFileSizeMb: clampNumber(
+                input.geminiMaxFileSizeMb ?? previous?.geminiMaxFileSizeMb,
+                64,
+                1,
+                2048
+            ),
+            geminiCachedContent: stringOf(
+                input.geminiCachedContent ?? previous?.geminiCachedContent,
+                ''
+            ),
+            geminiResponseMimeType: stringOf(
+                input.geminiResponseMimeType ??
+                    previous?.geminiResponseMimeType,
+                ''
+            ),
+            geminiResponseJsonSchema: jsonObject(
+                input.geminiResponseJsonSchema ??
+                    previous?.geminiResponseJsonSchema
+            ),
             agenticVideo:
                 booleanOrUndefined(input.agenticVideo) ??
                 previous?.agenticVideo ??
@@ -514,6 +586,8 @@ function isResponseBuiltinTool(
     value: unknown
 ): value is OpenAIResponseBuiltinToolType {
     return (
+        value === 'web_search' ||
+        value === 'x_search' ||
         value === 'web_search_preview' ||
         value === 'image_generation' ||
         value === 'code_interpreter' ||

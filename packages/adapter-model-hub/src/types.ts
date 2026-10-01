@@ -82,12 +82,18 @@ export interface OpenAICompatibleProviderSettings {
 }
 
 export type OpenAIResponseBuiltinToolType =
+    | 'web_search'
+    | 'x_search'
     | 'web_search_preview'
     | 'image_generation'
     | 'code_interpreter'
     | 'file_search'
 
 export interface OpenAIProviderSettings {
+    promptCacheMode?: 'default' | 'implicit' | 'explicit'
+    promptCacheTtl?: '5m' | '30m' | '1h'
+    promptCacheRetention?: 'in-memory' | '24h'
+    promptCacheKey?: string
     responseApi?: boolean
     responseBuiltinTools?: OpenAIResponseBuiltinToolType[]
     responseBuiltinToolSupportModel?: string[]
@@ -95,6 +101,12 @@ export interface OpenAIProviderSettings {
 }
 
 export interface GeminiProviderSettings {
+    geminiApi?: 'generateContent' | 'interactions'
+    geminiFileUpload?: boolean
+    geminiMaxFileSizeMb?: number
+    geminiCachedContent?: string
+    geminiResponseMimeType?: string
+    geminiResponseJsonSchema?: Record<string, unknown>
     agenticVideo?: boolean
     useCamelCaseMediaFields?: boolean
     googleSearch?: boolean

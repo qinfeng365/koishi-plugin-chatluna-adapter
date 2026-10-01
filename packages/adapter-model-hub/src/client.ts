@@ -35,6 +35,7 @@ import {
     protocolCapabilities,
     resolveCapabilities
 } from './capabilities'
+import type { GeminiResourceRequest } from './adapters/gemini-resources'
 import { expandReasoningVariantsForProvider } from './adapters/model-list'
 import type {
     AdditionalModelEntry,
@@ -132,6 +133,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
     async reloadModels(config?: RunnableConfig) {
         this._modelInfos = {}
         return await this.getModels(config)
+    }
+
+    async geminiResource(request: GeminiResourceRequest) {
+        return this._requester.geminiResources().request(request)
     }
 
     registerSelf() {
@@ -389,10 +394,26 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
 
         if (this._runtime.provider.adapter !== 'dify') {
-            return capabilityFileHandling(
+            const config = capabilityFileHandling(
                 this._runtime.provider.adapter,
                 info.capabilities
             )
+            if (
+                config &&
+                this._runtime.provider.adapter === 'gemini' &&
+                this.config.geminiFileUpload
+            ) {
+                const limit =
+                    Math.min(this.config.geminiMaxFileSizeMb ?? 64, 2048) *
+                    1024 *
+                    1024
+                return {
+                    ...config,
+                    maxFileSizeBytes: limit,
+                    maxTotalSizeBytes: limit
+                }
+            }
+            return config
         }
         if (!info.capabilities.includes(ModelCapabilities.FileInput)) {
             return undefined

@@ -15,10 +15,16 @@ export function resolveCapabilities(
     model: ProviderModelEntry,
     responseApi = false
 ) {
+    responseApi ||= adapter === 'openai' && /^gpt-6/i.test(model.name)
     const result = new Set(model.capabilities ?? [])
     if (adapter !== 'dify') {
         result.add(Cap.ToolCall)
-        if (supportImageInput(model.name)) result.add(Cap.ImageInput)
+        if (
+            supportImageInput(model.name) ||
+            /^(gpt-6|kimi-k3)/i.test(model.name)
+        )
+            result.add(Cap.ImageInput)
+        if (/^kimi-k3/i.test(model.name)) result.add(Cap.VideoInput)
         if (supportAudioInput(model.name)) result.add(Cap.AudioInput)
         if (isThinkingModelName(model.name)) result.add(Cap.Thinking)
     }
@@ -50,7 +56,17 @@ function isThinkingModelName(model: string) {
     return (
         ['reasoner', 'thinking', 'reasoning', 'r1'].some((name) =>
             lower.includes(name)
-        ) || ['o1', 'o3', 'o4', 'gpt-5'].some((name) => lower.startsWith(name))
+        ) ||
+        [
+            'o1',
+            'o3',
+            'o4',
+            'gpt-5',
+            'gpt-6',
+            'kimi-k3',
+            'glm-5.3',
+            'minimax-m3.1'
+        ].some((name) => lower.startsWith(name))
     )
 }
 

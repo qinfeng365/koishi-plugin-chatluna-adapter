@@ -3,6 +3,7 @@
         "rootDir": "../",
         "module": "esnext",
         "moduleResolution": "node",
+        "target": "es2022",
         "jsx": "preserve",
         "resolveJsonModule": true,
         "esModuleInterop": true,

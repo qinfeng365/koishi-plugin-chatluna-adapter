@@ -8,5 +8,6 @@ export default openAIChatProvider({
     defaultPlatform: 'hub-moonshot',
     defaultEndpoint: 'https://api.moonshot.cn/v1',
     website: 'https://platform.moonshot.cn',
+    reasoningEffort: 'passthrough',
     models: []
 })

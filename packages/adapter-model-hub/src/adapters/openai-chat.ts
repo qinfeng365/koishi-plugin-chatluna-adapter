@@ -11,6 +11,7 @@ import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ProviderAdapter } from './types'
 import { parseOpenAIModels } from './model-list'
+import { createOpenAIBridge } from './openai-bridge'
 
 export const openAIChatAdapter: ProviderAdapter = {
     id: 'openai-chat',
@@ -20,14 +21,17 @@ export const openAIChatAdapter: ProviderAdapter = {
             return requester.defaultCompletion(params)
         }
 
-        return completion(
-            requester.requestContext(),
-            preserveRealModelName(params),
-            'chat/completions',
-            undefined,
-            requester.supportsCapability(
-                params.model,
-                ModelCapabilities.ImageInput
+        const bridge = createOpenAIBridge(requester, params)
+        return bridge.finish(
+            await completion(
+                bridge.context,
+                preserveRealModelName(params),
+                'chat/completions',
+                undefined,
+                requester.supportsCapability(
+                    params.model,
+                    ModelCapabilities.ImageInput
+                )
             )
         )
     },
@@ -52,8 +56,9 @@ export const openAIChatAdapter: ProviderAdapter = {
                 ? createToolCallChunkNormalizer()
                 : undefined
 
+        const bridge = createOpenAIBridge(requester, params)
         for await (const chunk of completionStream(
-            requester.requestContext(),
+            bridge.context,
             preserveRealModelName(params),
             'chat/completions',
             undefined,
@@ -62,7 +67,7 @@ export const openAIChatAdapter: ProviderAdapter = {
                 ModelCapabilities.ImageInput
             )
         )) {
-            yield normalizeToolCallChunk?.(chunk) ?? chunk
+            yield bridge.enrich(normalizeToolCallChunk?.(chunk) ?? chunk)
         }
     },
 
@@ -191,11 +196,11 @@ export function preserveRealModelName<
     return {
         ...params,
         overrideRequestParams: {
-            ...params.overrideRequestParams,
             model,
             ...(reasoningEffort == null
                 ? {}
-                : { reasoning_effort: reasoningEffort })
+                : { reasoning_effort: reasoningEffort }),
+            ...params.overrideRequestParams
         }
     } as T
 }

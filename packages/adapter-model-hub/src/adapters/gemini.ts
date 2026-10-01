@@ -24,11 +24,19 @@ import {
     isMessageContentText
 } from 'koishi-plugin-chatluna/utils/string'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
+import {
+    ChatLunaError,
+    ChatLunaErrorCode
+} from 'koishi-plugin-chatluna/utils/error'
 import type { EmbeddingsResult } from 'koishi-plugin-chatluna/llm-core/platform/api'
 import type { ProviderAdapter } from './types'
 import type { ModelHubRequester } from '../requester'
 import type { ProviderModelEntry } from '../types'
 import { parseGeminiModels } from './model-list'
+import {
+    geminiInteractionCompletion,
+    geminiInteractionStream
+} from './gemini-interactions'
 
 type GeminiPart = Record<string, any>
 type GeminiContent = {
@@ -64,7 +72,10 @@ export const geminiAdapter: ProviderAdapter = {
             return requester.defaultCompletion(params)
         }
 
-        const generation = await geminiCompletion(requester, params)
+        const generation =
+            requester.currentConfig().geminiApi === 'interactions'
+                ? await geminiInteractionCompletion(requester, params)
+                : await geminiCompletion(requester, params)
         return generation
     },
 
@@ -83,6 +94,10 @@ export const geminiAdapter: ProviderAdapter = {
     },
 
     async *completionStreamInternal(requester, params) {
+        if (requester.currentConfig().geminiApi === 'interactions') {
+            yield* geminiInteractionStream(requester, params)
+            return
+        }
         yield* geminiCompletionStream(requester, params)
     },
 
@@ -125,11 +140,15 @@ export const geminiAdapter: ProviderAdapter = {
 
 async function geminiCompletion(requester: ModelHubRequester, params: any) {
     const toolNameMapper = createGeminiToolNameMapper(params.tools ?? [])
-    const request = await createGeminiRequest(requester, params, toolNameMapper)
     const requestSignal = createRequestSignal(params)
     try {
+        const request = await createGeminiRequest(
+            requester,
+            { ...params, signal: requestSignal.signal },
+            toolNameMapper
+        )
         const response = await requester.post(
-            `models/${prepareGeminiModel(params.model, requester)}:generateContent`,
+            `models/${prepareGeminiModel(params.overrideRequestParams?.model ?? params.model, requester)}:generateContent`,
             request,
             { signal: requestSignal.signal }
         )
@@ -150,12 +169,16 @@ async function* geminiCompletionStream(
     params: any
 ) {
     const toolNameMapper = createGeminiToolNameMapper(params.tools ?? [])
-    const request = await createGeminiRequest(requester, params, toolNameMapper)
     const requestSignal = createRequestSignal(params)
     const streamState: GeminiStreamState = { nextToolIndex: 0, partIndex: 0 }
     try {
+        const request = await createGeminiRequest(
+            requester,
+            { ...params, signal: requestSignal.signal },
+            toolNameMapper
+        )
         const response = await requester.post(
-            `models/${prepareGeminiModel(params.model, requester)}:streamGenerateContent?alt=sse`,
+            `models/${prepareGeminiModel(params.overrideRequestParams?.model ?? params.model, requester)}:streamGenerateContent?alt=sse`,
             request,
             { signal: requestSignal.signal }
         )
@@ -188,7 +211,8 @@ export async function createGeminiRequest(
         requester,
         params.input,
         toolNameMapper,
-        params.model
+        params.overrideRequestParams?.model ?? params.model,
+        params.signal
     )
     const current = requester.currentConfig()
     const parsedModel = parseOpenAIModelNameWithReasoningEffort(
@@ -196,7 +220,8 @@ export async function createGeminiRequest(
     )
     const thinkingConfig = createGeminiThinkingConfig(
         parsedModel.model,
-        parsedModel.reasoningEffort,
+        params.overrideRequestParams?.reasoning_effort ??
+            parsedModel.reasoningEffort,
         current
     )
     const tools = geminiTools(
@@ -210,6 +235,10 @@ export async function createGeminiRequest(
         topP: params.topP,
         maxOutputTokens: params.maxTokens,
         stopSequences: params.stop,
+        responseMimeType:
+            current.geminiResponseMimeType ||
+            (current.geminiResponseJsonSchema ? 'application/json' : undefined),
+        responseJsonSchema: current.geminiResponseJsonSchema,
         responseModalities:
             current.imageGeneration &&
             supportsGeminiImageGeneration(parsedModel.model)
@@ -218,8 +247,9 @@ export async function createGeminiRequest(
         thinkingConfig
     })
 
-    return filterEmpty({
+    const base = filterEmpty({
         ...messageContents,
+        cachedContent: current.geminiCachedContent || undefined,
         generationConfig,
         safetySettings: createSafetySettings(),
         tools,
@@ -233,23 +263,60 @@ export async function createGeminiRequest(
                 ? { includeServerSideToolInvocations: true }
                 : undefined
     })
+    if (base.cachedContent || params.overrideRequestParams?.cachedContent) {
+        delete base.systemInstruction
+        delete base.tools
+        delete base.toolConfig
+    }
+    const {
+        model: _model,
+        reasoning_effort: _effort,
+        ...override
+    } = params.overrideRequestParams ?? {}
+    return mergeGeminiRequest(base, override)
+}
+
+export function mergeGeminiRequest(
+    base: Record<string, any>,
+    override: Record<string, any>
+) {
+    const result = Object.assign(Object.create(null), base)
+    for (const [key, value] of Object.entries(override)) {
+        result[key] =
+            value && typeof value === 'object' && !Array.isArray(value)
+                ? mergeGeminiRequest(
+                      result[key] && typeof result[key] === 'object'
+                          ? result[key]
+                          : {},
+                      value
+                  )
+                : value
+    }
+    return result
 }
 
 async function messagesToGeminiContents(
     requester: ModelHubRequester,
     messages: BaseMessage[],
     toolNameMapper: GeminiToolNameMapper,
-    model: string
+    model: string,
+    signal?: AbortSignal
 ): Promise<GeminiMessageContents> {
     const result: GeminiContent[] = []
     const systemParts: GeminiPart[] = []
+    const toolNames = new Map<string, string>()
 
     let previousWasTool = false
     for (const message of messages) {
         const type = message.getType()
         if (type === 'system') {
             systemParts.push(
-                ...(await contentToParts(requester, message.content, model))
+                ...(await contentToParts(
+                    requester,
+                    message.content,
+                    model,
+                    signal
+                ))
             )
             previousWasTool = false
             continue
@@ -264,7 +331,9 @@ async function messagesToGeminiContents(
                           .map((part) => part.text)
                           .join('')
             const response: GeminiPart = {
-                name: toolNameMapper.sanitize(tool.name),
+                name: toolNameMapper.sanitize(
+                    tool.name ?? toolNames.get(tool.tool_call_id)
+                ),
                 response: parseToolResponse(text),
                 id: tool.tool_call_id
             }
@@ -277,7 +346,8 @@ async function messagesToGeminiContents(
                             isMessageContentImageUrl(part) ||
                             isFileLikePart(part)
                     ),
-                    model
+                    model,
+                    signal
                 )
                 for (const part of media) {
                     if (part.mediaProcessing || part.media_processing)
@@ -302,10 +372,12 @@ async function messagesToGeminiContents(
             const parts = await contentToParts(
                 requester,
                 message.content,
-                model
+                model,
+                signal
             )
             parts.push(...getContextParts(shared))
             for (const toolCall of ai.tool_calls) {
+                if (toolCall.id) toolNames.set(toolCall.id, toolCall.name)
                 const saved = thoughtData[toolCall.id] ?? thoughtData
                 if (toolCall.id && thoughtData[toolCall.id])
                     parts.push(...getContextParts(saved))
@@ -332,7 +404,12 @@ async function messagesToGeminiContents(
             role: type === 'ai' ? 'model' : 'user',
             parts: [
                 ...getContextParts(thoughtData),
-                ...(await contentToParts(requester, message.content, model))
+                ...(await contentToParts(
+                    requester,
+                    message.content,
+                    model,
+                    signal
+                ))
             ]
         })
     }
@@ -347,7 +424,8 @@ async function messagesToGeminiContents(
 async function contentToParts(
     requester: ModelHubRequester,
     content: BaseMessage['content'],
-    model: string
+    model: string,
+    signal?: AbortSignal
 ): Promise<GeminiPart[]> {
     if (typeof content === 'string') return content ? [{ text: content }] : []
     const config = requester.currentConfig()
@@ -369,6 +447,24 @@ async function contentToParts(
                   media_processing: mode
               })
     }
+    const prepareMedia = async (mimeType: string, buffer: Buffer) => {
+        if (!config.geminiFileUpload)
+            return mediaPart(mimeType, buffer.toString('base64'))
+        const file = await requester
+            .geminiResources()
+            .upload(buffer, mimeType, signal)
+        const mode =
+            agentic && mimeType.startsWith('video/') ? 'AGENTIC' : undefined
+        return config.useCamelCaseMediaFields
+            ? filterEmpty({
+                  fileData: { mimeType, fileUri: file.uri },
+                  mediaProcessing: mode
+              })
+            : filterEmpty({
+                  file_data: { mime_type: mimeType, file_uri: file.uri },
+                  media_processing: mode
+              })
+    }
     const parts = await Promise.all(
         content.map(async (part) => {
             if (isMessageContentText(part)) {
@@ -381,17 +477,35 @@ async function contentToParts(
                 )
                 const mimeType =
                     url.match(/^data:([^;]+);base64,/)?.[1] ?? 'image/jpeg'
-                return mediaPart(
+                return prepareMedia(
                     mimeType,
-                    url.replace(/^data:[^;]+;base64,/, '')
+                    Buffer.from(
+                        url.replace(/^data:[^;]+;base64,/, ''),
+                        'base64'
+                    )
                 )
             }
             if (isFileLikePart(part)) {
+                const value = part[part.type]
+                if (value?.fileUri || value?.file_uri)
+                    return config.useCamelCaseMediaFields
+                        ? {
+                              fileData: {
+                                  fileUri: value.fileUri ?? value.file_uri,
+                                  mimeType: value.mimeType ?? value.mime_type
+                              }
+                          }
+                        : {
+                              file_data: {
+                                  file_uri: value.fileUri ?? value.file_uri,
+                                  mime_type: value.mimeType ?? value.mime_type
+                              }
+                          }
                 const file = await fetchFileLikeUrl(
                     requester.requestContext().plugin,
                     part as any
                 )
-                return mediaPart(file.mimeType, file.buffer.toString('base64'))
+                return prepareMedia(file.mimeType, file.buffer)
             }
             return part as GeminiPart
         })
@@ -704,6 +818,29 @@ export async function parseGeminiResponse(
     streamState: GeminiStreamState = { nextToolIndex: 0, partIndex: 0 }
 ): Promise<ChatGenerationChunk> {
     const data = JSON.parse(text)
+    const candidate = data.candidates?.[0]
+    const finishReason = candidate?.finishReason
+    const failure =
+        data.error?.message ??
+        data.promptFeedback?.blockReason ??
+        (finishReason &&
+        !['STOP', 'MAX_TOKENS', 'FINISH_REASON_UNSPECIFIED'].includes(
+            finishReason
+        )
+            ? finishReason
+            : undefined)
+    if (failure) {
+        throw new ChatLunaError(
+            ChatLunaErrorCode.API_REQUEST_FAILED,
+            new Error(`Gemini generation failed: ${failure}`)
+        )
+    }
+    if (!candidate && !data.usageMetadata) {
+        throw new ChatLunaError(
+            ChatLunaErrorCode.API_REQUEST_FAILED,
+            new Error('Gemini returned no candidate')
+        )
+    }
     const usage = data.usageMetadata
         ? createUsageMetadata({
               inputTokens: data.usageMetadata.promptTokenCount,
@@ -720,6 +857,7 @@ export async function parseGeminiResponse(
     const toolCalls = []
     const thoughtData: Record<string, unknown> = {}
     const images: string[] = []
+    const mediaContent: any[] = []
 
     // ChatLuna exposes a single generation; never mix alternate candidates.
     for (const candidate of (data.candidates ?? []).slice(0, 1)) {
@@ -772,7 +910,21 @@ export async function parseGeminiResponse(
             } else if (part.inlineData?.data || part.inline_data?.data) {
                 const inline = part.inlineData ?? part.inline_data
                 const mime = inline.mimeType ?? inline.mime_type ?? 'image/png'
-                images.push(`data:${mime};base64,${inline.data}`)
+                const url = `data:${mime};base64,${inline.data}`
+                if (mime.startsWith('image/')) {
+                    images.push(url)
+                    mediaContent.push({ type: 'image_url', image_url: url })
+                } else if (mime.startsWith('audio/')) {
+                    mediaContent.push({
+                        type: 'audio_url',
+                        audio_url: { url, mimeType: mime }
+                    })
+                } else {
+                    mediaContent.push({
+                        type: 'file_url',
+                        file_url: { url, mimeType: mime }
+                    })
+                }
             }
         }
         if (requester.currentConfig().groundingContentDisplay) {
@@ -783,7 +935,9 @@ export async function parseGeminiResponse(
 
     const message = new AIMessageChunk({
         content:
-            images.length > 0 ? [{ type: 'text', text: content }] : content,
+            mediaContent.length > 0
+                ? [{ type: 'text', text: content }, ...mediaContent]
+                : content,
         tool_call_chunks: toolCalls.map((toolCall) => ({
             name: toolCall.name,
             args:
@@ -794,6 +948,11 @@ export async function parseGeminiResponse(
             index: toolCall.index
         })),
         usage_metadata: usage,
+        response_metadata: filterEmpty({
+            finishReason,
+            finishMessage: candidate?.finishMessage,
+            promptFeedback: data.promptFeedback
+        }),
         additional_kwargs: {
             images: images.length > 0 ? images : undefined,
             reasoning_content: reasoning || undefined,
@@ -803,7 +962,7 @@ export async function parseGeminiResponse(
     })
 
     return new ChatGenerationChunk({
-        generationInfo: usage ? { usage_metadata: usage } : undefined,
+        generationInfo: filterEmpty({ usage_metadata: usage, finishReason }),
         message,
         text: getMessageContent(message.content) ?? content
     })

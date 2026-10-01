@@ -34,17 +34,12 @@ import type { ProviderAdapter } from './types'
 import type { ModelHubRequester } from '../requester'
 import type { ProviderModelEntry } from '../types'
 import { parseAnthropicModels } from './model-list'
+import {
+    anthropicThinkingConfig,
+    anthropicEffortForModel
+} from './reasoning-protocols'
 
 type AnthropicRole = 'user' | 'assistant'
-type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-type AnthropicThinking =
-    | {
-          type: 'adaptive'
-          display?: 'summarized' | 'omitted'
-      }
-    | {
-          type: 'disabled'
-      }
 
 type AnthropicCacheControl = {
     type: 'ephemeral'
@@ -131,6 +126,7 @@ type AnthropicTool = {
     name: string
     description: string
     input_schema: Record<string, unknown>
+    strict?: boolean
 }
 
 type AnthropicUsage = {
@@ -197,6 +193,7 @@ type AnthropicStreamEvent =
                     type: 'signature_delta'
                     signature: string
                 }
+              | { type: 'citations_delta'; citation: Record<string, unknown> }
       }
     | {
           type: 'content_block_stop'
@@ -215,10 +212,6 @@ type AnthropicToolNameMapper = {
     sanitize(name: string | undefined): string
     restore(name: string | undefined): string
 }
-
-type OpenAIReasoningEffort = NonNullable<
-    ReturnType<typeof parseOpenAIModelNameWithReasoningEffort>['reasoningEffort']
->
 
 export const anthropicAdapter: ProviderAdapter = {
     id: 'anthropic',
@@ -252,7 +245,9 @@ export const anthropicAdapter: ProviderAdapter = {
     async embeddings(_requester, params) {
         throw new ChatLunaError(
             ChatLunaErrorCode.API_REQUEST_FAILED,
-            new Error(`Anthropic does not provide embeddings for ${params.model}.`)
+            new Error(
+                `Anthropic does not provide embeddings for ${params.model}.`
+            )
         )
     },
 
@@ -315,68 +310,123 @@ async function* anthropicCompletionStream(
         await checkResponse(response)
 
         const reasoningState = createReasoningState()
+        const rawBlocks: Record<string, any>[] = []
+        const rawArguments = new Map<number, string>()
         let usage: AnthropicUsage | undefined
 
         for await (const event of sseIterable(response, {
             timeout: params.timeout,
             signal: requestSignal.signal
         })) {
-        if (!event.data || event.data === '[DONE]' || event.event === 'ping') {
-            continue
-        }
-        if (event.event === 'error') {
-            throw new ChatLunaError(
-                ChatLunaErrorCode.API_REQUEST_FAILED,
-                new Error(event.data)
+            if (
+                !event.data ||
+                event.data === '[DONE]' ||
+                event.event === 'ping'
+            ) {
+                continue
+            }
+            if (event.event === 'error') {
+                throw new ChatLunaError(
+                    ChatLunaErrorCode.API_REQUEST_FAILED,
+                    new Error(event.data)
+                )
+            }
+
+            const data = JSON.parse(event.data) as AnthropicStreamEvent
+            if (data.type === 'content_block_start') {
+                rawBlocks[data.index] = structuredClone(data.content_block)
+            } else if (data.type === 'content_block_delta') {
+                const block = rawBlocks[data.index]
+                const delta = data.delta
+                if (block && delta.type === 'text_delta')
+                    block.text = (block.text ?? '') + delta.text
+                if (block && delta.type === 'thinking_delta')
+                    block.thinking = (block.thinking ?? '') + delta.thinking
+                if (block && delta.type === 'signature_delta')
+                    block.signature = delta.signature
+                if (block && delta.type === 'citations_delta')
+                    (block.citations ??= []).push(delta.citation)
+                if (delta.type === 'input_json_delta')
+                    rawArguments.set(
+                        data.index,
+                        (rawArguments.get(data.index) ?? '') +
+                            delta.partial_json
+                    )
+            } else if (
+                data.type === 'content_block_stop' &&
+                rawArguments.has(data.index)
+            ) {
+                rawBlocks[data.index].input = JSON.parse(
+                    rawArguments.get(data.index)!
+                )
+            }
+            const usageDelta =
+                data.type === 'message_start'
+                    ? data.message.usage
+                    : data.type === 'message_delta'
+                      ? data.usage
+                      : undefined
+
+            if (usageDelta != null) {
+                usage = mergeAnthropicUsage(usage, usageDelta)
+                yield createAnthropicChunk('', {
+                    usage,
+                    generationInfo: {
+                        id:
+                            data.type === 'message_start'
+                                ? data.message.id
+                                : undefined,
+                        model:
+                            data.type === 'message_start'
+                                ? data.message.model
+                                : undefined,
+                        stop_reason:
+                            data.type === 'message_delta'
+                                ? data.delta?.stop_reason
+                                : undefined,
+                        stop_sequence:
+                            data.type === 'message_delta'
+                                ? data.delta?.stop_sequence
+                                : undefined
+                    }
+                })
+                continue
+            }
+
+            const chunk = convertAnthropicStreamEvent(
+                data,
+                reasoningState,
+                toolNameMapper
             )
+            if (
+                data.type === 'content_block_delta' &&
+                data.delta.type === 'input_json_delta' &&
+                rawBlocks[data.index]?.type !== 'tool_use'
+            )
+                continue
+            if (chunk == null) continue
+
+            if (
+                reasoningState.endedAt == null &&
+                hasAnthropicResponseChunk(chunk)
+            ) {
+                reasoningState.endedAt = Date.now()
+            }
+            yield chunk
         }
-
-        const data = JSON.parse(event.data) as AnthropicStreamEvent
-        const usageDelta =
-            data.type === 'message_start'
-                ? data.message.usage
-                : data.type === 'message_delta'
-                  ? data.usage
-                  : undefined
-
-        if (usageDelta != null) {
-            usage = mergeAnthropicUsage(usage, usageDelta)
-            yield createAnthropicChunk('', {
-                usage,
-                generationInfo: {
-                    id: data.type === 'message_start' ? data.message.id : undefined,
-                    model:
-                        data.type === 'message_start'
-                            ? data.message.model
-                            : undefined,
-                    stop_reason:
-                        data.type === 'message_delta'
-                            ? data.delta?.stop_reason
-                            : undefined,
-                    stop_sequence:
-                        data.type === 'message_delta'
-                            ? data.delta?.stop_sequence
-                            : undefined
-                }
-            })
-            continue
-        }
-
-        const chunk = convertAnthropicStreamEvent(
-            data,
-            reasoningState,
-            toolNameMapper
-        )
-        if (chunk == null) continue
-
-        if (reasoningState.endedAt == null && hasAnthropicResponseChunk(chunk)) {
-            reasoningState.endedAt = Date.now()
-        }
-        yield chunk
-    }
 
         const reasoningChunk = createReasoningChunk(reasoningState)
         if (reasoningChunk) yield reasoningChunk
+        if (rawBlocks.length)
+            yield new ChatGenerationChunk({
+                text: '',
+                message: new AIMessageChunk({
+                    content: '',
+                    additional_kwargs: {
+                        hub_anthropic_content: rawBlocks.filter(Boolean)
+                    }
+                })
+            })
     } finally {
         requestSignal.dispose()
     }
@@ -388,7 +438,9 @@ async function createAnthropicRequest(
     toolNameMapper: AnthropicToolNameMapper,
     stream: boolean
 ) {
-    const parsedModel = parseOpenAIModelNameWithReasoningEffort(params.model ?? '')
+    const parsedModel = parseOpenAIModelNameWithReasoningEffort(
+        params.model ?? ''
+    )
     const override = {
         ...(params.overrideRequestParams ?? {})
     }
@@ -397,9 +449,8 @@ async function createAnthropicRequest(
 
     const model = String(override.model ?? parsedModel.model)
     const maxTokens = normalizeMaxTokens(params.maxTokens)
-    const effort = normalizeAnthropicEffort(
-        overrideEffort ?? parsedModel.reasoningEffort
-    )
+    const requestedEffort = overrideEffort ?? parsedModel.reasoningEffort
+    const effort = anthropicEffortForModel(model, requestedEffort)
     const contents = await messagesToAnthropicContents(
         requester,
         params.input,
@@ -407,8 +458,22 @@ async function createAnthropicRequest(
     )
     const hasAssistantPrefill =
         contents.messages[contents.messages.length - 1]?.role === 'assistant'
-    const generatedThinking = createThinkingConfig(effort, hasAssistantPrefill)
-    const tools = formatToolsToAnthropicTools(params.tools ?? [], toolNameMapper)
+    const generatedThinking =
+        hasAssistantPrefill || override.thinking !== undefined
+            ? undefined
+            : anthropicThinkingConfig(requestedEffort, model, maxTokens)
+    if (
+        generatedThinking?.type === 'enabled' &&
+        generatedThinking.budget_tokens < 1024
+    ) {
+        throw new Error(
+            'Claude manual thinking requires max_tokens greater than 1024'
+        )
+    }
+    const tools = formatToolsToAnthropicTools(
+        params.tools ?? [],
+        toolNameMapper
+    )
     const outputConfig =
         effort == null
             ? undefined
@@ -466,7 +531,9 @@ async function messagesToAnthropicContents(
         }
 
         if (message instanceof ToolMessage || type === 'tool') {
-            result.push(await toolMessageToAnthropic(message as ToolMessage, requester))
+            result.push(
+                await toolMessageToAnthropic(message as ToolMessage, requester)
+            )
             continue
         }
 
@@ -498,15 +565,24 @@ async function aiMessageToAnthropic(
     requester: ModelHubRequester,
     toolNameMapper: AnthropicToolNameMapper
 ): Promise<AnthropicMessage> {
+    const raw = message.additional_kwargs.hub_anthropic_content
+    if (Array.isArray(raw)) {
+        return {
+            role: 'assistant',
+            content: structuredClone(raw) as AnthropicMessageContentBlock[]
+        }
+    }
     const blocks: AnthropicMessageContentBlock[] = []
-    const reasoningBlocks = message.additional_kwargs
-        .reasoning_blocks as AnthropicMessageContentBlock[] | undefined
+    const reasoningBlocks = message.additional_kwargs.reasoning_blocks as
+        | AnthropicMessageContentBlock[]
+        | undefined
 
     if (Array.isArray(reasoningBlocks) && reasoningBlocks.length > 0) {
         blocks.push(...reasoningBlocks.filter(isReasoningBlock))
     } else {
-        const reasoningContent = message.additional_kwargs
-            .reasoning_content as string | undefined
+        const reasoningContent = message.additional_kwargs.reasoning_content as
+            | string
+            | undefined
         const reasoningSignature = message.additional_kwargs
             .reasoning_signature as string | undefined
         if (reasoningContent && reasoningSignature) {
@@ -578,7 +654,8 @@ async function contentToAnthropicBlocks(
     requester: ModelHubRequester,
     content: MessageContent
 ): Promise<AnthropicInputContentBlock[]> {
-    if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : []
+    if (typeof content === 'string')
+        return content ? [{ type: 'text', text: content }] : []
 
     const blocks: AnthropicInputContentBlock[] = []
     for (const part of content) {
@@ -618,7 +695,10 @@ async function imageContentToAnthropic(
     part: MessageContentComplex
 ): Promise<AnthropicImageBlock | null> {
     try {
-        const url = await fetchImageUrl(requester.requestContext().plugin, part as any)
+        const url = await fetchImageUrl(
+            requester.requestContext().plugin,
+            part as any
+        )
         if (/^https?:\/\//i.test(url)) {
             return {
                 type: 'image',
@@ -689,7 +769,9 @@ async function fileContentToAnthropic(
             }
         }
 
-        requester.logger.warn(`Unsupported Anthropic file mime type: ${mimeType}`)
+        requester.logger.warn(
+            `Unsupported Anthropic file mime type: ${mimeType}`
+        )
         return null
     } catch (error) {
         requester.logger.warn(error)
@@ -749,17 +831,27 @@ function formatToolsToAnthropicTools(
 ): AnthropicTool[] | undefined {
     if (tools.length < 1) return undefined
 
-    return tools.map((tool) => ({
-        name: toolNameMapper.sanitize(tool.name),
-        description: tool.description,
-        input_schema: normalizeToolInputSchema(
-            removeAdditionalProperties(
-                isZodSchemaV3(tool.schema)
-                    ? zodToJsonSchema(tool.schema as never)
-                    : tool.schema
-            ) as Record<string, unknown>
-        )
-    }))
+    return tools.map((tool) => {
+        const strict =
+            (tool.metadata?.strict ??
+                (tool as StructuredTool & { strict?: boolean }).strict) === true
+        const schema = isZodSchemaV3(tool.schema)
+            ? zodToJsonSchema(tool.schema as never)
+            : tool.schema
+        return {
+            name: toolNameMapper.sanitize(tool.name),
+            description: tool.description,
+            input_schema: normalizeToolInputSchema(
+                (strict
+                    ? schema
+                    : removeAdditionalProperties(schema)) as Record<
+                    string,
+                    unknown
+                >
+            ),
+            ...(strict ? { strict: true } : {})
+        }
+    })
 }
 
 function parseAnthropicResponse(
@@ -786,14 +878,21 @@ function parseAnthropicResponse(
                 index: toolCalls.length
             })
         } else if (block.type === 'thinking') {
-            pushThinkingBlock(reasoningState, reasoningState.blocks.length, block)
+            pushThinkingBlock(
+                reasoningState,
+                reasoningState.blocks.length,
+                block
+            )
         } else if (block.type === 'redacted_thinking') {
             reasoningState.blocks.push(block)
         }
     }
 
     const usage = data.usage ? anthropicUsageToMetadata(data.usage) : undefined
-    const additional = reasoningAdditionalKwargs(reasoningState)
+    const additional = {
+        ...reasoningAdditionalKwargs(reasoningState),
+        hub_anthropic_content: structuredClone(data.content ?? [])
+    }
     const message = new AIMessageChunk({
         content,
         tool_call_chunks: toolCalls,
@@ -881,7 +980,11 @@ async function getAnthropicModels(
         const query = new URLSearchParams({ limit: '100' })
         if (afterId) query.set('after_id', afterId)
 
-        const response = await requester.get(`models?${query.toString()}`, {}, { signal })
+        const response = await requester.get(
+            `models?${query.toString()}`,
+            {},
+            { signal }
+        )
         await checkResponse(response)
         const payload = JSON.parse(await response.text()) as {
             data?: unknown[]
@@ -976,7 +1079,11 @@ function createReasoningState() {
         content: '',
         startedAt: Date.now(),
         endedAt: undefined as number | undefined,
-        blocks: [] as (AnthropicThinkingBlock | AnthropicRedactedThinkingBlock | undefined)[]
+        blocks: [] as (
+            | AnthropicThinkingBlock
+            | AnthropicRedactedThinkingBlock
+            | undefined
+        )[]
     }
 }
 
@@ -1014,14 +1121,12 @@ function anthropicUsageToMetadata(usage: AnthropicUsage) {
             ...metadata.input_token_details,
             ...(cacheCreation.ephemeral_5m_input_tokens != null
                 ? {
-                      cache_creation_5m:
-                          cacheCreation.ephemeral_5m_input_tokens
+                      cache_creation_5m: cacheCreation.ephemeral_5m_input_tokens
                   }
                 : {}),
             ...(cacheCreation.ephemeral_1h_input_tokens != null
                 ? {
-                      cache_creation_1h:
-                          cacheCreation.ephemeral_1h_input_tokens
+                      cache_creation_1h: cacheCreation.ephemeral_1h_input_tokens
                   }
                 : {})
         } as typeof metadata.input_token_details & {
@@ -1073,20 +1178,7 @@ function mergeAnthropicCacheCreation(
             next.ephemeral_5m_input_tokens ??
             previous.ephemeral_5m_input_tokens,
         ephemeral_1h_input_tokens:
-            next.ephemeral_1h_input_tokens ??
-            previous.ephemeral_1h_input_tokens
-    }
-}
-
-function createThinkingConfig(
-    effort: AnthropicEffort | undefined,
-    hasAssistantPrefill: boolean
-): AnthropicThinking | undefined {
-    if (effort == null || hasAssistantPrefill) return undefined
-
-    return {
-        type: 'adaptive',
-        display: 'summarized'
+            next.ephemeral_1h_input_tokens ?? previous.ephemeral_1h_input_tokens
     }
 }
 
@@ -1099,23 +1191,6 @@ function createAnthropicCacheControl(
     return {
         type: 'ephemeral',
         ...(config.anthropicPromptCacheTtl === '1h' ? { ttl: '1h' } : {})
-    }
-}
-
-function normalizeAnthropicEffort(
-    effort: unknown
-): AnthropicEffort | undefined {
-    if (effort === 'none' || effort === 'minimal' || effort === 'tiny') {
-        return undefined
-    }
-    if (
-        effort === 'low' ||
-        effort === 'medium' ||
-        effort === 'high' ||
-        effort === 'xhigh' ||
-        effort === 'max'
-    ) {
-        return effort
     }
 }
 
@@ -1230,7 +1305,11 @@ function objectOf(value: unknown): Record<string, any> {
 }
 
 function objectHasKeys(value: unknown) {
-    return value != null && typeof value === 'object' && Object.keys(value).length > 0
+    return (
+        value != null &&
+        typeof value === 'object' &&
+        Object.keys(value).length > 0
+    )
 }
 
 function stripUndefined<T extends Record<string, any>>(value: T): T {

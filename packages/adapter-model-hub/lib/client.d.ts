@@ -7,6 +7,7 @@ import { FileHandlingConfig, ModelInfo } from 'koishi-plugin-chatluna/llm-core/p
 import type { ModelUsageReporter } from 'koishi-plugin-chatluna/llm-core/platform/usage';
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import { ModelMetadataStore } from './metadata';
+import type { GeminiResourceRequest } from './adapters/gemini-resources';
 import type { ModelHubClientConfig, ModelHubResolvedConfig, RuntimeProvider } from './types';
 export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<ModelHubClientConfig> {
     private _config;
@@ -18,6 +19,7 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     constructor(ctx: Context, _config: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>, _runtime: RuntimeProvider, _metadata: ModelMetadataStore);
     refreshModels(config?: RunnableConfig): Promise<ModelInfo[]>;
     reloadModels(config?: RunnableConfig): Promise<ModelInfo[]>;
+    geminiResource(request: GeminiResourceRequest): Promise<any>;
     registerSelf(): void;
     getFileHandlingConfig(): FileHandlingConfig | null;
     protected _createModel(model: string, report: ModelUsageReporter): ChatLunaChatModel | ChatLunaBaseEmbeddings | ChatLunaReranker;

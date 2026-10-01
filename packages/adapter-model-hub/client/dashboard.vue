@@ -308,7 +308,7 @@
                             </div>
                         </section>
 
-                        <section v-if="selectedProvider.provider === 'openai'" class="section">
+                        <section v-if="['openai', 'xai'].includes(selectedProvider.provider)" class="section">
                             <div class="section-head">
                                 <h3>Responses</h3>
                             </div>
@@ -324,10 +324,11 @@
                                 <label>
                                     <span>内置工具</span>
                                     <el-select v-model="selectedProvider.responseBuiltinTools" multiple>
-                                        <el-option label="网页搜索" value="web_search_preview" />
-                                        <el-option label="图片生成" value="image_generation" />
+                                        <el-option label="网页搜索" value="web_search" />
+                                        <el-option v-if="selectedProvider.provider === 'xai'" label="X 搜索" value="x_search" />
+                                        <el-option v-if="selectedProvider.provider === 'openai'" label="图片生成" value="image_generation" />
                                         <el-option label="代码解释器" value="code_interpreter" />
-                                        <el-option label="文件搜索" value="file_search" />
+                                        <el-option v-if="selectedProvider.provider === 'openai'" label="文件搜索" value="file_search" />
                                     </el-select>
                                 </label>
                                 <label class="wide">
@@ -347,9 +348,38 @@
                             </div>
                         </section>
 
+                        <section v-if="['openai', 'moonshot'].includes(selectedProvider.provider)" class="section">
+                            <div class="section-head"><h3>Prompt Cache</h3></div>
+                            <div class="grid two">
+                                <label><span>缓存模式</span><el-select v-model="selectedProvider.promptCacheMode">
+                                    <el-option label="服务商默认" value="default" />
+                                    <el-option label="隐式缓存" value="implicit" />
+                                    <el-option v-if="selectedProvider.provider === 'openai'" label="显式缓存（自动标记历史断点）" value="explicit" />
+                                </el-select></label>
+                                <label><span>TTL（仅支持新缓存协议的模型）</span><el-select v-model="selectedProvider.promptCacheTtl">
+                                    <el-option v-if="selectedProvider.provider === 'moonshot'" label="5 分钟" value="5m" />
+                                    <el-option v-if="selectedProvider.provider === 'openai'" label="30 分钟" value="30m" />
+                                    <el-option v-if="selectedProvider.provider === 'moonshot'" label="1 小时" value="1h" />
+                                </el-select></label>
+                                <label class="wide"><span>缓存 Key（可选）</span><el-input v-model="selectedProvider.promptCacheKey" /></label>
+                            </div>
+                        </section>
+
                         <section v-if="selectedProvider.provider === 'gemini'" class="section">
                             <div class="section-head">
                                 <h3>Gemini Tools</h3>
+                            </div>
+
+                            <div class="grid two">
+                                <label><span>API 工作流</span><el-select v-model="selectedProvider.geminiApi">
+                                    <el-option label="Generate Content（默认）" value="generateContent" />
+                                    <el-option label="Interactions（stateless）" value="interactions" />
+                                </el-select></label>
+                                <label><span>结构化输出 MIME（可选）</span><el-input v-model="selectedProvider.geminiResponseMimeType" placeholder="application/json" /></label>
+                                <label class="wide"><span>输出 JSON Schema（可选）</span><el-input v-model="geminiSchemaText" type="textarea" :rows="4" placeholder='{"type":"object","properties":{}}' @input="dirty = true" @blur="applyGeminiSchema" /></label>
+                                <label class="wide"><span>Cached Content（仅 generateContent）</span><el-input v-model="selectedProvider.geminiCachedContent" placeholder="cachedContents/..." /></label>
+                                <label><span>允许上传到 Gemini Files（服务端保留最多 48h）</span><el-switch v-model="selectedProvider.geminiFileUpload" /></label>
+                                <label v-if="selectedProvider.geminiFileUpload"><span>上传上限（MiB）</span><el-input-number v-model="selectedProvider.geminiMaxFileSizeMb" :min="1" :max="2048" /></label>
                             </div>
 
                             <div class="switch-grid">
@@ -398,6 +428,23 @@
                                     />
                                 </label>
                             </div>
+                        </section>
+
+                        <section v-if="selectedProvider.provider === 'gemini'" class="section">
+                            <div class="section-head"><h3>Gemini 资源管理（需管理员权限，先保存配置）</h3></div>
+                            <div class="grid two">
+                                <label><span>资源</span><el-select v-model="geminiResourceType"><el-option label="缓存" value="cachedContents" /><el-option label="文件" value="files" /><el-option label="Interaction" value="interactions" /></el-select></label>
+                                <label><span>资源名称</span><el-input v-model="geminiResourceName" :placeholder="geminiResourceType + '/...'" /></label>
+                                <label class="wide"><span>创建 / TTL 更新 JSON（创建缓存可能计费）</span><el-input v-model="geminiResourceBody" type="textarea" :rows="3" placeholder='{"ttl":"3600s"}' /></label>
+                            </div>
+                            <div class="section-head">
+                                <el-button v-if="geminiResourceType !== 'interactions'" :loading="resourceBusy" @click="runGeminiResource('list')">列出资源</el-button>
+                                <el-button :loading="resourceBusy" @click="runGeminiResource('get')">读取</el-button>
+                                <el-button v-if="geminiResourceType === 'cachedContents'" :loading="resourceBusy" @click="runGeminiResource('create')">创建缓存</el-button>
+                                <el-button v-if="geminiResourceType === 'cachedContents'" :loading="resourceBusy" @click="runGeminiResource('update')">更新 TTL</el-button>
+                                <el-button :loading="resourceBusy" @click="runGeminiResource('delete')">删除资源</el-button>
+                            </div>
+                            <el-input v-if="geminiResourceResult" :model-value="geminiResourceResult" type="textarea" :rows="6" readonly aria-label="Gemini 资源操作结果" />
                         </section>
 
                         <section v-if="selectedProvider.provider === 'anthropic'" class="section">
@@ -939,6 +986,15 @@ const providerSearch = ref('')
 const providerKind = ref<(typeof kindOptions)[number]['value']>('all')
 const modelKeyword = ref('')
 const selectedProviderIndex = ref(-1)
+const resourceBusy = ref(false)
+const geminiResourceType = ref<'cachedContents' | 'files' | 'interactions'>('cachedContents')
+const geminiResourceName = ref('')
+const geminiResourceBody = ref('')
+const geminiResourceResult = ref('')
+const geminiSchemaText = ref('')
+watch(selectedProviderIndex, () => {
+    geminiResourceResult.value = ''
+})
 let hydrating = false
 
 watch(
@@ -1013,6 +1069,36 @@ const selectedProvider = computed(() =>
     selectedProviderIndex.value >= 0 ? form.value.providers[selectedProviderIndex.value] : undefined
 )
 
+function applyGeminiSchema() {
+    if (!selectedProvider.value) return true
+    try {
+        const schema = geminiSchemaText.value.trim() ? JSON.parse(geminiSchemaText.value) : undefined
+        if (schema && (typeof schema !== 'object' || Array.isArray(schema))) throw new Error('JSON Schema 必须为对象')
+        selectedProvider.value.geminiResponseJsonSchema = schema
+        return true
+    } catch { showMessage('JSON Schema 无效，请修正后保存', 'danger'); return false }
+}
+
+watch(() => selectedProvider.value?.geminiResponseJsonSchema, (schema) => {
+    geminiSchemaText.value = schema ? JSON.stringify(schema, null, 2) : ''
+}, { immediate: true })
+
+async function runGeminiResource(action: 'list' | 'get' | 'create' | 'update' | 'delete') {
+    if (!selectedProvider.value || resourceBusy.value) return
+    if (dirty.value) { showMessage('请先保存服务商设置', 'info'); return }
+    if (['delete', 'create'].includes(action) && !window.confirm(action === 'delete' ? '确认删除该远端资源？引用它的对话可能失效。' : '确认创建远端缓存？此操作可能产生费用。')) return
+    resourceBusy.value = true
+    const platform = selectedRuntimeProvider.value?.platform || selectedProvider.value.platform
+    try {
+        const result = await send('chatluna-model-hub/geminiResource', platform, {
+            resource: geminiResourceType.value, action, name: geminiResourceName.value,
+            body: ['create', 'update'].includes(action) && geminiResourceBody.value.trim() ? JSON.parse(geminiResourceBody.value) : undefined
+        })
+        if ((selectedRuntimeProvider.value?.platform || selectedProvider.value?.platform) === platform) geminiResourceResult.value = JSON.stringify(result, null, 2)
+    } catch (error) { showMessage(String(error), 'danger') }
+    finally { resourceBusy.value = false }
+}
+
 const selectedRuntimeProvider = computed(() =>
     selectedProvider.value ? runtimeProvider(selectedProvider.value) : undefined
 )
@@ -1086,7 +1172,7 @@ function normalizeProviderForm(provider: ConsoleProviderEntry) {
     }
 }
 
-function createProviderDefaults() {
+function createProviderDefaults(provider = '') {
     return {
         customHeaders: [] as ConsoleHeaderEntry[],
         chatConcurrentMaxSize: 3,
@@ -1104,9 +1190,11 @@ function createProviderDefaults() {
         expandReasoningVariants: false,
         nonLlmInputTokenLimit: 8192,
         reasoningProtocol: 'openai',
-        responseApi: false,
+        responseApi: provider === 'xai',
         responseBuiltinTools: [],
-        responseBuiltinToolSupportModel: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'o3', 'o4'],
+        responseBuiltinToolSupportModel: provider === 'xai' ? ['grok'] : ['gpt-4o', 'gpt-4.1', 'gpt-5', 'gpt-6', 'o3', 'o4'],
+        promptCacheMode: 'default' as const,
+        promptCacheTtl: provider === 'moonshot' ? '5m' as const : '30m' as const,
         responseFileSearchVectorStoreIds: [],
         googleSearch: false,
         agenticVideo: false,
@@ -1159,7 +1247,7 @@ function openAddDialog() {
 function selectPreset(preset: ModelHubConsolePreset) {
     selectedPreset.value = preset
     newProvider.value = {
-        ...createProviderDefaults(),
+        ...createProviderDefaults(preset.id),
         reasoningProtocol: defaultReasoningProtocol(preset.id),
         provider: preset.id,
         name: preset.name,
@@ -1378,6 +1466,7 @@ async function copyProvider(provider: ConsoleProviderEntry) {
 }
 
 async function saveSettings() {
+    if (selectedProvider.value?.provider === 'gemini' && !applyGeminiSchema()) return
     saving.value = true
     try {
         const result = (await send('chatluna-model-hub/saveSettings', clone(form.value))) as ModelHubActionResult

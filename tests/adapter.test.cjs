@@ -347,6 +347,7 @@ test('Responses inline PDF is sent as file_data rather than a data URL file_url'
 test('per-model file handling covers declared Gemini media and excludes unsupported media', () => {
     const client = Object.create(ModelHubClient.prototype)
     client._runtime = { provider: { adapter: 'gemini' } }
+    Object.defineProperty(client, 'config', { value: { geminiFileUpload: false } })
     const config = client._fileHandlingConfig('opaque-id', {
         capabilities: [
             Cap.ImageInput,

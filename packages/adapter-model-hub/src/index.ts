@@ -5,6 +5,7 @@ import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import { ModelType } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import { createLogger } from 'koishi-plugin-chatluna/utils/logger'
 import { ModelHubClient } from './client'
+import type { GeminiResourceRequest } from './adapters/gemini-resources'
 import {
     DEFAULT_ICON_CDN,
     PROVIDER_PRESETS,
@@ -196,6 +197,15 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             models,
             errors: Object.fromEntries(this._runtime.errors)
         }
+    }
+
+    async geminiResource(platform: string, request: GeminiResourceRequest) {
+        const client = this._runtime.clients.get(platform)
+        if (!client)
+            throw new Error(
+                'Gemini provider is not loaded; save settings first'
+            )
+        return client.geminiResource(request)
     }
 
     private _modelsFor(runtime: RuntimeProvider): ModelHubConsoleModel[] {
@@ -398,6 +408,16 @@ export function apply(ctx: Context, config: Config) {
             { authority: 1 }
         )
 
+        ctx.console.addListener(
+            'chatluna-model-hub/geminiResource',
+            async (platform: string, request: GeminiResourceRequest) =>
+                ctx.console.services.chatluna_model_hub.geminiResource(
+                    platform,
+                    request
+                ),
+            { authority: 4 }
+        )
+
         ctx.console.addEntry({
             dev: resolve(__dirname, '../client/index.ts'),
             prod: resolve(__dirname, '../dist')
@@ -438,7 +458,7 @@ export const usage = `
 
 统一管理多个模型服务商。Koishi 配置页只保留 WebUI 入口；供应商、请求参数和密钥请在「Model Hub」WebUI 中配置。
 
-OpenAI-compatible 服务商默认只走 Chat Completions（/chat/completions）。OpenAI 本家可在服务商详情里单独启用 Responses API；Gemini 本家可在服务商详情里单独启用 Google Search 等 Gemini 工具。
+OpenAI-compatible 服务商默认走 Chat Completions（/chat/completions）。OpenAI 本家可启用 Responses API，GPT-6 自动使用 Responses；xAI 可选择 Responses 并启用服务端工具。Gemini 默认 generateContent，可显式选择 stateless Interactions、Files 上传和缓存资源管理。
 
 配置文件默认保存在 \`data/chatluna-model-hub/config.json\`。WebUI 不会把已保存的 API Key 明文回传到浏览器，留空密钥输入框会保留原值。
 模型上下文大小和思考能力优先读取服务商 /models 返回值。未提供时，再用 models.dev 的本地缓存补全；可在配置页调整更新间隔。
@@ -537,6 +557,10 @@ declare module '@koishijs/plugin-console' {
     }
 
     interface Events {
+        'chatluna-model-hub/geminiResource': (
+            platform: string,
+            request: GeminiResourceRequest
+        ) => Promise<Record<string, unknown>>
         'chatluna-model-hub/getData': () => Promise<ModelHubConsoleData>
         'chatluna-model-hub/saveSettings': (
             settings: ModelHubConsoleSettings

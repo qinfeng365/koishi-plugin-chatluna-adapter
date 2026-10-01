@@ -6,9 +6,13 @@ import type { ResponseBuiltinTool, ResponseImageProvider } from '@chatluna/v1-sh
 import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/config';
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import { ModelCapabilities, type ModelInfo } from 'koishi-plugin-chatluna/llm-core/platform/types';
+import { GeminiResources } from './adapters/gemini-resources';
 import type { ModelHubClientConfig, ModelHubResolvedConfig, ProviderModelEntry } from './types';
 export declare class ModelHubRequester extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig> implements EmbeddingsRequester, RerankerRequester {
     private _modelCapabilities;
+    private _geminiResources;
+    geminiResources(): GeminiResources;
+    vendorFetch(url: string, init: Record<string, any>): Promise<import("undici/types/fetch").Response>;
     setModelCapabilities(models: ModelInfo[]): void;
     supportsCapability(model: string, capability: ModelCapabilities): boolean | undefined;
     constructor(ctx: Context, configPool: ClientConfigPool<ModelHubClientConfig>, pluginConfig: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>);
