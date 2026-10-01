@@ -16,3 +16,8 @@ temp-pack-inspect/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local audit notes and pack outputs
+/NOW.md
+/docs/vendor-api-gap-audit.md
+/*.tgz
