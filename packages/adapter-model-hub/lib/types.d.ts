@@ -58,6 +58,8 @@ export interface OpenAIProviderSettings {
     responseFileSearchVectorStoreIds?: string[];
 }
 export interface GeminiProviderSettings {
+    agenticVideo?: boolean;
+    useCamelCaseMediaFields?: boolean;
     googleSearch?: boolean;
     codeExecution?: boolean;
     urlContext?: boolean;
@@ -157,6 +159,8 @@ export interface ProviderModelEntry {
     type?: ModelType;
     maxTokens?: number;
     capabilities?: ModelCapabilities[];
+    /** Explicit API/catalog declarations take precedence over name heuristics. */
+    capabilityOverrides?: Partial<Record<ModelCapabilities, boolean>>;
     reasoningEfforts?: ReasoningEffortLevel[];
     reasoningVariantOf?: string;
 }

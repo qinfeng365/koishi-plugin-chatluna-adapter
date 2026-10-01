@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
 import { dirname, resolve } from 'path'
 import { parseOpenAIModelNameWithReasoningEffort } from '@chatluna/v1-shared-adapter'
 import type { Context } from 'koishi'
@@ -30,14 +31,19 @@ type ModelsDevModel = {
     }
 }
 
-type ModelsDevCatalog = {
-    models?: Record<string, ModelsDevModel>
-} | Record<string, ModelsDevModel>
+type ModelsDevCatalog =
+    | {
+          models?: Record<string, ModelsDevModel>
+      }
+    | Record<string, ModelsDevModel>
 
 export class ModelMetadataStore {
     private _models = new Map<string, ModelsDevModel>()
     private _aliases = new Map<string, ModelsDevModel | undefined>()
     private _timer?: ReturnType<typeof setInterval>
+    private _refreshing?: Promise<void>
+    private _disposed = false
+    private _controller?: AbortController
 
     readonly path: string
 
@@ -47,24 +53,42 @@ export class ModelMetadataStore {
             url?: string
             cachePath?: string
             updateHours?: number
+            onStatus?: (error?: unknown) => void
+            onUpdate?: () => Promise<void>
         } = {}
     ) {
         this.path = resolve(
             ctx.baseDir,
-            options.cachePath || 'data/chatluna-model-hub/models.dev.models.json'
+            options.cachePath ||
+                'data/chatluna-model-hub/models.dev.models.json'
         )
     }
 
     async start() {
-        await this.load()
-        await this.refresh()
-        const interval = Math.max(1, this.options.updateHours ?? 24) * 60 * 60 * 1000
+        if (this._timer || this._disposed) return
+        const interval =
+            Math.max(1, this.options.updateHours ?? 24) * 60 * 60 * 1000
         this._timer = setInterval(() => {
-            this.refresh().catch((error) => this.ctx.logger('chatluna-model-hub-adapter').warn(error))
+            this.refresh()
+                .then(() =>
+                    this._disposed ? undefined : this.options.onUpdate?.()
+                )
+                .catch((error) =>
+                    this.ctx.logger('chatluna-model-hub-adapter').warn(error)
+                )
         }, interval)
         this.ctx.on('dispose', () => {
+            this._disposed = true
             if (this._timer) clearInterval(this._timer)
+            this._controller?.abort()
         })
+        // A corrupt disk cache must not prevent downloading a fresh catalog.
+        try {
+            await this.load()
+        } catch (error) {
+            this.ctx.logger('chatluna-model-hub-adapter').warn(error)
+        }
+        await this.refresh()
     }
 
     async load() {
@@ -76,12 +100,45 @@ export class ModelMetadataStore {
         }
     }
 
-    async refresh() {
-        const url = this.options.url || 'https://models.dev/models.json'
-        const catalog = await this.downloadCatalog(url)
-        this.apply(catalog)
-        await mkdir(dirname(this.path), { recursive: true })
-        await writeFile(this.path, `${JSON.stringify(catalog)}\n`, 'utf8')
+    refresh(): Promise<void> {
+        if (this._disposed) return Promise.resolve()
+        if (this._refreshing) return this._refreshing
+        this._refreshing = this.refreshInternal()
+            .then(
+                () => {
+                    if (!this._disposed) this.options.onStatus?.()
+                },
+                (error) => {
+                    if (!this._disposed) this.options.onStatus?.(error)
+                    throw error
+                }
+            )
+            .finally(() => {
+                this._refreshing = undefined
+            })
+        return this._refreshing
+    }
+
+    private async refreshInternal() {
+        const catalog = await this.downloadCatalog(
+            this.options.url || 'https://models.dev/api.json'
+        )
+        validateCatalog(catalog)
+        if (this._disposed) return
+        const temporaryPath = `${this.path}.${randomUUID()}.tmp`
+        try {
+            await mkdir(dirname(this.path), { recursive: true })
+            await writeFile(
+                temporaryPath,
+                `${JSON.stringify(catalog)}\n`,
+                'utf8'
+            )
+            if (this._disposed) return
+            await rename(temporaryPath, this.path)
+            this.apply(catalog)
+        } finally {
+            await rm(temporaryPath, { force: true })
+        }
     }
 
     enhance(provider: string, model: ProviderModelEntry): ProviderModelEntry {
@@ -91,12 +148,15 @@ export class ModelMetadataStore {
         return {
             ...model,
             maxTokens:
-                positiveNumber(model.maxTokens) ??
-                metadataMaxTokens(metadata),
+                positiveNumber(model.maxTokens) ?? metadataMaxTokens(metadata),
             capabilities: mergeCapabilities(
                 model.capabilities,
                 capabilitiesFromMetadata(metadata)
             ),
+            capabilityOverrides: {
+                ...capabilityOverridesFromMetadata(metadata),
+                ...model.capabilityOverrides
+            },
             reasoningEfforts:
                 model.reasoningEfforts ??
                 reasoningEffortsFromMetadata(provider, metadata)
@@ -109,10 +169,14 @@ export class ModelMetadataStore {
     }
 
     private apply(catalog: ModelsDevCatalog) {
+        validateCatalog(catalog)
         this._models.clear()
         this._aliases.clear()
         for (const [id, model] of Object.entries(modelsFromCatalog(catalog))) {
-            const keys = new Set([id, model.id].filter(Boolean) as string[])
+            const keys = new Set([
+                id,
+                ...(!id.includes('/') && model.id ? [model.id] : [])
+            ])
             for (const key of keys) {
                 const normalized = normalizeModelId(key)
                 this._models.set(normalized, model)
@@ -124,10 +188,12 @@ export class ModelMetadataStore {
     }
 
     private findEntry(provider: string, model: ProviderModelEntry) {
-        return this.find(provider, model.name) ??
+        return (
+            this.find(provider, model.name) ??
             (model.reasoningVariantOf
                 ? this.find(provider, model.reasoningVariantOf)
                 : undefined)
+        )
     }
 
     private find(provider: string, model: string) {
@@ -138,13 +204,15 @@ export class ModelMetadataStore {
     }
 
     private findCandidate(provider: string, model: string) {
-        const exact = this._models.get(normalizeModelId(model))
-        if (exact) return exact
-
         for (const prefix of providerPrefixes(provider)) {
-            const prefixed = this._models.get(normalizeModelId(`${prefix}/${model}`))
+            const prefixed = this._models.get(
+                normalizeModelId(`${prefix}/${model}`)
+            )
             if (prefixed) return prefixed
         }
+
+        const exact = this._models.get(normalizeModelId(model))
+        if (exact) return exact
 
         const alias = this._aliases.get(normalizeModelId(model))
         if (alias) return alias
@@ -164,22 +232,31 @@ export class ModelMetadataStore {
     }
 
     private async downloadCatalog(url: string): Promise<ModelsDevCatalog> {
-        if (this.ctx.http != null) {
-            const response = await this.ctx.http<ModelsDevCatalog>(url, {
-                method: 'GET',
-                responseType: 'json',
-                timeout: 60_000
-            })
-            return response.data
-        }
+        const controller = new AbortController()
+        this._controller = controller
+        const timer = setTimeout(() => controller.abort(), 60_000)
+        try {
+            if (this.ctx.http != null) {
+                const response = await this.ctx.http<ModelsDevCatalog>(url, {
+                    method: 'GET',
+                    responseType: 'json',
+                    timeout: 60_000,
+                    signal: controller.signal
+                })
+                return response.data
+            }
 
-        const response = await fetch(url)
-        if (!response.ok) {
-            throw new Error(
-                `Failed to download models.dev catalog: ${response.status}`
-            )
+            const response = await fetch(url, { signal: controller.signal })
+            if (!response.ok) {
+                throw new Error(
+                    `Failed to download models.dev catalog: ${response.status}`
+                )
+            }
+            return (await response.json()) as ModelsDevCatalog
+        } finally {
+            clearTimeout(timer)
+            this._controller = undefined
         }
-        return (await response.json()) as ModelsDevCatalog
     }
 }
 
@@ -212,9 +289,7 @@ function reasoningEffortsFromMetadata(
     if (model.reasoning === true) return ['low', 'medium', 'high']
 }
 
-function reasoningOptionEfforts(
-    options: ModelsDevModel['reasoning_options']
-) {
+function reasoningOptionEfforts(options: ModelsDevModel['reasoning_options']) {
     return (options ?? [])
         .filter((option) => option?.type === 'effort')
         .flatMap((option) => option.values ?? [])
@@ -252,7 +327,6 @@ function modelsFromCatalog(catalog: ModelsDevCatalog) {
     for (const [provider, value] of Object.entries(catalog)) {
         if (!isRecord(value) || !isModelMap(value.models)) continue
         for (const [id, model] of Object.entries(value.models)) {
-            providerModels[id] = model
             providerModels[`${provider}/${id}`] = model
         }
     }
@@ -319,7 +393,7 @@ function providerPrefixes(provider: string) {
         groq: ['groq'],
         together: ['togetherai', 'together'],
         modelscope: ['modelscope'],
-        openrouter: []
+        openrouter: ['openrouter']
     }
     return map[provider] ?? [provider]
 }
@@ -335,13 +409,58 @@ function capabilitiesFromMetadata(model: ModelsDevModel) {
     if (input.has('audio')) capabilities.push(ModelCapabilities.AudioInput)
     if (input.has('video')) capabilities.push(ModelCapabilities.VideoInput)
     if (input.has('pdf')) capabilities.push(ModelCapabilities.FileInput)
-    if (output.has('image')) capabilities.push(ModelCapabilities.ImageGeneration)
+    if (output.has('image'))
+        capabilities.push(ModelCapabilities.ImageGeneration)
 
     return capabilities
 }
 
+function capabilityOverridesFromMetadata(
+    model: ModelsDevModel
+): ProviderModelEntry['capabilityOverrides'] {
+    const result: NonNullable<ProviderModelEntry['capabilityOverrides']> = {}
+    if (typeof model.tool_call === 'boolean')
+        result[ModelCapabilities.ToolCall] = model.tool_call
+    if (typeof model.reasoning === 'boolean')
+        result[ModelCapabilities.Thinking] = model.reasoning
+    if (Array.isArray(model.modalities?.input)) {
+        const input = new Set(model.modalities.input)
+        result[ModelCapabilities.ImageInput] = input.has('image')
+        result[ModelCapabilities.AudioInput] = input.has('audio')
+        result[ModelCapabilities.VideoInput] = input.has('video')
+        result[ModelCapabilities.FileInput] =
+            input.has('file') || input.has('pdf')
+    }
+    if (Array.isArray(model.modalities?.output)) {
+        result[ModelCapabilities.ImageGeneration] =
+            model.modalities.output.includes('image')
+    }
+    return result
+}
+
+function validateCatalog(catalog: ModelsDevCatalog) {
+    const models = isRecord(catalog)
+        ? Object.values(modelsFromCatalog(catalog))
+        : []
+    if (
+        !models.length ||
+        !models.every(
+            (model) =>
+                isModelsDevModel(model) &&
+                (model.id == null || typeof model.id === 'string')
+        )
+    ) {
+        throw new Error(
+            'Invalid or empty models.dev catalog; keeping the last known cache.'
+        )
+    }
+}
+
 function metadataMaxTokens(model: ModelsDevModel) {
-    return positiveNumber(model.limit?.context) ?? positiveNumber(model.limit?.input)
+    return (
+        positiveNumber(model.limit?.context) ??
+        positiveNumber(model.limit?.input)
+    )
 }
 
 function positiveNumber(value: unknown) {

@@ -49,7 +49,9 @@ type GeminiToolNameMapper = {
 }
 
 type OpenAIReasoningEffort = NonNullable<
-    ReturnType<typeof parseOpenAIModelNameWithReasoningEffort>['reasoningEffort']
+    ReturnType<
+        typeof parseOpenAIModelNameWithReasoningEffort
+    >['reasoningEffort']
 >
 
 type GeminiThinkingLevel = 'low' | 'medium' | 'high'
@@ -85,7 +87,8 @@ export const geminiAdapter: ProviderAdapter = {
     },
 
     async embeddings(requester, params): Promise<EmbeddingsResult> {
-        const input = typeof params.input === 'string' ? [params.input] : params.input
+        const input =
+            typeof params.input === 'string' ? [params.input] : params.input
         const response = await requester.post(
             `models/${params.model}:batchEmbedContents`,
             {
@@ -110,7 +113,11 @@ export const geminiAdapter: ProviderAdapter = {
     },
 
     async getModels(requester, config) {
-        const response = await requester.get('models', {}, { signal: config?.signal })
+        const response = await requester.get(
+            'models',
+            {},
+            { signal: config?.signal }
+        )
         await checkResponse(response)
         return parseGeminiModels(JSON.parse(await response.text()))
     }
@@ -145,6 +152,7 @@ async function* geminiCompletionStream(
     const toolNameMapper = createGeminiToolNameMapper(params.tools ?? [])
     const request = await createGeminiRequest(requester, params, toolNameMapper)
     const requestSignal = createRequestSignal(params)
+    const streamState: GeminiStreamState = { nextToolIndex: 0, partIndex: 0 }
     try {
         const response = await requester.post(
             `models/${prepareGeminiModel(params.model, requester)}:streamGenerateContent?alt=sse`,
@@ -162,7 +170,8 @@ async function* geminiCompletionStream(
             yield await parseGeminiResponse(
                 event.data,
                 requester,
-                toolNameMapper
+                toolNameMapper,
+                streamState
             )
         }
     } finally {
@@ -170,7 +179,7 @@ async function* geminiCompletionStream(
     }
 }
 
-async function createGeminiRequest(
+export async function createGeminiRequest(
     requester: ModelHubRequester,
     params: any,
     toolNameMapper: GeminiToolNameMapper
@@ -178,7 +187,8 @@ async function createGeminiRequest(
     const messageContents = await messagesToGeminiContents(
         requester,
         params.input,
-        toolNameMapper
+        toolNameMapper,
+        params.model
     )
     const current = requester.currentConfig()
     const parsedModel = parseOpenAIModelNameWithReasoningEffort(
@@ -228,71 +238,101 @@ async function createGeminiRequest(
 async function messagesToGeminiContents(
     requester: ModelHubRequester,
     messages: BaseMessage[],
-    toolNameMapper: GeminiToolNameMapper
+    toolNameMapper: GeminiToolNameMapper,
+    model: string
 ): Promise<GeminiMessageContents> {
     const result: GeminiContent[] = []
     const systemParts: GeminiPart[] = []
 
+    let previousWasTool = false
     for (const message of messages) {
         const type = message.getType()
         if (type === 'system') {
-            systemParts.push(...(await contentToParts(requester, message.content)))
+            systemParts.push(
+                ...(await contentToParts(requester, message.content, model))
+            )
+            previousWasTool = false
             continue
         }
         if (type === 'tool') {
             const tool = message as ToolMessage
-            result.push({
-                role: 'user',
-                parts: [
-                    {
-                        functionResponse: {
-                            name: toolNameMapper.sanitize(tool.name),
-                            response: parseToolResponse(tool.content as string),
-                            id: tool.tool_call_id
-                        }
-                    }
-                ]
-            })
+            const text =
+                typeof tool.content === 'string'
+                    ? tool.content
+                    : tool.content
+                          .filter(isMessageContentText)
+                          .map((part) => part.text)
+                          .join('')
+            const response: GeminiPart = {
+                name: toolNameMapper.sanitize(tool.name),
+                response: parseToolResponse(text),
+                id: tool.tool_call_id
+            }
+            const parts: GeminiPart[] = [{ functionResponse: response }]
+            if (Array.isArray(tool.content)) {
+                const media = await contentToParts(
+                    requester,
+                    tool.content.filter(
+                        (part) =>
+                            isMessageContentImageUrl(part) ||
+                            isFileLikePart(part)
+                    ),
+                    model
+                )
+                for (const part of media) {
+                    if (part.mediaProcessing || part.media_processing)
+                        parts.push(part)
+                    else (response.parts ??= []).push(part)
+                }
+            }
+            if (previousWasTool) result[result.length - 1].parts.push(...parts)
+            else result.push({ role: 'user', parts })
+            previousWasTool = true
             continue
         }
+        previousWasTool = false
 
         const ai = message as AIMessage
         if (ai.tool_calls?.length) {
-            const thoughtData = (message.additional_kwargs?.thought_data ?? {}) as Record<string, any>
+            const thoughtData = (message.additional_kwargs?.thought_data ??
+                {}) as Record<string, any>
+            const shared = { ...thoughtData }
+            for (const call of ai.tool_calls)
+                if (call.id) delete shared[call.id]
+            const parts = await contentToParts(
+                requester,
+                message.content,
+                model
+            )
+            parts.push(...getContextParts(shared))
+            for (const toolCall of ai.tool_calls) {
+                const saved = thoughtData[toolCall.id] ?? thoughtData
+                if (toolCall.id && thoughtData[toolCall.id])
+                    parts.push(...getContextParts(saved))
+                const signature = findThoughtSignature(saved)
+                parts.push({
+                    functionCall: {
+                        name: toolNameMapper.sanitize(toolCall.name),
+                        args: toolCall.args,
+                        id: toolCall.id
+                    },
+                    ...(signature ? { thoughtSignature: signature } : {})
+                })
+            }
             result.push({
                 role: 'model',
-                parts: ai.tool_calls.map((toolCall) => {
-                    const saved = thoughtData[toolCall.id]
-                    const signature = Array.isArray(saved)
-                        ? saved.find((item) => typeof item?.thoughtSignature === 'string')?.thoughtSignature
-                        : saved?.thoughtSignature
-                    return {
-                        functionCall: {
-                            name: toolNameMapper.sanitize(toolCall.name),
-                            args: toolCall.args,
-                            id: toolCall.id
-                        },
-                        ...(typeof signature === 'string'
-                            ? { thoughtSignature: signature }
-                            : {})
-                    }
-                })
+                parts
             })
             continue
         }
 
-        const thoughtData = (message.additional_kwargs?.thought_data ?? {}) as Record<string, any>
+        const thoughtData = (message.additional_kwargs?.thought_data ??
+            {}) as Record<string, any>
         result.push({
             role: type === 'ai' ? 'model' : 'user',
             parts: [
-                ...Object.values(thoughtData).flatMap((value: any) =>
-                    Array.isArray(value)
-                        ? value.filter((item) => item?.toolCall || item?.toolResponse)
-                        : value?.toolCall || value?.toolResponse
-                          ? [value]
-                          : []
-                ),
-                ...(await contentToParts(requester, message.content))
+                ...getContextParts(thoughtData),
+                ...(await contentToParts(requester, message.content, model))
             ]
         })
     }
@@ -306,40 +346,102 @@ async function messagesToGeminiContents(
 
 async function contentToParts(
     requester: ModelHubRequester,
-    content: BaseMessage['content']
+    content: BaseMessage['content'],
+    model: string
 ): Promise<GeminiPart[]> {
-    if (typeof content === 'string') return [{ text: content }]
+    if (typeof content === 'string') return content ? [{ text: content }] : []
+    const config = requester.currentConfig()
+    const agentic =
+        config.agenticVideo &&
+        AGENTIC_VIDEO_MODELS.some((id) =>
+            prepareGeminiModelId(model).includes(id)
+        )
+    const mediaPart = (mimeType: string, data: string) => {
+        const mode =
+            agentic && mimeType.startsWith('video/') ? 'AGENTIC' : undefined
+        return config.useCamelCaseMediaFields
+            ? filterEmpty({
+                  inlineData: { mimeType, data },
+                  mediaProcessing: mode
+              })
+            : filterEmpty({
+                  inline_data: { mime_type: mimeType, data },
+                  media_processing: mode
+              })
+    }
     const parts = await Promise.all(
         content.map(async (part) => {
             if (isMessageContentText(part)) {
                 return part.text.length > 0 ? { text: part.text } : null
             }
             if (isMessageContentImageUrl(part)) {
-                const url = await fetchImageUrl(requester.requestContext().plugin, part)
-                const mimeType = url.match(/^data:([^;]+);base64,/)?.[1] ?? 'image/jpeg'
-                return {
-                    inline_data: {
-                        mime_type: mimeType,
-                        data: url.replace(/^data:[^;]+;base64,/, '')
-                    }
-                }
+                const url = await fetchImageUrl(
+                    requester.requestContext().plugin,
+                    part
+                )
+                const mimeType =
+                    url.match(/^data:([^;]+);base64,/)?.[1] ?? 'image/jpeg'
+                return mediaPart(
+                    mimeType,
+                    url.replace(/^data:[^;]+;base64,/, '')
+                )
             }
             if (isFileLikePart(part)) {
                 const file = await fetchFileLikeUrl(
                     requester.requestContext().plugin,
                     part as any
                 )
-                return {
-                    inline_data: {
-                        mime_type: file.mimeType,
-                        data: file.buffer.toString('base64')
-                    }
-                }
+                return mediaPart(file.mimeType, file.buffer.toString('base64'))
             }
             return part as GeminiPart
         })
     )
     return parts.filter(Boolean)
+}
+
+const AGENTIC_VIDEO_MODELS = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.7-flash',
+    'gemini-3.8-flash'
+]
+
+function isMediaProcessingPart(part: GeminiPart) {
+    const tool = part.toolCall ?? part.toolResponse
+    return (
+        tool != null &&
+        (tool.toolType == null || tool.toolType === 'MEDIA_PROCESSING')
+    )
+}
+
+function getContextParts(value: unknown): GeminiPart[] {
+    const result: GeminiPart[] = []
+    const seen = new Set<unknown>()
+    const visit = (part: any) => {
+        if (!part || typeof part !== 'object' || seen.has(part)) return
+        seen.add(part)
+        if (
+            part.toolCall ||
+            part.toolResponse ||
+            part.executableCode ||
+            part.codeExecutionResult
+        ) {
+            if (!isMediaProcessingPart(part)) result.push(part)
+        } else Object.values(part).forEach(visit)
+    }
+    visit(value)
+    return result
+}
+
+function findThoughtSignature(value: any): string | undefined {
+    if (typeof value?.thoughtSignature === 'string')
+        return value.thoughtSignature
+    if (value && typeof value === 'object') {
+        for (const part of Object.values(value)) {
+            const signature = findThoughtSignature(part)
+            if (signature) return signature
+        }
+    }
 }
 
 function geminiTools(
@@ -352,10 +454,12 @@ function geminiTools(
     const functionDeclarations = tools.map((tool) => ({
         name: toolNameMapper.sanitize(tool.name),
         description: tool.description,
-        parameters: removeAdditionalProperties(
-            isZodSchemaV3(tool.schema)
-                ? zodToJsonSchema(tool.schema as never)
-                : tool.schema
+        parameters: sanitizeGeminiSchema(
+            removeAdditionalProperties(
+                isZodSchemaV3(tool.schema)
+                    ? zodToJsonSchema(tool.schema as never)
+                    : tool.schema
+            )
         )
     }))
     const builtinTools =
@@ -369,6 +473,51 @@ function geminiTools(
     result.push(...builtinTools)
 
     return result.length > 0 ? result : undefined
+}
+
+const GEMINI_SCHEMA_KEYS = new Set([
+    'type',
+    'format',
+    'title',
+    'description',
+    'nullable',
+    'default',
+    'example',
+    'enum',
+    'items',
+    'minItems',
+    'maxItems',
+    'minLength',
+    'maxLength',
+    'minProperties',
+    'maxProperties',
+    'minimum',
+    'maximum',
+    'pattern',
+    'properties',
+    'required',
+    'propertyOrdering',
+    'anyOf'
+])
+
+function sanitizeGeminiSchema(schema: any): any {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema))
+        return schema
+    const result: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(schema)) {
+        if ((key === 'oneOf' || key === 'anyOf') && Array.isArray(value))
+            result.anyOf = value.map(sanitizeGeminiSchema)
+        else if (key === 'properties' && value && typeof value === 'object') {
+            result.properties = Object.fromEntries(
+                Object.entries(value).map(([name, sub]) => [
+                    name,
+                    sanitizeGeminiSchema(sub)
+                ])
+            )
+        } else if (key === 'items') result.items = sanitizeGeminiSchema(value)
+        else if (GEMINI_SCHEMA_KEYS.has(key)) result[key] = value
+    }
+    return result
 }
 
 function geminiBuiltinTools(requester: ModelHubRequester, model: string) {
@@ -438,10 +587,7 @@ function createGeminiThinkingConfig(
 
     return filterEmpty({
         ...shared,
-        thinkingBudget:
-            suffixBudget ??
-            current.thinkingBudget ??
-            -1
+        thinkingBudget: suffixBudget ?? current.thinkingBudget ?? -1
     })
 }
 
@@ -482,12 +628,14 @@ function supportsGeminiImageGeneration(model: string | undefined) {
 
 function prepareGeminiModelId(model: string | undefined) {
     const normalized = (model ?? '').replace(/^models\//, '')
-    return parseOpenAIModelNameWithReasoningEffort(normalized)
-        .model
-        .toLowerCase()
+    return parseOpenAIModelNameWithReasoningEffort(
+        normalized
+    ).model.toLowerCase()
 }
 
-function createGeminiToolNameMapper(tools: StructuredTool[]): GeminiToolNameMapper {
+export function createGeminiToolNameMapper(
+    tools: StructuredTool[]
+): GeminiToolNameMapper {
     const sanitizeMap = new Map<string, string>()
     const restoreMap = new Map<string, string>()
     const used = new Set<string>()
@@ -502,7 +650,8 @@ function createGeminiToolNameMapper(tools: StructuredTool[]): GeminiToolNameMapp
     return {
         sanitize(name: string | undefined) {
             const original = name || ''
-            if (sanitizeMap.has(original)) return sanitizeMap.get(original) ?? original
+            if (sanitizeMap.has(original))
+                return sanitizeMap.get(original) ?? original
             const sanitized = sanitizeGeminiToolName(original, used)
             sanitizeMap.set(original, sanitized)
             restoreMap.set(sanitized, original)
@@ -541,10 +690,18 @@ function sanitizeGeminiToolName(name: string, used: Set<string>) {
     return unique
 }
 
-async function parseGeminiResponse(
+export type GeminiStreamState = {
+    nextToolIndex: number
+    partIndex: number
+    currentToolIndex?: number
+    currentToolId?: string
+}
+
+export async function parseGeminiResponse(
     text: string,
     requester: ModelHubRequester,
-    toolNameMapper: GeminiToolNameMapper
+    toolNameMapper: GeminiToolNameMapper,
+    streamState: GeminiStreamState = { nextToolIndex: 0, partIndex: 0 }
 ): Promise<ChatGenerationChunk> {
     const data = JSON.parse(text)
     const usage = data.usageMetadata
@@ -564,21 +721,53 @@ async function parseGeminiResponse(
     const thoughtData: Record<string, unknown> = {}
     const images: string[] = []
 
-    for (const candidate of data.candidates ?? []) {
+    // ChatLuna exposes a single generation; never mix alternate candidates.
+    for (const candidate of (data.candidates ?? []).slice(0, 1)) {
         for (const part of candidate.content?.parts ?? []) {
+            const key = `part_${streamState.partIndex++}`
+            if (
+                part.toolCall ||
+                part.toolResponse ||
+                part.executableCode ||
+                part.codeExecutionResult
+            ) {
+                if (!isMediaProcessingPart(part))
+                    thoughtData[key] = { parts: [part] }
+            } else if (
+                typeof part.thoughtSignature === 'string' &&
+                !part.functionCall
+            ) {
+                thoughtData[key] = {
+                    parts: [{ thoughtSignature: part.thoughtSignature }]
+                }
+            }
             if (part.text && part.thought) {
                 reasoning += part.text
             } else if (part.text) {
                 content += part.text
             } else if (part.functionCall) {
-                const id = part.functionCall.id ?? `function_call_${toolCalls.length}`
+                const fresh =
+                    part.functionCall.name != null ||
+                    streamState.currentToolIndex == null
+                if (fresh) {
+                    streamState.currentToolIndex = streamState.nextToolIndex++
+                    streamState.currentToolId =
+                        part.functionCall.id ??
+                        `function_call_${streamState.currentToolIndex}`
+                }
+                const id = streamState.currentToolId!
                 toolCalls.push({
-                    name: toolNameMapper.restore(part.functionCall.name),
+                    name: fresh
+                        ? toolNameMapper.restore(part.functionCall.name)
+                        : undefined,
                     args: part.functionCall.args,
-                    id
+                    id: fresh ? id : undefined,
+                    index: streamState.currentToolIndex
                 })
                 if (typeof part.thoughtSignature === 'string') {
-                    thoughtData[id] = { thoughtSignature: part.thoughtSignature }
+                    thoughtData[id] = {
+                        thoughtSignature: part.thoughtSignature
+                    }
                 }
             } else if (part.inlineData?.data || part.inline_data?.data) {
                 const inline = part.inlineData ?? part.inline_data
@@ -593,12 +782,16 @@ async function parseGeminiResponse(
     }
 
     const message = new AIMessageChunk({
-        content: images.length > 0 ? [{ type: 'text', text: content }] : content,
-        tool_call_chunks: toolCalls.map((toolCall, index) => ({
+        content:
+            images.length > 0 ? [{ type: 'text', text: content }] : content,
+        tool_call_chunks: toolCalls.map((toolCall) => ({
             name: toolCall.name,
-            args: JSON.stringify(toolCall.args ?? {}),
-            id: toolCall.id ?? `function_call_${index}`,
-            index
+            args:
+                typeof toolCall.args === 'string'
+                    ? toolCall.args
+                    : JSON.stringify(toolCall.args ?? {}),
+            id: toolCall.id,
+            index: toolCall.index
         })),
         usage_metadata: usage,
         additional_kwargs: {
@@ -626,7 +819,12 @@ function prepareGeminiModel(model: string, requester: ModelHubRequester) {
 
 function parseToolResponse(value: string) {
     try {
-        return JSON.parse(value)
+        const parsed = JSON.parse(value)
+        return parsed != null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed)
+            ? parsed
+            : { response: parsed }
     } catch {
         return { response: value }
     }
@@ -637,7 +835,9 @@ function formatGrounding(metadata: any) {
     if (!chunks.length) return ''
     return chunks
         .map((item: any, index: number) =>
-            item.web?.uri ? `[^${index}]: [${item.web.title ?? item.web.uri}](${item.web.uri})` : ''
+            item.web?.uri
+                ? `[^${index}]: [${item.web.title ?? item.web.uri}](${item.web.uri})`
+                : ''
         )
         .filter(Boolean)
         .join('\n')

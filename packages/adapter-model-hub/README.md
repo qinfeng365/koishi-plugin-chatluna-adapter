@@ -5,23 +5,23 @@ ChatLuna 多模型供应商聚合适配器，提供独立 Model Hub WebUI，用�
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 ![Koishi](https://img.shields.io/badge/Koishi-4.18%2B-5546ff)
-![ChatLuna](https://img.shields.io/badge/ChatLuna-1.4%20alpha-orange)
+![ChatLuna](https://img.shields.io/badge/ChatLuna-1.4%20stable-green)
 
 ## 功能
 
 - 多供应商统一接入：OpenAI、OpenAI-compatible、Gemini、Dify、DeepSeek、Qwen、OpenRouter、Groq、Mistral、Moonshot、智谱、硅基流动、Ollama、LM Studio、vLLM、llama.cpp、Xinference、LocalAI 等。
 - 独立 WebUI：Koishi 配置页只保留入口、图标源、配置文件路径和 `models.dev` 缓存设置；供应商参数在 Model Hub 页面里配置。
 - 自动获取模型：模型列表来自服务商 `/models` 接口，不展示硬编码内置模型列表。
-- 元数据补全：优先读取服务商返回的上下文长度与思考能力字段，未提供时使用本地 `models.dev/models.json` 缓存补全。
+- 元数据补全：优先读取服务商返回的上下文长度与能力字段，未提供时使用本地 `models.dev` 缓存补全；明确的不支持声明优先于名称推断。页面刷新模型会先更新元数据，下载失败仍可使用旧缓存并定时重试。
 - 模块化适配：每个供应商 preset 独立文件，协议适配器独立在 `src/adapters` 中，后续扩展新格式更容易。
-- Provider 专属能力：OpenAI 可选 Responses API；Gemini 可选 Google Search、Code Execution、URL Context、Image Generation、Thinking 相关参数；Dify 使用原生 Application API。
+- Provider 专属能力：OpenAI 可选 Responses API；Gemini 可选 Google Search、Code Execution、URL Context、Image Generation、Thinking 和 Agentic Video（目前限定上游支持的 Gemini 3.5–3.8 Flash 型号）；Dify 使用原生 Application API。
 - 密钥保护：WebUI 不会把已保存的 API Key 明文回传到浏览器，密钥输入留空会保留原值。
 
 ## 环境要求
 
 - Node.js >= 18
 - Koishi >= 4.18.9
-- `koishi-plugin-chatluna` >= 1.4.0-alpha.45
+- `koishi-plugin-chatluna` >= 1.4.0（稳定版）
 - 推荐安装 `@koishijs/plugin-console`，用于打开 Model Hub WebUI
 - `koishi-plugin-chatluna-storage-service` 为可选依赖
 
@@ -38,6 +38,7 @@ npm install koishi-plugin-chatluna-model-hub-adapter
 ```bash
 yarn install
 yarn build
+yarn test
 ```
 
 ## 使用

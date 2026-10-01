@@ -3,7 +3,7 @@ import { Context, Logger, Schema } from 'koishi';
 import { PROVIDER_PRESETS } from './providers';
 import type { ModelHubActionResult, ModelHubConsoleData, ModelHubConsoleModel, ModelHubConsoleSettings, ModelHubKoishiConfig, ModelHubRuntimeState, ModelHubSettings } from './types';
 export declare let logger: Logger;
-declare class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
+export declare class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
     private _options;
     constructor(ctx: Context, _options: {
         config: Config;
@@ -11,6 +11,7 @@ declare class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
         runtime: ModelHubRuntimeState;
         getSettings: () => ModelHubSettings;
         saveSettings: (settings: ModelHubConsoleSettings) => Promise<ModelHubActionResult>;
+        refreshMetadata: () => Promise<void>;
     });
     private get _settings();
     private get _runtime();

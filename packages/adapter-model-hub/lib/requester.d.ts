@@ -5,8 +5,12 @@ import { EmbeddingsRequester, EmbeddingsRequestParams, EmbeddingsResult, ModelRe
 import type { ResponseBuiltinTool, ResponseImageProvider } from '@chatluna/v1-shared-adapter';
 import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/config';
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
+import { ModelCapabilities, type ModelInfo } from 'koishi-plugin-chatluna/llm-core/platform/types';
 import type { ModelHubClientConfig, ModelHubResolvedConfig, ProviderModelEntry } from './types';
 export declare class ModelHubRequester extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig> implements EmbeddingsRequester, RerankerRequester {
+    private _modelCapabilities;
+    setModelCapabilities(models: ModelInfo[]): void;
+    supportsCapability(model: string, capability: ModelCapabilities): boolean | undefined;
     constructor(ctx: Context, configPool: ClientConfigPool<ModelHubClientConfig>, pluginConfig: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>);
     completion(params: ModelRequestParams): Promise<ChatGeneration>;
     completionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk>;
@@ -26,7 +30,7 @@ export declare class ModelHubRequester extends ModelRequester<ModelHubClientConf
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[];
     responseImageProvider(): ResponseImageProvider;
     defaultCompletion(params: ModelRequestParams): Promise<ChatGeneration>;
-    defaultCompletionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk, any, any>;
+    defaultCompletionStream(params: ModelRequestParams): AsyncGenerator<ChatGenerationChunk, void, any>;
     private _adapter;
     concatUrl(url: string): string;
     private _prepareParams;

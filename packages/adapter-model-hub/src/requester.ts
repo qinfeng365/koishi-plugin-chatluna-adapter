@@ -1,7 +1,4 @@
-import {
-    AIMessageChunk,
-    type UsageMetadata
-} from '@langchain/core/messages'
+import { AIMessageChunk, type UsageMetadata } from '@langchain/core/messages'
 import { ChatGeneration, ChatGenerationChunk } from '@langchain/core/outputs'
 import { RunnableConfig } from '@langchain/core/runnables'
 import { Context } from 'koishi'
@@ -18,11 +15,19 @@ import {
     RerankerUsageResult,
     readInvocationMetrics
 } from 'koishi-plugin-chatluna/llm-core/platform/api'
-import type { ResponseBuiltinTool, ResponseImageProvider } from '@chatluna/v1-shared-adapter'
+import type {
+    ResponseBuiltinTool,
+    ResponseImageProvider
+} from '@chatluna/v1-shared-adapter'
 import { parseOpenAIModelNameWithReasoningEffort } from '@chatluna/v1-shared-adapter'
 import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/config'
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import { createRequestContext } from '@chatluna/v1-shared-adapter'
+import {
+    ModelCapabilities,
+    type ModelInfo
+} from 'koishi-plugin-chatluna/llm-core/platform/types'
+import { prepareCapabilityParams } from './capabilities'
 import { logger } from '.'
 import { getProviderPreset, targetMatches } from './providers'
 import { getProviderAdapter } from './adapters/registry'
@@ -41,6 +46,21 @@ export class ModelHubRequester
     extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig>
     implements EmbeddingsRequester, RerankerRequester
 {
+    private _modelCapabilities = new Map<string, ModelCapabilities[]>()
+
+    setModelCapabilities(models: ModelInfo[]) {
+        this._modelCapabilities = new Map(
+            models.map((model) => [model.name, model.capabilities])
+        )
+    }
+
+    supportsCapability(
+        model: string,
+        capability: ModelCapabilities
+    ): boolean | undefined {
+        return this._modelCapabilities.get(model)?.includes(capability)
+    }
+
     constructor(
         ctx: Context,
         configPool: ClientConfigPool<ModelHubClientConfig>,
@@ -54,7 +74,7 @@ export class ModelHubRequester
         const start = Date.now()
         const generation = await this._adapter().completion(
             this,
-            this._prepareParams(params)
+            await this._prepareParams(params)
         )
 
         attachGenerationMetrics(generation, start)
@@ -64,7 +84,7 @@ export class ModelHubRequester
     async *completionStream(
         params: ModelRequestParams
     ): AsyncGenerator<ChatGenerationChunk> {
-        const preparedParams = this._prepareParams(params)
+        const preparedParams = await this._prepareParams(params)
         if (!this.currentConfig().nonStreaming) {
             yield* super.completionStream(preparedParams)
             return
@@ -93,7 +113,7 @@ export class ModelHubRequester
     ): AsyncGenerator<ChatGenerationChunk> {
         yield* this._adapter().completionStreamInternal(
             this,
-            this._prepareParams(params)
+            await this._prepareParams(params)
         )
     }
 
@@ -145,7 +165,11 @@ export class ModelHubRequester
             const name = header.name?.trim()
             if (!name) continue
             if (
-                !targetMatches(header.target, current.platform, current.provider)
+                !targetMatches(
+                    header.target,
+                    current.platform,
+                    current.provider
+                )
             )
                 continue
             result[name] = header.value
@@ -175,6 +199,22 @@ export class ModelHubRequester
         }
         if (url === 'embeddings') {
             preset.patchEmbeddingsBody?.(body, String(body.model ?? ''))
+        }
+        if (url === 'responses' && Array.isArray(body.input)) {
+            for (const item of body.input) {
+                if (!Array.isArray(item.content)) continue
+                for (const part of item.content) {
+                    if (
+                        part.type === 'input_file' &&
+                        typeof part.file_url === 'string' &&
+                        part.file_url.startsWith('data:')
+                    ) {
+                        part.file_data = part.file_url
+                        part.filename ??= 'attachment.pdf'
+                        delete part.file_url
+                    }
+                }
+            }
         }
         if (url === 'rerank') {
             preset.patchRerankBody?.(body, String(body.model ?? ''))
@@ -215,17 +255,25 @@ export class ModelHubRequester
     responseBuiltinTools(params: ModelRequestParams): ResponseBuiltinTool[] {
         const current = this._config.value
         if (!current.responseApi) return []
-        if (!matchesResponseBuiltinToolModel(params.model, current.responseBuiltinToolSupportModel)) {
+        if (
+            !matchesResponseBuiltinToolModel(
+                params.model,
+                current.responseBuiltinToolSupportModel
+            )
+        ) {
             return []
         }
 
         const result: ResponseBuiltinTool[] = []
         for (const type of current.responseBuiltinTools ?? []) {
             if (type === 'file_search') {
-                if ((current.responseFileSearchVectorStoreIds ?? []).length > 0) {
+                if (
+                    (current.responseFileSearchVectorStoreIds ?? []).length > 0
+                ) {
                     result.push({
                         type,
-                        vector_store_ids: current.responseFileSearchVectorStoreIds
+                        vector_store_ids:
+                            current.responseFileSearchVectorStoreIds
                     })
                 }
                 continue
@@ -254,12 +302,12 @@ export class ModelHubRequester
         }
     }
 
-    defaultCompletion(params: ModelRequestParams) {
-        return super.completion(this._prepareParams(params))
+    async defaultCompletion(params: ModelRequestParams) {
+        return super.completion(await this._prepareParams(params))
     }
 
-    defaultCompletionStream(params: ModelRequestParams) {
-        return super.completionStream(this._prepareParams(params))
+    async *defaultCompletionStream(params: ModelRequestParams) {
+        yield* super.completionStream(await this._prepareParams(params))
     }
 
     private _adapter() {
@@ -276,8 +324,18 @@ export class ModelHubRequester
         return next.toString()
     }
 
-    private _prepareParams<T extends ModelRequestParams>(params: T): T {
+    private async _prepareParams<T extends ModelRequestParams>(
+        params: T
+    ): Promise<T> {
         if (!params.model) return params
+
+        params = await prepareCapabilityParams(
+            params,
+            this._modelCapabilities.get(params.model),
+            this.currentProviderPreset().adapter,
+            this._plugin,
+            this.currentConfig().responseApi === true
+        )
 
         const { model, reasoningEffort } =
             parseOpenAIModelNameWithReasoningEffort(params.model)
@@ -347,8 +405,7 @@ function matchesResponseBuiltinToolModel(
 
 function normalizeResponseToolModel(model: string) {
     return parseOpenAIModelNameWithReasoningEffort(model)
-        .model
-        .trim()
+        .model.trim()
         .toLowerCase()
 }
 
@@ -376,7 +433,11 @@ class ModelHubStreamMetricsTracker {
     attachTo(chunk: ChatGenerationChunk) {
         attachInvocationMetrics(chunk, {
             usageMetadata: this.usage,
-            timing: createModelHubUsageTiming(this.start, this.firstAt, this.usage)
+            timing: createModelHubUsageTiming(
+                this.start,
+                this.firstAt,
+                this.usage
+            )
         })
         return chunk
     }
@@ -406,10 +467,7 @@ function createModelHubUsageTiming(
               (usage.output_token_details?.reasoning ?? 0)
     const timing = {
         totalMs,
-        tps:
-            outputTokens == null
-                ? undefined
-                : outputTokens * 1000 / totalMs
+        tps: outputTokens == null ? undefined : (outputTokens * 1000) / totalMs
     }
 
     if (firstAt == null) return timing

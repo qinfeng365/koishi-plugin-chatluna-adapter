@@ -33,6 +33,9 @@ jobs:
       - name: Build
         run: yarn build
 
+      - name: Test adapters
+        run: yarn test
+
       - name: Publish
         working-directory: packages/adapter-model-hub
         run: npm publish --access public

@@ -238,7 +238,9 @@ function normalizeProvider(
     )
     if (value.customHeaders === undefined && previousEntry == null) {
         providerAdvanced.customHeaders = providerAdvanced.customHeaders
-            .filter((header) => targetMatches(header.target, platform, preset.id))
+            .filter((header) =>
+                targetMatches(header.target, platform, preset.id)
+            )
             .map((header) => ({ ...header, target: '*' }))
     }
 
@@ -302,6 +304,14 @@ function normalizeProviderSpecific(
 
     if (provider === 'gemini') {
         return {
+            agenticVideo:
+                booleanOrUndefined(input.agenticVideo) ??
+                previous?.agenticVideo ??
+                false,
+            useCamelCaseMediaFields:
+                booleanOrUndefined(input.useCamelCaseMediaFields) ??
+                previous?.useCamelCaseMediaFields ??
+                false,
             googleSearch:
                 booleanOrUndefined(input.googleSearch) ??
                 previous?.googleSearch ??
@@ -464,7 +474,9 @@ function pickLegacySettings(input: unknown): Partial<ModelHubSettings> | null {
     if (!isRecord(input)) return null
 
     const result: Partial<ModelHubSettings> = {}
-    const providers = arrayOf(input.providers).filter(isMeaningfulLegacyProvider)
+    const providers = arrayOf(input.providers).filter(
+        isMeaningfulLegacyProvider
+    )
     if (providers.length > 0) {
         result.providers = providers.map((provider) => ({
             ...(provider as Record<string, unknown>)
@@ -514,9 +526,7 @@ function booleanOrUndefined(value: unknown) {
 }
 
 function normalizeDifyAppType(value: unknown) {
-    return value === 'agent' ||
-        value === 'workflow' ||
-        value === 'completion'
+    return value === 'agent' || value === 'workflow' || value === 'completion'
         ? value
         : 'chat'
 }

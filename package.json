@@ -9,6 +9,7 @@
     ],
     "scripts": {
         "build": "yakumo build",
+        "test": "node --test tests/adapter.test.cjs",
         "lint": "eslint packages --cache --ext=ts,vue"
     },
     "devDependencies": {
@@ -27,7 +28,7 @@
         "eslint-plugin-prettier": "^5.5.4",
         "eslint-plugin-promise": "^7.2.1",
         "koishi": "^4.18.9",
-        "koishi-plugin-chatluna": "^1.4.0-alpha.45",
+        "koishi-plugin-chatluna": "^1.4.0",
         "koishi-plugin-chatluna-storage-service": "^1.0.6",
         "prettier": "^3.6.2",
         "sass": "^1.93.2",

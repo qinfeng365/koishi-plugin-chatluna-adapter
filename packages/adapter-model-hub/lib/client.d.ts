@@ -26,8 +26,6 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     private _dedupeModels;
     private _fallbackModelMaxContextSize;
     private _nonLlmInputTokenLimit;
-    private _mergeCapabilities;
     private _fileHandlingConfig;
     private _difyFileHandlingConfig;
-    private _isThinkModel;
 }

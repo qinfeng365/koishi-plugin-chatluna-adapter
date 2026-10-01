@@ -81,17 +81,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@chatluna/v1-shared-adapter@npm:^1.0.50":
-  version: 1.0.50
-  resolution: "@chatluna/v1-shared-adapter@npm:1.0.50"
+"@chatluna/v1-shared-adapter@npm:^1.0.51":
+  version: 1.0.51
+  resolution: "@chatluna/v1-shared-adapter@npm:1.0.51"
   dependencies:
     "@langchain/core": "npm:^0.3.80"
     zod: "npm:3.25.76"
     zod-to-json-schema: "npm:^3.24.6"
   peerDependencies:
     koishi: ^4.18.9
-    koishi-plugin-chatluna: ^1.4.0-alpha.45
-  checksum: 10c0/080541b4dae4ee0efb034fe025acdd8912e3ba067f485f454b26adf40bd07a35439a301af905c4ad5579af687aaa634e458400519995ca584727627e256e5ed7
+    koishi-plugin-chatluna: ^1.4.0
+  checksum: 10c0/003abb5e27327d652e8f39526bfed74b1e93770e263e789a9720d406ea5e0a2c63bd0040ea9da32e8d243b2bb01714c15749d1d1f39b5d090fdda875796716a7
   languageName: node
   linkType: hard
 
@@ -1137,7 +1137,7 @@ __metadata:
     eslint-plugin-prettier: "npm:^5.5.4"
     eslint-plugin-promise: "npm:^7.2.1"
     koishi: "npm:^4.18.9"
-    koishi-plugin-chatluna: "npm:^1.4.0-alpha.45"
+    koishi-plugin-chatluna: "npm:^1.4.0"
     koishi-plugin-chatluna-storage-service: "npm:^1.0.6"
     prettier: "npm:^3.6.2"
     sass: "npm:^1.93.2"
@@ -5561,13 +5561,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "koishi-plugin-chatluna-model-hub-adapter@workspace:packages/adapter-model-hub"
   dependencies:
-    "@chatluna/v1-shared-adapter": "npm:^1.0.50"
+    "@chatluna/v1-shared-adapter": "npm:^1.0.51"
     "@koishijs/client": "npm:^5.30.11"
     "@koishijs/plugin-console": "npm:^5.30.11"
     "@langchain/core": "npm:^0.3.80"
     atsc: "npm:^2.1.0"
     koishi: "npm:^4.18.9"
-    koishi-plugin-chatluna: "npm:^1.4.0-alpha.45"
+    koishi-plugin-chatluna: "npm:^1.4.0"
     koishi-plugin-chatluna-storage-service: "npm:^1.0.6"
     typescript: "npm:^5.9.2"
     zod: "npm:3.25.76"
@@ -5575,7 +5575,7 @@ __metadata:
   peerDependencies:
     "@koishijs/plugin-console": ^5.30.11
     koishi: ^4.18.9
-    koishi-plugin-chatluna: ^1.4.0-alpha.45
+    koishi-plugin-chatluna: ^1.4.0
     koishi-plugin-chatluna-storage-service: ^1.0.6
   peerDependenciesMeta:
     koishi-plugin-chatluna-storage-service:
@@ -5594,9 +5594,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"koishi-plugin-chatluna@npm:^1.4.0-alpha.45":
-  version: 1.4.0-alpha.45
-  resolution: "koishi-plugin-chatluna@npm:1.4.0-alpha.45"
+"koishi-plugin-chatluna@npm:^1.4.0":
+  version: 1.4.0
+  resolution: "koishi-plugin-chatluna@npm:1.4.0"
   dependencies:
     "@chatluna/shared-prompt-renderer": "npm:^1.0.6"
     "@langchain/core": "npm:^0.3.80"
@@ -5623,7 +5623,7 @@ __metadata:
   peerDependenciesMeta:
     koishi-plugin-chatluna-storage-service:
       optional: true
-  checksum: 10c0/7b582b7abc37fe02bf153ecea0006611a82880f27a14a4098851858217192ab09798978d4457f94556544f1cd94f36445d6d78948e48e9cb23a93ddd8dbf289d
+  checksum: 10c0/6e222512e49125448fc3153ed935be56d35fc9d023ea1f45919c2b01cf07c4dad9062bb3f957bd62ee5a7d6ec538e0105bb74a95982840c2a894ca213904c25c
   languageName: node
   linkType: hard
 

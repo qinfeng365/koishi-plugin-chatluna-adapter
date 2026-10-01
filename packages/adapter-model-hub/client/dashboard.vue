@@ -370,6 +370,14 @@
                                     <el-switch v-model="selectedProvider.imageGeneration" />
                                 </label>
                                 <label>
+                                    <span>Agentic Video（支持的 Gemini 3.5–3.8 Flash）</span>
+                                    <el-switch v-model="selectedProvider.agenticVideo" />
+                                </label>
+                                <label>
+                                    <span>Camel Case Media Fields</span>
+                                    <el-switch v-model="selectedProvider.useCamelCaseMediaFields" />
+                                </label>
+                                <label>
                                     <span>Include Thoughts</span>
                                     <el-switch v-model="selectedProvider.includeThoughts" />
                                 </label>
@@ -1101,6 +1109,8 @@ function createProviderDefaults() {
         responseBuiltinToolSupportModel: ['gpt-4o', 'gpt-4.1', 'gpt-5', 'o3', 'o4'],
         responseFileSearchVectorStoreIds: [],
         googleSearch: false,
+        agenticVideo: false,
+        useCamelCaseMediaFields: false,
         codeExecution: false,
         urlContext: false,
         imageGeneration: false,

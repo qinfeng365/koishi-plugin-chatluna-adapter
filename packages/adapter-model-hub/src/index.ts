@@ -36,7 +36,7 @@ import type {
 
 export let logger: Logger
 
-class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
+export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
     constructor(
         ctx: Context,
         private _options: {
@@ -47,6 +47,7 @@ class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             saveSettings: (
                 settings: ModelHubConsoleSettings
             ) => Promise<ModelHubActionResult>
+            refreshMetadata: () => Promise<void>
         }
     ) {
         super(ctx, 'chatluna_model_hub', {
@@ -160,6 +161,14 @@ class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
     }
 
     async refreshProvider(platform?: string): Promise<ModelHubActionResult> {
+        // Refresh the catalog first, but keep offline model reload usable.
+        try {
+            await this._options.refreshMetadata()
+            this._runtime.errors.delete('__metadata__')
+        } catch (error) {
+            this._runtime.errors.set('__metadata__', errorMessage(error))
+            logger.warn(error)
+        }
         const targets = platform
             ? [[platform, this._runtime.clients.get(platform)] as const]
             : [...this._runtime.clients.entries()]
@@ -231,7 +240,28 @@ export function apply(ctx: Context, config: Config) {
     const metadataStore = new ModelMetadataStore(ctx, {
         url: koishiConfig.metadataUrl,
         cachePath: koishiConfig.metadataCachePath,
-        updateHours: koishiConfig.metadataUpdateHours
+        updateHours: koishiConfig.metadataUpdateHours,
+        onStatus: (error) => {
+            if (error) runtime.errors.set('__metadata__', errorMessage(error))
+            else runtime.errors.delete('__metadata__')
+        },
+        onUpdate: async () => {
+            // Scheduled catalog updates must also update registered ModelInfo.
+            for (const [platform, client] of runtime.clients) {
+                try {
+                    await client.reloadModels()
+                    ctx.chatluna.platform.unregisterClient(platform)
+                    client.registerSelf()
+                    await ctx.chatluna.platform.createClient(platform)
+                    runtime.errors.delete(platform)
+                } catch (error) {
+                    runtime.errors.set(platform, errorMessage(error))
+                    logger.warn(error)
+                }
+            }
+            runtime.revision = Date.now()
+            await ctx.get('console.services.chatluna_model_hub')?.refresh()
+        }
     })
     const runtime: ModelHubRuntimeState = {
         providers: [],
@@ -339,9 +369,11 @@ export function apply(ctx: Context, config: Config) {
             settingsPath: settingsStore.path,
             runtime,
             getSettings: () => settings,
+            refreshMetadata: () => metadataStore.refresh(),
             saveSettings: async (next) => {
                 settings = normalizeSettings(next, settings)
                 await settingsStore.save(settings)
+                runtime.errors.delete('__settings__')
                 return await reloadRuntime()
             }
         })
@@ -379,8 +411,10 @@ export const Config: Schema<Config> = Schema.object({
     webui: Schema.boolean().default(true),
     frontendMode: Schema.union([
         Schema.const('performance').description('性能模式'),
-        Schema.const('polished').description('精致模式'),
-    ]).role('radio').default('performance'),
+        Schema.const('polished').description('精致模式')
+    ])
+        .role('radio')
+        .default('performance'),
     iconCdn: Schema.string().default(DEFAULT_ICON_CDN),
     settingsPath: Schema.string().default(DEFAULT_SETTINGS_PATH),
     metadataUrl: Schema.string()
@@ -454,7 +488,10 @@ function unregisterRuntime(ctx: Context, runtime: ModelHubRuntimeState) {
     runtime.providers = []
     runtime.clients.clear()
     runtime.plugins.clear()
-    runtime.errors.clear()
+    for (const key of runtime.errors.keys()) {
+        if (key !== '__metadata__' && key !== '__settings__')
+            runtime.errors.delete(key)
+    }
 }
 
 function createDifyApps(entries: RuntimeProvider['entries']) {
@@ -478,7 +515,8 @@ function createDifyApps(entries: RuntimeProvider['entries']) {
                     modelName,
                     appType: item.difyAppType ?? 'chat',
                     workflowId: item.difyWorkflowId?.trim() || undefined,
-                    outputVariable: item.difyOutputVariable?.trim() || undefined,
+                    outputVariable:
+                        item.difyOutputVariable?.trim() || undefined,
                     enableFileUpload: item.difyEnableFileUpload !== false,
                     contextSize: item.difyContextSize ?? 128_000
                 }

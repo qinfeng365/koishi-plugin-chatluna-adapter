@@ -8,6 +8,7 @@ import {
     parseOpenAIModelNameWithReasoningEffort
 } from '@chatluna/v1-shared-adapter'
 import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
+import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ProviderAdapter } from './types'
 import { parseOpenAIModels } from './model-list'
 
@@ -22,7 +23,12 @@ export const openAIChatAdapter: ProviderAdapter = {
         return completion(
             requester.requestContext(),
             preserveRealModelName(params),
-            'chat/completions'
+            'chat/completions',
+            undefined,
+            requester.supportsCapability(
+                params.model,
+                ModelCapabilities.ImageInput
+            )
         )
     },
 
@@ -49,7 +55,12 @@ export const openAIChatAdapter: ProviderAdapter = {
         for await (const chunk of completionStream(
             requester.requestContext(),
             preserveRealModelName(params),
-            'chat/completions'
+            'chat/completions',
+            undefined,
+            requester.supportsCapability(
+                params.model,
+                ModelCapabilities.ImageInput
+            )
         )) {
             yield normalizeToolCallChunk?.(chunk) ?? chunk
         }
@@ -64,7 +75,11 @@ export const openAIChatAdapter: ProviderAdapter = {
     },
 
     async getModels(requester, config) {
-        const response = await requester.get('models', {}, { signal: config?.signal })
+        const response = await requester.get(
+            'models',
+            {},
+            { signal: config?.signal }
+        )
         await checkResponse(response)
         return parseOpenAIModels(
             JSON.parse(await response.text()),
@@ -96,24 +111,27 @@ function createToolCallChunkNormalizer() {
         if ((toolCallChunks?.length ?? 0) < 1) return chunk
 
         let changed = false
-        const repairedToolCallChunks = toolCallChunks.map((toolCall, offset) => {
-            const id = normalizeToolCallId(toolCall.id)
-            const index = resolveToolCallIndex(toolCall.index, id, offset)
-            if (id) {
-                ids.set(index, id)
-                indexes.set(id, index)
-            } else if (!ids.has(index)) {
-                ids.set(index, `call_deepseek_${nextId++}`)
-            }
+        const repairedToolCallChunks = toolCallChunks.map(
+            (toolCall, offset) => {
+                const id = normalizeToolCallId(toolCall.id)
+                const index = resolveToolCallIndex(toolCall.index, id, offset)
+                if (id) {
+                    ids.set(index, id)
+                    indexes.set(id, index)
+                } else if (!ids.has(index)) {
+                    ids.set(index, `call_deepseek_${nextId++}`)
+                }
 
-            changed ||= index !== toolCall.index || ids.get(index) !== toolCall.id
+                changed ||=
+                    index !== toolCall.index || ids.get(index) !== toolCall.id
 
-            return {
-                ...toolCall,
-                index,
-                id: ids.get(index)
+                return {
+                    ...toolCall,
+                    index,
+                    id: ids.get(index)
+                }
             }
-        })
+        )
 
         if (!changed) return chunk
 
@@ -157,8 +175,9 @@ export function preserveRealModelName<
     }
 >(params: T): T {
     if (!params.model) return params
-    const { model, reasoningEffort } =
-        parseOpenAIModelNameWithReasoningEffort(params.model)
+    const { model, reasoningEffort } = parseOpenAIModelNameWithReasoningEffort(
+        params.model
+    )
     if (
         model === params.model &&
         Object.prototype.hasOwnProperty.call(

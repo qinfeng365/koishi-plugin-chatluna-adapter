@@ -6,15 +6,21 @@ export declare class ModelMetadataStore {
     private _models;
     private _aliases;
     private _timer?;
+    private _refreshing?;
+    private _disposed;
+    private _controller?;
     readonly path: string;
     constructor(ctx: Context, options?: {
         url?: string;
         cachePath?: string;
         updateHours?: number;
+        onStatus?: (error?: unknown) => void;
+        onUpdate?: () => Promise<void>;
     });
     start(): Promise<void>;
     load(): Promise<void>;
     refresh(): Promise<void>;
+    private refreshInternal;
     enhance(provider: string, model: ProviderModelEntry): ProviderModelEntry;
     getMaxTokens(provider: string, model: string): number;
     private apply;

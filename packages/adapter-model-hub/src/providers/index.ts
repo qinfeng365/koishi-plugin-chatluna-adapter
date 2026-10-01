@@ -131,7 +131,10 @@ export function normalizeId(value: string | undefined, fallback = 'custom') {
     return normalized || fallback
 }
 
-export function normalizePlatformName(value: string | undefined, fallback: string) {
+export function normalizePlatformName(
+    value: string | undefined,
+    fallback: string
+) {
     return normalizeId(value, fallback)
 }
 
@@ -157,7 +160,11 @@ export function getEndpoint(entry: ProviderEntry, preset: ProviderPreset) {
     return (entry.apiEndpoint || preset.defaultEndpoint || '').trim()
 }
 
-export function targetMatches(target: string | undefined, platform: string, provider: string) {
+export function targetMatches(
+    target: string | undefined,
+    platform: string,
+    provider: string
+) {
     const normalized = normalizeId(target, '*')
     return (
         normalized === '*' ||
@@ -294,6 +301,8 @@ function runtimeConfigSignature(entry: ProviderEntry, preset: ProviderPreset) {
         responseFileSearchVectorStoreIds:
             entry.responseFileSearchVectorStoreIds ?? [],
         googleSearch: entry.googleSearch === true,
+        agenticVideo: entry.agenticVideo === true,
+        useCamelCaseMediaFields: entry.useCamelCaseMediaFields === true,
         codeExecution: entry.codeExecution === true,
         urlContext: entry.urlContext === true,
         imageGeneration: entry.imageGeneration === true,
@@ -312,7 +321,10 @@ function stableStringify(value: unknown): string {
     if (value != null && typeof value === 'object') {
         return `{${Object.entries(value as Record<string, unknown>)
             .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+            .map(
+                ([key, item]) =>
+                    `${JSON.stringify(key)}:${stableStringify(item)}`
+            )
             .join(',')}}`
     }
     return JSON.stringify(value)

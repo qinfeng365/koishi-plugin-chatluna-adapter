@@ -8,6 +8,7 @@ import {
     responseApiCompletionStream
 } from '@chatluna/v1-shared-adapter'
 import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
+import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import {
     ChatLunaError,
     ChatLunaErrorCode
@@ -33,12 +34,24 @@ export const openAIAdapter: ProviderAdapter = {
                 {
                     builtinTools: requester.responseBuiltinTools(params)
                 },
-                true,
+                requester.supportsCapability(
+                    params.model,
+                    ModelCapabilities.ImageInput
+                ),
                 requester.responseImageProvider()
             )
         }
 
-        return await completion(requestContext, params, 'chat/completions')
+        return await completion(
+            requestContext,
+            params,
+            'chat/completions',
+            undefined,
+            requester.supportsCapability(
+                params.model,
+                ModelCapabilities.ImageInput
+            )
+        )
     },
 
     async *completionStream(requester, params) {
@@ -68,13 +81,25 @@ export const openAIAdapter: ProviderAdapter = {
                 {
                     builtinTools: requester.responseBuiltinTools(params)
                 },
-                true,
+                requester.supportsCapability(
+                    params.model,
+                    ModelCapabilities.ImageInput
+                ),
                 requester.responseImageProvider()
             )
             return
         }
 
-        yield* completionStream(requestContext, params, 'chat/completions')
+        yield* completionStream(
+            requestContext,
+            params,
+            'chat/completions',
+            undefined,
+            requester.supportsCapability(
+                params.model,
+                ModelCapabilities.ImageInput
+            )
+        )
     },
 
     async embeddings(requester, params) {
@@ -93,7 +118,11 @@ export const openAIAdapter: ProviderAdapter = {
     },
 
     async getModels(requester, config) {
-        const response = await requester.get('models', {}, { signal: config?.signal })
+        const response = await requester.get(
+            'models',
+            {},
+            { signal: config?.signal }
+        )
         await checkResponse(response)
         return parseOpenAIModels(
             JSON.parse(await response.text()),

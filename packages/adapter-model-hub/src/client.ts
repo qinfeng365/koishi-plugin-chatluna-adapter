@@ -21,21 +21,20 @@ import {
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
 import {
     getModelMaxContextSize,
-    getOpenAIFileHandlingConfig,
     isEmbeddingModel,
     isImageGenerationModel,
     isNonLLMModel,
-    isRerankerModel,
-    supportAudioInput,
-    supportImageInput
+    isRerankerModel
 } from '@chatluna/v1-shared-adapter'
 import { logger } from '.'
 import { ModelHubRequester } from './requester'
-import {
-    getTargetedAdditionalModels,
-    getTargetedBlacklist
-} from './providers'
+import { getTargetedAdditionalModels, getTargetedBlacklist } from './providers'
 import { ModelMetadataStore } from './metadata'
+import {
+    capabilityFileHandling,
+    protocolCapabilities,
+    resolveCapabilities
+} from './capabilities'
 import { expandReasoningVariantsForProvider } from './adapters/model-list'
 import type {
     AdditionalModelEntry,
@@ -78,10 +77,9 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                     ? await this._requester.getModels(config)
                     : []
 
-            const enhancedModels = rawModels
-                .map((model) =>
-                    this._metadata.enhance(this._runtime.provider.id, model)
-                )
+            const enhancedModels = rawModels.map((model) =>
+                this._metadata.enhance(this._runtime.provider.id, model)
+            )
 
             const providerModels =
                 current?.expandReasoningVariants === true
@@ -96,7 +94,9 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
 
             const apiModels = providerModels
                 .filter(
-                    (model) => !isNonLLMModel(model.name) || isImageGenerationModel(model.name)
+                    (model) =>
+                        !isNonLLMModel(model.name) ||
+                        isImageGenerationModel(model.name)
                 )
                 .map((model) => this._inferModelInfo(model))
 
@@ -112,13 +112,15 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 this._runtime.provider.id
             )
 
-            return this._dedupeModels([
+            const models = this._dedupeModels([
                 ...apiModels,
                 ...additionalModels
             ]).filter((model) => {
                 const id = model.name.toLowerCase()
                 return !blacklist.some((keyword) => id.includes(keyword))
             })
+            this._requester.setModelCapabilities(models)
+            return models
         } catch (e) {
             if (e instanceof ChatLunaError) {
                 throw e
@@ -199,9 +201,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             )
             throw new ChatLunaError(
                 ChatLunaErrorCode.MODEL_NOT_FOUND,
-                new Error(
-                    `The model ${model} is not found in ${this.platform}`
-                )
+                new Error(`The model ${model} is not found in ${this.platform}`)
             )
         }
 
@@ -225,7 +225,9 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 maxRetries: current.maxRetries,
                 llmType: this._runtime.provider.id,
                 fileHandlingConfig: this._fileHandlingConfig(model, info),
-                isThinkModel: this._isThinkModel(model, info)
+                isThinkModel: info.capabilities.includes(
+                    ModelCapabilities.Thinking
+                )
             })
         }
 
@@ -271,13 +273,27 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 name,
                 type: ModelType.llm,
                 maxTokens: positiveNumber(model.maxTokens) ?? 4096,
-                capabilities: [ModelCapabilities.ImageGeneration]
+                capabilities: resolveCapabilities(
+                    this._runtime.provider.adapter,
+                    {
+                        ...model,
+                        capabilities: [
+                            ...(model.capabilities ?? []),
+                            ModelCapabilities.ImageGeneration
+                        ]
+                    },
+                    this.config?.responseApi === true
+                ).filter(
+                    (capability) => capability !== ModelCapabilities.ToolCall
+                )
             }
         }
 
         const maxTokens =
             positiveNumber(model.maxTokens) ??
-            positiveNumber(this._metadata.getMaxTokens(this._runtime.provider.id, name))
+            positiveNumber(
+                this._metadata.getMaxTokens(this._runtime.provider.id, name)
+            )
 
         const info = {
             name,
@@ -287,11 +303,15 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 : {}),
             maxTokens:
                 type === ModelType.llm
-                    ? maxTokens ?? this._fallbackModelMaxContextSize(name)
-                    : maxTokens ?? this._nonLlmInputTokenLimit(),
+                    ? (maxTokens ?? this._fallbackModelMaxContextSize(name))
+                    : (maxTokens ?? this._nonLlmInputTokenLimit()),
             capabilities:
                 type === ModelType.llm
-                    ? this._mergeCapabilities(name, model.capabilities)
+                    ? resolveCapabilities(
+                          this._runtime.provider.adapter,
+                          model,
+                          this.config?.responseApi === true
+                      )
                     : []
         } as ModelInfo
 
@@ -314,7 +334,11 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             maxTokens: positiveNumber(model.contextSize) ?? 4096,
             capabilities:
                 type === ModelType.llm
-                    ? model.modelCapabilities
+                    ? protocolCapabilities(
+                          this._runtime.provider.adapter,
+                          model.modelCapabilities,
+                          this.config?.responseApi === true
+                      )
                     : model.modelCapabilities.filter(
                           (cap) => cap !== ModelCapabilities.ToolCall
                       )
@@ -344,41 +368,31 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         return positiveNumber(this.config?.nonLlmInputTokenLimit) ?? 8192
     }
 
-    private _mergeCapabilities(
-        model: string,
-        capabilities: ModelCapabilities[] | undefined
-    ) {
-        const result = new Set<ModelCapabilities>(capabilities ?? [])
-        if (this._runtime.provider.adapter === 'dify') {
-            return [...result]
-        }
-        if (this._runtime.provider.adapter === 'anthropic') {
-            result.add(ModelCapabilities.ToolCall)
-            return [...result]
-        }
-
-        result.add(ModelCapabilities.ToolCall)
-        if (supportImageInput(model)) result.add(ModelCapabilities.ImageInput)
-        if (supportAudioInput(model)) result.add(ModelCapabilities.AudioInput)
-        return [...result]
-    }
-
     private _fileHandlingConfig(
         model: string,
         info: ModelInfo
     ): FileHandlingConfig | undefined {
         if (this._runtime.provider.adapter === 'anthropic') {
-            return info.capabilities.some(
-                (capability) =>
-                    capability === ModelCapabilities.ImageInput ||
-                    capability === ModelCapabilities.FileInput
+            const supportedMimeTypes = new Set(
+                [...ANTHROPIC_FILE_HANDLING_CONFIG.supportedMimeTypes].filter(
+                    (mime) =>
+                        info.capabilities.includes(
+                            mime.startsWith('image/')
+                                ? ModelCapabilities.ImageInput
+                                : ModelCapabilities.FileInput
+                        )
+                )
             )
-                ? ANTHROPIC_FILE_HANDLING_CONFIG
+            return supportedMimeTypes.size > 0
+                ? { ...ANTHROPIC_FILE_HANDLING_CONFIG, supportedMimeTypes }
                 : undefined
         }
 
         if (this._runtime.provider.adapter !== 'dify') {
-            return getOpenAIFileHandlingConfig(model)
+            return capabilityFileHandling(
+                this._runtime.provider.adapter,
+                info.capabilities
+            )
         }
         if (!info.capabilities.includes(ModelCapabilities.FileInput)) {
             return undefined
@@ -412,7 +426,9 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
     }
 
-    private _difyFileHandlingConfig(model: string): FileHandlingConfig | undefined {
+    private _difyFileHandlingConfig(
+        model: string
+    ): FileHandlingConfig | undefined {
         const app = this.config.difyApps?.[model]
         const limits = app?.parameters?.fileHandling
         if (limits == null) return undefined
@@ -423,21 +439,6 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             maxFileSizeBytes: limits.maxFileSizeBytes,
             maxFileSizeBytesOverrides: limits.maxFileSizeBytesOverrides
         }
-    }
-
-    private _isThinkModel(model: string, info: ModelInfo) {
-        const lower = model.toLowerCase()
-        return (
-            info.capabilities.includes(ModelCapabilities.Thinking) ||
-            lower.includes('reasoner') ||
-            lower.includes('thinking') ||
-            lower.includes('reasoning') ||
-            lower.includes('r1') ||
-            lower.startsWith('o1') ||
-            lower.startsWith('o3') ||
-            lower.startsWith('o4') ||
-            lower.startsWith('gpt-5')
-        )
     }
 }
 

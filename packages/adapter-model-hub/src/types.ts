@@ -95,6 +95,8 @@ export interface OpenAIProviderSettings {
 }
 
 export interface GeminiProviderSettings {
+    agenticVideo?: boolean
+    useCamelCaseMediaFields?: boolean
     googleSearch?: boolean
     codeExecution?: boolean
     urlContext?: boolean
@@ -168,7 +170,8 @@ export interface ModelHubSettings {
 }
 
 export interface ProviderEntry
-    extends ProviderAdvancedSettings,
+    extends
+        ProviderAdvancedSettings,
         OpenAICompatibleProviderSettings,
         OpenAIProviderSettings,
         GeminiProviderSettings,
@@ -183,8 +186,10 @@ export interface ProviderEntry
     pullModels: boolean
 }
 
-export interface ConsoleProviderEntry
-    extends Omit<ProviderEntry, 'apiKey' | 'customHeaders'> {
+export interface ConsoleProviderEntry extends Omit<
+    ProviderEntry,
+    'apiKey' | 'customHeaders'
+> {
     apiKey: string
     apiKeyPreview: string
     hasApiKey: boolean
@@ -199,8 +204,10 @@ export interface ConsoleHeaderEntry extends Omit<HeaderEntry, 'value'> {
     clearValue?: boolean
 }
 
-export interface ModelHubConsoleSettings
-    extends Omit<ModelHubSettings, 'providers'> {
+export interface ModelHubConsoleSettings extends Omit<
+    ModelHubSettings,
+    'providers'
+> {
     providers: ConsoleProviderEntry[]
 }
 
@@ -235,6 +242,8 @@ export interface ProviderModelEntry {
     type?: ModelType
     maxTokens?: number
     capabilities?: ModelCapabilities[]
+    /** Explicit API/catalog declarations take precedence over name heuristics. */
+    capabilityOverrides?: Partial<Record<ModelCapabilities, boolean>>
     reasoningEfforts?: ReasoningEffortLevel[]
     reasoningVariantOf?: string
 }
@@ -274,7 +283,8 @@ export interface RuntimeProvider {
 }
 
 export interface ModelHubClientConfig
-    extends ClientConfig,
+    extends
+        ClientConfig,
         ProviderAdvancedSettings,
         OpenAICompatibleProviderSettings,
         OpenAIProviderSettings,

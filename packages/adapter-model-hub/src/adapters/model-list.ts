@@ -46,6 +46,8 @@ type OpenAIModelObject = {
     tool_call?: boolean
     supports_image_in?: boolean
     supports_video_in?: boolean
+    supports_audio_in?: boolean
+    supports_file_in?: boolean
     type?: string
 }
 
@@ -103,11 +105,15 @@ export function parseOpenAIModels(
         const suffixes = reasoningVariantSuffixes(provider, base)
         if ((suffixes?.length ?? 0) < 1) continue
 
-        for (const variant of expandReasoningEffortModelVariants(id, suffixes)) {
+        for (const variant of expandReasoningEffortModelVariants(
+            id,
+            suffixes
+        )) {
             pushUnique(result, seen, {
                 name: variant,
                 type: ModelType.llm,
                 maxTokens: base.maxTokens,
+                capabilityOverrides: base.capabilityOverrides,
                 capabilities: mergeCapabilities(base.capabilities, [
                     ModelCapabilities.Thinking
                 ]),
@@ -123,6 +129,8 @@ function shouldExpandReasoningVariants(
     provider: Pick<ProviderPreset, 'id' | 'reasoningEffort'> | undefined,
     model: ProviderModelEntry
 ) {
+    if (model.capabilityOverrides?.[ModelCapabilities.Thinking] === false)
+        return false
     if (!provider?.reasoningEffort || provider.reasoningEffort === 'disabled') {
         return false
     }
@@ -166,6 +174,7 @@ export function expandReasoningVariantsForProvider(
                 name: variant,
                 type: ModelType.llm,
                 maxTokens: model.maxTokens,
+                capabilityOverrides: model.capabilityOverrides,
                 capabilities: mergeCapabilities(model.capabilities, [
                     ModelCapabilities.Thinking
                 ]),
@@ -211,7 +220,7 @@ function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
     if (provider === 'siliconflow') {
         return (
             id.includes('deepseek-v4') ||
-            id.includes('deepseek') && id.includes('reason')
+            (id.includes('deepseek') && id.includes('reason'))
         )
     }
     return false
@@ -374,9 +383,7 @@ export function parseGeminiModels(payload: unknown): ProviderModelEntry[] {
                     item.outputTokenLimit ??
                     item.metadata?.outputTokenLimit,
                 type: isEmbedding ? ModelType.embeddings : undefined,
-                capabilities: isEmbedding
-                    ? []
-                    : geminiCapabilities(name)
+                capabilities: isEmbedding ? [] : geminiCapabilities(name)
             } satisfies ProviderModelEntry
         })
         .filter(Boolean)
@@ -399,7 +406,8 @@ export function parseAnthropicModels(payload: unknown): ProviderModelEntry[] {
                     item.max_tokens,
                 type: ModelType.llm,
                 reasoningEfforts: anthropicReasoningEfforts(item),
-                capabilities: anthropicCapabilities(item)
+                capabilities: anthropicCapabilities(item),
+                capabilityOverrides: anthropicCapabilityOverrides(item)
             } satisfies ProviderModelEntry
         })
         .filter(Boolean)
@@ -602,7 +610,8 @@ function makeOpenAIEntry(
             item.top_provider?.context_length ??
             item.meta?.n_ctx_train ??
             item.meta?.n_ctx,
-        capabilities: openAICapabilities(item)
+        capabilities: openAICapabilities(item),
+        capabilityOverrides: openAICapabilityOverrides(item)
     }
 }
 
@@ -636,12 +645,76 @@ function isRerankerModelName(lower: string) {
     return isRerankerModel(lower) || lower.includes('ranker')
 }
 
+function openAICapabilityOverrides(
+    item: OpenAIModelObject
+): ProviderModelEntry['capabilityOverrides'] {
+    const result: NonNullable<ProviderModelEntry['capabilityOverrides']> = {}
+    const input = item.architecture?.input_modalities ?? item.modalities
+    if (Array.isArray(input)) {
+        const modalities = new Set(input.map((value) => value.toLowerCase()))
+        result[ModelCapabilities.ImageInput] = modalities.has('image')
+        result[ModelCapabilities.AudioInput] = modalities.has('audio')
+        result[ModelCapabilities.VideoInput] = modalities.has('video')
+        result[ModelCapabilities.FileInput] =
+            modalities.has('file') || modalities.has('pdf')
+    }
+    const output = item.architecture?.output_modalities
+    if (Array.isArray(output))
+        result[ModelCapabilities.ImageGeneration] = output.some(
+            (modality) => modality.toLowerCase() === 'image'
+        )
+    if (Array.isArray(item.supported_parameters)) {
+        result[ModelCapabilities.ToolCall] = item.supported_parameters.some(
+            (p) => p === 'tools' || p === 'tool_choice'
+        )
+        if (
+            item.supported_parameters.some(
+                (p) => p === 'reasoning' || p === 'reasoning_effort'
+            )
+        ) {
+            result[ModelCapabilities.Thinking] = true
+        }
+    }
+    for (const [cap, value] of [
+        [ModelCapabilities.ToolCall, item.tool_call],
+        [ModelCapabilities.Thinking, item.supports_reasoning ?? item.reasoning],
+        [ModelCapabilities.ImageInput, item.supports_image_in],
+        [ModelCapabilities.AudioInput, item.supports_audio_in],
+        [ModelCapabilities.VideoInput, item.supports_video_in],
+        [ModelCapabilities.FileInput, item.supports_file_in]
+    ] as [ModelCapabilities, boolean | undefined][]) {
+        if (typeof value === 'boolean') result[cap] = value
+    }
+    return result
+}
+
+function anthropicCapabilityOverrides(
+    item: AnthropicModelObject
+): ProviderModelEntry['capabilityOverrides'] {
+    const result: NonNullable<ProviderModelEntry['capabilityOverrides']> = {}
+    for (const [cap, value] of [
+        [ModelCapabilities.ImageInput, item.capabilities?.image_input],
+        [ModelCapabilities.FileInput, item.capabilities?.pdf_input],
+        [
+            ModelCapabilities.ToolCall,
+            item.capabilities?.tool_use ?? item.capabilities?.tools
+        ],
+        [ModelCapabilities.Thinking, item.capabilities?.thinking]
+    ] as const) {
+        const supported = typeof value === 'boolean' ? value : value?.supported
+        if (typeof supported === 'boolean') result[cap] = supported
+    }
+    return result
+}
+
 function openAICapabilities(item: OpenAIModelObject) {
     const result = new Set<ModelCapabilities>()
-    const input = new Set([
-        ...(item.architecture?.input_modalities ?? []),
-        ...(item.modalities ?? [])
-    ].map((value) => value.toLowerCase()))
+    const input = new Set(
+        [
+            ...(item.architecture?.input_modalities ?? []),
+            ...(item.modalities ?? [])
+        ].map((value) => value.toLowerCase())
+    )
     const output = new Set(
         (item.architecture?.output_modalities ?? []).map((value) =>
             value.toLowerCase()
