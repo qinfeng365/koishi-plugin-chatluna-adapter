@@ -113,6 +113,8 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
                               ? 'configured'
                               : 'missing-key',
                 modelCount: models.length,
+                modelsUpdatedAt:
+                    this._runtime.clients.get(platform)?.modelsUpdatedAt,
                 error
             } satisfies ModelHubConsoleData['providers'][number]
         })
@@ -224,11 +226,18 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             return {
                 platform: runtime.platform,
                 provider: runtime.provider.name,
+                providerId: runtime.provider.id,
                 name: model.name,
                 type: ModelType[model.type],
                 maxTokens: model.maxTokens,
                 capabilities: model.capabilities,
-                source: custom ? 'custom' : 'api'
+                source: custom ? 'custom' : 'api',
+                reasoningVariantOf: (
+                    model as typeof model & { reasoningVariantOf?: string }
+                ).reasoningVariantOf,
+                lastUsedAt: this._runtime.clients
+                    .get(runtime.platform)
+                    ?.lastUsedAt(model.name)
             }
         })
     }

@@ -48,6 +48,11 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
     platform: string
 
     private _requester: ModelHubRequester
+    modelsUpdatedAt?: number
+
+    lastUsedAt(model: string) {
+        return this._requester.lastUsedAt(model)
+    }
 
     constructor(
         ctx: Context,
@@ -121,6 +126,7 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 return !blacklist.some((keyword) => id.includes(keyword))
             })
             this._requester.setModelCapabilities(models)
+            this.modelsUpdatedAt = Date.now()
             return models
         } catch (e) {
             if (e instanceof ChatLunaError) {
@@ -131,8 +137,14 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
     }
 
     async reloadModels(config?: RunnableConfig) {
+        const previous = this._modelInfos
         this._modelInfos = {}
-        return await this.getModels(config)
+        try {
+            return await this.getModels(config)
+        } catch (error) {
+            this._modelInfos = previous
+            throw error
+        }
     }
 
     async geminiResource(request: GeminiResourceRequest) {

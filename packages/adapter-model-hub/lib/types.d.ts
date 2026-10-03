@@ -232,16 +232,20 @@ export interface ModelHubConsoleProvider {
     pullModels: boolean;
     status: ModelHubProviderStatus;
     modelCount: number;
+    modelsUpdatedAt?: number;
     error?: string;
 }
 export interface ModelHubConsoleModel {
     platform: string;
     provider: string;
+    providerId?: string;
     name: string;
     type: keyof typeof ModelType | string;
     maxTokens: number;
     capabilities: ModelCapabilities[];
     source: 'api' | 'custom';
+    reasoningVariantOf?: string;
+    lastUsedAt?: number;
 }
 export interface ModelHubConsolePreset {
     id: string;

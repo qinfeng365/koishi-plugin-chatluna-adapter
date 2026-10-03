@@ -9,7 +9,7 @@
     ],
     "scripts": {
         "build": "yakumo build",
-        "test": "node --test tests/adapter.test.cjs tests/frontier.test.cjs",
+        "test": "node --test tests/adapter.test.cjs tests/frontier.test.cjs tests/model-list.test.cjs",
         "test:ui": "node tests/ui-qa.cjs",
         "lint": "eslint packages --cache --ext=ts,vue"
     },

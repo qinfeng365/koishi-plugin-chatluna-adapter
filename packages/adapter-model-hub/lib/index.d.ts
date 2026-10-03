@@ -33,6 +33,7 @@ export declare class ModelHubConsoleService extends DataService<ModelHubConsoleD
             pullModels: boolean;
             status: "disabled" | "error" | "loaded" | "configured" | "missing-key";
             modelCount: number;
+            modelsUpdatedAt: number;
             error: string;
         }[];
         models: ModelHubConsoleModel[];

@@ -51,6 +51,30 @@ export class ModelHubRequester
 {
     private _modelCapabilities = new Map<string, ModelCapabilities[]>()
     private _geminiResources = new GeminiResources(this)
+    private _recentModels = new Map<string, number>()
+    private _cancelUsageRefresh?: () => void
+    private _usageDisposed = false
+
+    lastUsedAt(model: string) {
+        return this._recentModels.get(model)
+    }
+
+    private _recordModelUse(model: string) {
+        if (this._usageDisposed) return
+        this._recentModels.delete(model)
+        this._recentModels.set(model, Date.now())
+        if (this._recentModels.size > 200) {
+            this._recentModels.delete(this._recentModels.keys().next().value!)
+        }
+        if (this._cancelUsageRefresh || !this.ctx.setTimeout) return
+        this._cancelUsageRefresh = this.ctx.setTimeout(() => {
+            this._cancelUsageRefresh = undefined
+            void this.ctx
+                .get('console.services.chatluna_model_hub')
+                ?.refresh()
+                .catch(() => {})
+        }, 1000)
+    }
 
     geminiResources() {
         return this._geminiResources
@@ -90,6 +114,7 @@ export class ModelHubRequester
         )
 
         attachGenerationMetrics(generation, start)
+        this._recordModelUse(params.model)
         return generation
     }
 
@@ -112,6 +137,8 @@ export class ModelHubRequester
             yield chunk
         }
 
+        this._recordModelUse(params.model)
+
         yield tracker.attachTo(
             new ChatGenerationChunk({
                 message: new AIMessageChunk({ content: '' }),
@@ -127,22 +154,33 @@ export class ModelHubRequester
             this,
             await this._prepareParams(params)
         )
+        this._recordModelUse(params.model)
     }
 
     async embeddings(
         params: EmbeddingsRequestParams
     ): Promise<EmbeddingsResult> {
-        return await this._adapter().embeddings(this, params)
+        const result = await this._adapter().embeddings(this, params)
+        this._recordModelUse(params.model)
+        return result
     }
 
     async rerank(
         params: RerankerRequestParams
     ): Promise<RerankerResult[] | RerankerUsageResult> {
-        return await this._adapter().rerank(this, params)
+        const result = await this._adapter().rerank(this, params)
+        this._recordModelUse(params.model)
+        return result
     }
 
     async dispose(model?: string, id?: string): Promise<void> {
-        if (model == null && id == null) this._geminiResources.dispose()
+        if (model == null && id == null) {
+            this._usageDisposed = true
+            this._geminiResources.dispose()
+            this._cancelUsageRefresh?.()
+            this._cancelUsageRefresh = undefined
+            this._recentModels.clear()
+        }
         await this._adapter().dispose?.(this, model, id)
     }
 

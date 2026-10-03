@@ -11,6 +11,11 @@ import type { ModelHubClientConfig, ModelHubResolvedConfig, ProviderModelEntry }
 export declare class ModelHubRequester extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig> implements EmbeddingsRequester, RerankerRequester {
     private _modelCapabilities;
     private _geminiResources;
+    private _recentModels;
+    private _cancelUsageRefresh?;
+    private _usageDisposed;
+    lastUsedAt(model: string): number;
+    private _recordModelUse;
     geminiResources(): GeminiResources;
     vendorFetch(url: string, init: Record<string, any>): Promise<import("undici/types/fetch").Response>;
     setModelCapabilities(models: ModelInfo[]): void;

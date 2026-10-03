@@ -5512,6 +5512,26 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
   }
   _modelCapabilities = /* @__PURE__ */ new Map();
   _geminiResources = new GeminiResources(this);
+  _recentModels = /* @__PURE__ */ new Map();
+  _cancelUsageRefresh;
+  _usageDisposed = false;
+  lastUsedAt(model) {
+    return this._recentModels.get(model);
+  }
+  _recordModelUse(model) {
+    if (this._usageDisposed) return;
+    this._recentModels.delete(model);
+    this._recentModels.set(model, Date.now());
+    if (this._recentModels.size > 200) {
+      this._recentModels.delete(this._recentModels.keys().next().value);
+    }
+    if (this._cancelUsageRefresh || !this.ctx.setTimeout) return;
+    this._cancelUsageRefresh = this.ctx.setTimeout(() => {
+      this._cancelUsageRefresh = void 0;
+      void this.ctx.get("console.services.chatluna_model_hub")?.refresh().catch(() => {
+      });
+    }, 1e3);
+  }
   geminiResources() {
     return this._geminiResources;
   }
@@ -5536,6 +5556,7 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
       await this._prepareParams(params)
     );
     attachGenerationMetrics(generation, start);
+    this._recordModelUse(params.model);
     return generation;
   }
   async *completionStream(params) {
@@ -5552,6 +5573,7 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
       tracker.observe(chunk);
       yield chunk;
     }
+    this._recordModelUse(params.model);
     yield tracker.attachTo(
       new import_outputs8.ChatGenerationChunk({
         message: new import_messages7.AIMessageChunk({ content: "" }),
@@ -5564,15 +5586,26 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
       this,
       await this._prepareParams(params)
     );
+    this._recordModelUse(params.model);
   }
   async embeddings(params) {
-    return await this._adapter().embeddings(this, params);
+    const result = await this._adapter().embeddings(this, params);
+    this._recordModelUse(params.model);
+    return result;
   }
   async rerank(params) {
-    return await this._adapter().rerank(this, params);
+    const result = await this._adapter().rerank(this, params);
+    this._recordModelUse(params.model);
+    return result;
   }
   async dispose(model, id) {
-    if (model == null && id == null) this._geminiResources.dispose();
+    if (model == null && id == null) {
+      this._usageDisposed = true;
+      this._geminiResources.dispose();
+      this._cancelUsageRefresh?.();
+      this._cancelUsageRefresh = void 0;
+      this._recentModels.clear();
+    }
     await this._adapter().dispose?.(this, model, id);
   }
   async getModels(config) {
@@ -5899,6 +5932,10 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   }
   platform;
   _requester;
+  modelsUpdatedAt;
+  lastUsedAt(model) {
+    return this._requester.lastUsedAt(model);
+  }
   async refreshModels(config) {
     try {
       const current = this.config;
@@ -5934,6 +5971,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         return !blacklist.some((keyword) => id.includes(keyword));
       });
       this._requester.setModelCapabilities(models);
+      this.modelsUpdatedAt = Date.now();
       return models;
     } catch (e) {
       if (e instanceof import_error6.ChatLunaError) {
@@ -5943,8 +5981,14 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     }
   }
   async reloadModels(config) {
+    const previous = this._modelInfos;
     this._modelInfos = {};
-    return await this.getModels(config);
+    try {
+      return await this.getModels(config);
+    } catch (error) {
+      this._modelInfos = previous;
+      throw error;
+    }
   }
   async geminiResource(request) {
     return this._requester.geminiResources().request(request);
@@ -7126,6 +7170,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         pullModels: entry.pullModels === true,
         status: entry.enabled === false ? "disabled" : error ? "error" : loaded ? "loaded" : readyForLoad ? "configured" : "missing-key",
         modelCount: models2.length,
+        modelsUpdatedAt: this._runtime.clients.get(platform)?.modelsUpdatedAt,
         error
       };
     });
@@ -7220,11 +7265,14 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       return {
         platform: runtime.platform,
         provider: runtime.provider.name,
+        providerId: runtime.provider.id,
         name: model.name,
         type: import_types12.ModelType[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
-        source: custom ? "custom" : "api"
+        source: custom ? "custom" : "api",
+        reasoningVariantOf: model.reasoningVariantOf,
+        lastUsedAt: this._runtime.clients.get(runtime.platform)?.lastUsedAt(model.name)
       };
     });
   }

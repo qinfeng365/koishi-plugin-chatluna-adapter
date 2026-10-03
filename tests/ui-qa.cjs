@@ -5,17 +5,19 @@ const ts = require('typescript')
 const { parse, compileScript } = require('vue/compiler-sfc')
 
 const root = path.resolve(__dirname, '..')
-const component = path.join(
-    root,
-    'packages/adapter-model-hub/client/dashboard.vue'
+const client = path.join(root, 'packages/adapter-model-hub/client')
+const virtualScripts = new Map(
+    ['dashboard', 'model-row'].map((name) => {
+        const component = path.join(client, `${name}.vue`)
+        const script = compileScript(
+            parse(fs.readFileSync(component, 'utf8'), { filename: component })
+                .descriptor,
+            { id: `model-hub-qa-${name}` }
+        ).content
+        return [path.join(client, `${name}.qa.ts`), script]
+    })
 )
-const virtual = path.join(path.dirname(component), 'dashboard.qa.ts')
-const script = compileScript(
-    parse(fs.readFileSync(component, 'utf8'), { filename: component })
-        .descriptor,
-    { id: 'model-hub-qa' }
-).content
-const configFile = path.join(path.dirname(component), 'tsconfig.json')
+const configFile = path.join(client, 'tsconfig.json')
 const config = ts.readConfigFile(configFile, ts.sys.readFile)
 const parsed = ts.parseJsonConfigFileContent(
     config.config,
@@ -28,8 +30,9 @@ const options = { ...parsed.options, noEmit: true, skipLibCheck: true }
 const host = ts.createCompilerHost(options)
 const read = host.readFile.bind(host)
 const exists = host.fileExists.bind(host)
-host.readFile = (file) => (path.resolve(file) === virtual ? script : read(file))
-host.fileExists = (file) => path.resolve(file) === virtual || exists(file)
+host.readFile = (file) => virtualScripts.get(path.resolve(file)) ?? read(file)
+host.fileExists = (file) =>
+    virtualScripts.has(path.resolve(file)) || exists(file)
 // The console's legacy globals need Node resolution, but Vite resolves API
 // package exports as a bundler. Use that fallback only for unresolved imports.
 host.resolveModuleNames = (names, containing) =>
@@ -48,7 +51,7 @@ host.resolveModuleNames = (names, containing) =>
             ).resolvedModule
     )
 const program = ts.createProgram({
-    rootNames: [...parsed.fileNames, virtual],
+    rootNames: [...parsed.fileNames, ...virtualScripts.keys()],
     options,
     host
 })

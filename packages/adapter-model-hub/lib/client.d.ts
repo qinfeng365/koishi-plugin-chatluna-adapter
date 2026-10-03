@@ -16,6 +16,8 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     private _metadata;
     platform: string;
     private _requester;
+    modelsUpdatedAt?: number;
+    lastUsedAt(model: string): number;
     constructor(ctx: Context, _config: ModelHubResolvedConfig, plugin: ChatLunaPlugin<ModelHubClientConfig, ModelHubResolvedConfig>, _runtime: RuntimeProvider, _metadata: ModelMetadataStore);
     refreshModels(config?: RunnableConfig): Promise<ModelInfo[]>;
     reloadModels(config?: RunnableConfig): Promise<ModelInfo[]>;

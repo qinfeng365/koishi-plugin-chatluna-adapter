@@ -738,7 +738,7 @@
                 <div class="section-head">
                     <div class="model-heading">
                         <h2>已加载模型</h2>
-                        <span>{{ filteredModels.length }} / {{ data?.models?.length ?? 0 }} 个模型</span>
+                        <span>{{ visibleModelCount }} / {{ data?.models?.length ?? 0 }} 个模型 · {{ modelGroups.length }} 个平台实例</span>
                     </div>
                     <div class="detail-actions">
                         <label class="search-box model-search">
@@ -746,8 +746,8 @@
                             <input
                                 v-model.trim="modelKeyword"
                                 type="search"
-                                placeholder="搜索模型或平台"
-                                aria-label="搜索模型或平台"
+                                placeholder="搜索模型、提供商或平台"
+                                aria-label="搜索模型、提供商或平台"
                             />
                         </label>
                         <span class="status-pill" :data-status="data?.totals?.models ? 'loaded' : 'missing-key'">
@@ -759,33 +759,55 @@
                     </div>
                 </div>
 
-                <div class="section">
+                <div class="model-browser-filters">
+                    <label><span>提供商</span><el-select v-model="modelProvider" aria-label="筛选提供商" placeholder="全部提供商" popper-class="model-hub-model-popper">
+                        <el-option label="全部提供商" value="" />
+                        <el-option v-for="provider in modelProviders" :key="provider.id" :label="provider.name" :value="provider.id" />
+                    </el-select></label>
+                    <label><span>模型类型</span><el-select v-model="modelType" aria-label="筛选模型类型" placeholder="全部类型" popper-class="model-hub-model-popper">
+                        <el-option label="全部类型" value="" />
+                        <el-option label="LLM" value="llm" /><el-option label="Embeddings" value="embeddings" /><el-option label="Reranker" value="reranker" />
+                    </el-select></label>
+                    <label class="capability-filter"><span>能力（同时满足）</span><el-select v-model="modelCapabilities" multiple clearable aria-label="筛选模型能力" placeholder="全部能力" popper-class="model-hub-model-popper">
+                        <el-option v-for="option in modelCapabilityFilters" :key="option.value" :label="option.label" :value="option.value" />
+                    </el-select></label>
+                    <el-button v-if="modelFiltersActive" @click="resetModelFilters">清除筛选</el-button>
+                </div>
+                <div class="model-browser-scopes" aria-label="模型列表范围">
+                    <button v-for="scope in modelScopes" :key="scope.value" type="button" :class="{ active: modelScope === scope.value }" :aria-pressed="modelScope === scope.value" @click="modelScope = scope.value">{{ scope.label }}</button>
+                    <small>{{ modelScope === 'recent' ? '记录当前服务商加载期间的成功调用，不含失败或取消的请求。' : '收藏保存在当前浏览器；推理变体默认折叠，可展开查看。' }}</small>
+                </div>
+                <section v-for="group in modelGroups" :key="group.key" class="section model-provider-group">
                     <div class="section-head">
-                        <h3>自动获取</h3>
-                        <span>服务商启用后只显示 /models 返回的结果。</span>
+                        <div class="model-heading">
+                            <h3>{{ group.label }}<small v-if="group.label !== group.provider"> · {{ group.provider }}</small></h3>
+                            <span>{{ group.platform }} · {{ group.count }} 个模型 · {{ group.families.length }} 项</span>
+                        </div>
+                        <small v-if="group.updatedAt" class="model-updated">上次成功更新 {{ formatModelTime(group.updatedAt) }}</small>
                     </div>
-
+                    <p v-if="group.error" class="error-box">刷新异常，保留上次成功的列表：{{ group.error }}</p>
                     <div class="model-table">
-                        <div class="model-head">
-                            <span>模型</span>
-                            <span>平台</span>
-                            <span>类型</span>
-                            <span>能力</span>
+                        <div v-for="family in group.families.slice(0, modelPageSizes[group.key] ?? 50)" :key="family.key" class="model-family">
+                            <details v-if="family.variants.length" class="model-variants" @toggle="setModelFamilyOpen(family.key, $event)">
+                                <summary>
+                                    <ModelRow :model="family.primary" :favorite="modelFavorites.has(modelKey(family.primary))" @favorite="toggleModelFavorite(family.primary)" @copy="copyModel(family.primary)" />
+                                    <span class="model-variant-count">{{ family.variants.length }} 个推理变体 · 展开 / 收起</span>
+                                </summary>
+                                <div v-if="openModelFamilies.has(family.key)" class="model-variant-rows">
+                                    <ModelRow v-for="variant in family.variants" :key="modelKey(variant)" :model="variant" :favorite="modelFavorites.has(modelKey(variant))" @favorite="toggleModelFavorite(variant)" @copy="copyModel(variant)" />
+                                </div>
+                            </details>
+                            <ModelRow v-else :model="family.primary" :favorite="modelFavorites.has(modelKey(family.primary))" @favorite="toggleModelFavorite(family.primary)" @copy="copyModel(family.primary)" />
                         </div>
-                        <div
-                            v-for="model in filteredModels"
-                            :key="`${model.platform}/${model.name}`"
-                            class="model-row-view"
-                        >
-                            <strong>{{ model.name }}</strong>
-                            <span>{{ model.platform }}</span>
-                            <span>{{ typeText(model.type) }}</span>
-                            <span>{{ capabilityText(model.capabilities) }}</span>
-                        </div>
-                        <p v-if="filteredModels.length === 0" class="empty-text compact">
-                            暂无模型
-                        </p>
                     </div>
+                    <div v-if="group.families.length > (modelPageSizes[group.key] ?? 50)" class="model-more">
+                        <span>已显示 {{ modelPageSizes[group.key] ?? 50 }} / {{ group.families.length }} 项</span>
+                        <el-button @click="modelPageSizes[group.key] = (modelPageSizes[group.key] ?? 50) + 50">显示更多</el-button>
+                    </div>
+                </section>
+                <div v-if="visibleModelCount === 0" class="section model-empty">
+                    <p class="empty-text">{{ data?.models?.length ? '没有符合条件的模型' : '暂无已加载模型，请先启用并配置服务商。' }}</p>
+                    <el-button v-if="modelFiltersActive" @click="resetModelFilters">显示全部模型</el-button>
                 </div>
             </section>
 
@@ -925,13 +947,16 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { send, store } from '@koishijs/client'
+import { send, store, useStorage } from '@koishijs/client'
+import ModelRow from './model-row.vue'
+import { buildModelGroups, modelKey, normalizeFavorites, providerKey, toggleFavorite, type ModelListScope } from './model-list'
 import type {
     AdditionalModelEntry,
     ConsoleHeaderEntry,
     ConsoleProviderEntry,
     ModelHubActionResult,
     ModelHubConsoleData,
+    ModelHubConsoleModel,
     ModelHubConsolePreset,
     ModelHubConsoleSettings,
     ModelHubProviderStatus
@@ -985,6 +1010,28 @@ const newProvider = ref<ConsoleProviderEntry>()
 const providerSearch = ref('')
 const providerKind = ref<(typeof kindOptions)[number]['value']>('all')
 const modelKeyword = ref('')
+const modelProvider = ref('')
+const modelType = ref('')
+const modelCapabilities = ref<string[]>([])
+const modelScope = ref<ModelListScope>('all')
+const modelPageSizes = ref<Record<string, number>>({})
+const openModelFamilies = ref(new Set<string>())
+const modelPreferences = useStorage<{ favorites: string[] }>('chatluna-model-hub.model-list', 1, () => ({ favorites: [] }))
+const modelFavorites = computed(() => new Set(normalizeFavorites(modelPreferences.value?.favorites)))
+const modelScopes = [
+    { label: '全部模型', value: 'all' },
+    { label: '收藏', value: 'favorites' },
+    { label: '最近使用', value: 'recent' }
+] as const
+const modelCapabilityFilters = [
+    { label: '工具调用', value: ModelCapabilities.ToolCall },
+    { label: '图片输入', value: ModelCapabilities.ImageInput },
+    { label: '推理', value: ModelCapabilities.Thinking },
+    { label: '图片生成', value: ModelCapabilities.ImageGeneration },
+    { label: '音频输入', value: ModelCapabilities.AudioInput },
+    { label: '视频输入', value: ModelCapabilities.VideoInput },
+    { label: '文件输入', value: ModelCapabilities.FileInput }
+]
 const selectedProviderIndex = ref(-1)
 const resourceBusy = ref(false)
 const geminiResourceType = ref<'cachedContents' | 'files' | 'interactions'>('cachedContents')
@@ -1054,16 +1101,51 @@ const filteredPresets = computed(() => {
     })
 })
 
-const filteredModels = computed(() => {
-    const text = modelKeyword.value.toLowerCase()
-    return (data.value?.models ?? []).filter((model) => {
-        if (!text) return true
-        return [model.name, model.platform, model.provider]
-            .join(' ')
-            .toLowerCase()
-            .includes(text)
-    })
+const modelProviders = computed(() => {
+    const providers = new Map<string, string>()
+    for (const model of data.value?.models ?? []) providers.set(providerKey(model), model.provider)
+    return [...providers].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
 })
+const modelGroups = computed(() => buildModelGroups(data.value?.models ?? [], data.value?.providers ?? [], {
+    keyword: modelKeyword.value, provider: modelProvider.value, type: modelType.value,
+    capabilities: modelCapabilities.value, scope: modelScope.value,
+    favorites: [...modelFavorites.value]
+}))
+const visibleModelCount = computed(() => modelGroups.value.reduce((sum, group) => sum + group.count, 0))
+const modelFiltersActive = computed(() => !!(modelKeyword.value || modelProvider.value || modelType.value || modelCapabilities.value.length || modelScope.value !== 'all'))
+
+watch([modelKeyword, modelProvider, modelType, modelScope, modelCapabilities], () => {
+    modelPageSizes.value = {}
+}, { deep: true })
+
+function setModelFamilyOpen(key: string, event: Event) {
+    const open = new Set(openModelFamilies.value)
+    if ((event.target as HTMLDetailsElement).open) open.add(key)
+    else open.delete(key)
+    openModelFamilies.value = open
+}
+
+function resetModelFilters() {
+    modelKeyword.value = ''
+    modelProvider.value = ''
+    modelType.value = ''
+    modelCapabilities.value = []
+    modelScope.value = 'all'
+}
+
+function toggleModelFavorite(model: ModelHubConsoleModel) {
+    modelPreferences.value = { ...modelPreferences.value, favorites: toggleFavorite(modelPreferences.value?.favorites, modelKey(model)) }
+}
+
+function formatModelTime(time: number) { return new Date(time).toLocaleString() }
+
+async function copyModel(model: ModelHubConsoleModel) {
+    try {
+        if (!navigator.clipboard) throw new Error('当前环境不支持剪贴板')
+        await navigator.clipboard.writeText(`${model.platform}/${model.name}`)
+        showMessage('已复制平台/模型标识', 'success')
+    } catch (error) { showMessage(String(error), 'danger') }
+}
 
 const selectedProvider = computed(() =>
     selectedProviderIndex.value >= 0 ? form.value.providers[selectedProviderIndex.value] : undefined
@@ -2267,6 +2349,65 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     background: var(--k-card-bg);
 }
 
+.model-browser-filters {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    label { display: grid; gap: 0.35rem; flex: 1 1 10rem; min-width: 0; }
+    label > span { color: var(--k-text-light); font-size: 0.8rem; }
+    .capability-filter { flex: 2 1 15rem; }
+    .el-select { width: 100%; }
+}
+.model-browser-scopes {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    button {
+        min-height: 2.25rem;
+        border: 1px solid var(--k-card-border);
+        border-radius: 6px;
+        background: var(--k-card-bg);
+        color: var(--k-text-light);
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+        &.active { color: var(--k-color-primary); border-color: var(--k-color-primary); }
+        &:focus-visible { outline: 2px solid var(--k-color-primary); outline-offset: 2px; }
+    }
+    small { color: var(--k-text-light); font-size: 0.8rem; }
+}
+.model-provider-group {
+    min-width: 0;
+    .section-head { flex-wrap: wrap; }
+    .model-heading span, .model-updated { overflow-wrap: anywhere; color: var(--k-text-light); font-size: 0.8rem; }
+    h3 small { font-size: 0.8rem; font-weight: normal; color: var(--k-text-light); }
+}
+.model-family {
+    border-bottom: 1px solid var(--k-card-border);
+    &:last-child { border-bottom: 0; }
+}
+.model-variants {
+    summary {
+        cursor: pointer;
+        list-style: none;
+        &::-webkit-details-marker { display: none; }
+        &:focus-visible { outline: 2px solid var(--k-color-primary); outline-offset: -2px; }
+    }
+    &[open] > summary { background: color-mix(in srgb, var(--k-color-primary) 5%, transparent); }
+}
+.model-variant-count { display: block; padding: 0 0.85rem 0.65rem 3.5rem; font-size: 0.75rem; color: var(--k-color-primary); }
+.model-variant-rows { padding-left: 1rem; border-top: 1px solid var(--k-card-border); }
+.model-empty { display: grid; justify-items: center; gap: 1rem; }
+.model-more { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.8rem; color: var(--k-text-light); font-size: 0.8rem; }
+
+@media (max-width: 600px) {
+    .model-browser-filters label { flex-basis: 100%; }
+    .model-browser-scopes small { flex-basis: 100%; }
+    .model-variant-rows { padding-left: 0.35rem; }
+    .model-variant-count { padding-left: 3.1rem; }
+}
+
 .model-head,
 .model-row-view {
     display: grid;
@@ -3260,5 +3401,65 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
             }
         }
     }
+}
+/* Keep component surfaces tied to Koishi's theme, including Element Plus
+   controls and popovers that otherwise fall back to its light palette. */
+.model-hub-page {
+    --hub-panel-bg: var(--k-card-bg);
+    --hub-control-bg: color-mix(in srgb, var(--k-card-bg) 90%, var(--k-page-bg));
+    --el-bg-color: var(--hub-panel-bg);
+    --el-bg-color-overlay: var(--hub-panel-bg);
+    --el-fill-color-blank: var(--hub-control-bg);
+    --el-fill-color: color-mix(in srgb, var(--k-text-light) 8%, var(--hub-control-bg));
+    --el-fill-color-light: color-mix(in srgb, var(--k-text-light) 5%, var(--hub-control-bg));
+    --el-text-color-primary: var(--k-text-dark);
+    --el-text-color-regular: var(--k-text-dark);
+    --el-text-color-secondary: var(--k-text-light);
+    --el-text-color-placeholder: var(--k-text-light);
+    --el-border-color: var(--k-card-border);
+    --el-border-color-light: var(--k-card-border);
+    --el-border-color-lighter: var(--k-card-border);
+
+    :deep(.el-select__wrapper),
+    :deep(.el-input__wrapper),
+    :deep(.el-textarea__inner),
+    :deep(.el-input-number) {
+        background: var(--hub-control-bg) !important;
+        color: var(--k-text-dark);
+    }
+    :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.el-button--success):not(.el-button--warning)) {
+        background: var(--hub-control-bg);
+        color: var(--k-text-dark);
+        border-color: var(--k-card-border);
+    }
+}
+
+html.dark .model-hub-page {
+    color-scheme: dark;
+    --hub-panel-bg: color-mix(in srgb, var(--k-card-bg) 65%, var(--k-page-bg));
+    --hub-control-bg: color-mix(in srgb, var(--k-card-bg) 45%, var(--k-page-bg));
+
+    .section, .provider-panel, .detail-panel, .empty-detail, .new-provider {
+        background: var(--hub-panel-bg) !important;
+        box-shadow: none !important;
+    }
+    .search-box, .model-browser-scopes button, .model-table {
+        background: var(--hub-control-bg) !important;
+    }
+    /* Theme switches must not animate white surfaces through bright gray. */
+    &, .section, .provider-panel, .detail-panel, .empty-detail,
+    .search-box, button, :deep(.el-select__wrapper), :deep(.el-input__wrapper) {
+        transition-property: color, border-color, box-shadow, transform, opacity !important;
+    }
+}
+
+:global(.model-hub-model-popper) {
+    --el-bg-color-overlay: var(--k-card-bg);
+    --el-text-color-regular: var(--k-text-dark);
+    --el-text-color-placeholder: var(--k-text-light);
+    --el-border-color-light: var(--k-card-border);
+    --el-fill-color-light: color-mix(in srgb, var(--k-color-primary) 8%, var(--k-card-bg));
+    background: var(--k-card-bg) !important;
+    border-color: var(--k-card-border) !important;
 }
 </style>

@@ -12,6 +12,7 @@ ChatLuna 多模型供应商聚合适配器，提供独立 Model Hub WebUI，用�
 - 多供应商统一接入：OpenAI、OpenAI-compatible、Gemini、Dify、DeepSeek、Qwen、OpenRouter、Groq、Mistral、Moonshot、智谱、硅基流动、Ollama、LM Studio、vLLM、llama.cpp、Xinference、LocalAI 等。
 - 独立 WebUI：Koishi 配置页只保留入口、图标源、配置文件路径和 `models.dev` 缓存设置；供应商参数在 Model Hub 页面里配置。
 - 自动获取模型：模型列表来自服务商 `/models` 接口，不展示硬编码内置模型列表。
+- 模型浏览：按提供商与平台实例分组，支持搜索、类型/能力筛选、浏览器收藏与最近成功调用；仅折叠明确标记的推理变体，大列表每组按需展开。收藏不会修改服务商配置；最近使用记录当前服务商加载期间最多200个模型，重启或重新加载服务商后清空。刷新失败保留旧列表及上次成功更新时间。
 - 元数据补全：优先读取服务商返回的上下文长度与能力字段，未提供时使用本地 `models.dev` 缓存补全；明确的不支持声明优先于名称推断。页面刷新模型会先更新元数据，下载失败仍可使用旧缓存并定时重试。
 - 模块化适配：每个供应商 preset 独立文件，协议适配器独立在 `src/adapters` 中，后续扩展新格式更容易。
 - Provider 专属能力：OpenAI 可选 Responses API；Gemini 可选 Google Search、Code Execution、URL Context、Image Generation、Thinking 和 Agentic Video（目前限定上游支持的 Gemini 3.5–3.8 Flash 型号）；Dify 使用原生 Application API。
