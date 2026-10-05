@@ -252,6 +252,8 @@ export function nativeReasoningEfforts(
     model: string
 ): ReasoningEffort[] | undefined {
     const lower = model.toLowerCase()
+    if (/^gpt-6-sol(?:-|$)/.test(lower))
+        return ['none', 'low', 'medium', 'high', 'xhigh', 'max']
     if (lower.startsWith('gpt-6'))
         return ['low', 'medium', 'high', 'xhigh', 'max']
     if (lower.includes('kimi-k3') || /glm-5\.3/.test(lower))

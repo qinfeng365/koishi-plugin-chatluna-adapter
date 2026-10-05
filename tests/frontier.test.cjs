@@ -14,6 +14,98 @@ const { resolveCapabilities } = load('capabilities.ts')
 const { ModelHubRequester } = load('requester.ts')
 const { applyReasoningProtocol } = load('adapters/reasoning-protocols.ts')
 const { parseOpenAIModels } = load('adapters/model-list.ts')
+const { expandReasoningVariantsForProvider } = load('adapters/model-list.ts')
+const { ModelMetadataStore } = load('metadata.ts')
+
+test('stale OpenAI catalog cannot cap GPT-6 Sol or Astra below their official maximum', () => {
+    const store = new ModelMetadataStore(
+        { baseDir: process.cwd() },
+        { cachePath: 'unused-test-cache.json' }
+    )
+    store.apply({
+        openai: {
+            models: {
+                'gpt-6-sol': { id: 'gpt-6-sol', reasoning: true },
+                'gpt-6-astra': {
+                    id: 'gpt-6-astra',
+                    reasoning_efforts: ['low', 'medium', 'high', 'xhigh']
+                },
+                'gpt-6.1-sol': { id: 'gpt-6.1-sol', reasoning: true }
+            }
+        }
+    })
+    const preset = { id: 'openai', reasoningEffort: 'passthrough' }
+    const models = parseOpenAIModels({
+        data: [
+            { id: 'gpt-6-sol' },
+            { id: 'gpt-6-astra' },
+            { id: 'gpt-6.1-sol' }
+        ]
+    }).map((model) => store.enhance('openai', model))
+    const names = expandReasoningVariantsForProvider(preset, models).map(
+        (model) => model.name
+    )
+    for (const base of ['gpt-6-sol', 'gpt-6-astra', 'gpt-6.1-sol']) {
+        assert.ok(names.includes(`${base}-xhigh-thinking`), base)
+        assert.ok(names.includes(`${base}-max-thinking`), base)
+        assert.ok(!names.includes(`${base}-minimal-thinking`), base)
+    }
+    assert.ok(names.includes('gpt-6-sol-non-thinking'))
+    assert.ok(!names.includes('gpt-6.1-sol-non-thinking'))
+    assert.ok(!names.includes('gpt-6-astra-non-thinking'))
+})
+
+test('explicit OpenAI effort declarations beat native defaults and stale catalog, including empty and negative declarations', () => {
+    const preset = { id: 'openai', reasoningEffort: 'passthrough' }
+    for (const field of [
+        'reasoning_effort',
+        'reasoning_efforts',
+        'supported_reasoning_efforts'
+    ]) {
+        const models = parseOpenAIModels(
+            {
+                data: [
+                    {
+                        id: 'custom-sol',
+                        [field]: [' LOW ', 'high', 'max', 'bad', 'max']
+                    }
+                ]
+            },
+            preset
+        )
+        assert.ok(
+            models.some((model) => model.name === 'custom-sol-max-thinking'),
+            field
+        )
+        assert.ok(
+            !models.some((model) => model.name === 'custom-sol-xhigh-thinking'),
+            field
+        )
+    }
+    for (const flags of [
+        { reasoning_efforts: [] },
+        { reasoning: false, reasoning_efforts: ['max'] }
+    ]) {
+        assert.equal(
+            parseOpenAIModels({ data: [{ id: 'gpt-6-sol', ...flags }] }, preset)
+                .length,
+            1
+        )
+    }
+    const store = new ModelMetadataStore(
+        { baseDir: process.cwd() },
+        { cachePath: 'unused-test-cache.json' }
+    )
+    store.apply({ openai: { models: { 'gpt-6-sol': { reasoning: true } } } })
+    const [base] = parseOpenAIModels({
+        data: [{ id: 'gpt-6-sol', reasoning_efforts: ['low', 'high'] }]
+    })
+    const names = expandReasoningVariantsForProvider(preset, [
+        store.enhance('openai', base)
+    ]).map((model) => model.name)
+    assert.ok(!names.includes('gpt-6-sol-max-thinking'))
+    assert.ok(!names.includes('gpt-6-sol-xhigh-thinking'))
+})
 
 function fixture(
     options = {},
@@ -73,6 +165,60 @@ async function collect(iterator) {
         result = result ? result.concat(chunk) : chunk
     return result
 }
+
+test('OpenAI Astra and Sol xhigh/max variants reach Responses in streaming and non-streaming requests', async () => {
+    const response = {
+        id: 'resp-effort',
+        object: 'response',
+        status: 'completed',
+        output: [
+            {
+                type: 'message',
+                id: 'msg-effort',
+                role: 'assistant',
+                status: 'completed',
+                content: [{ type: 'output_text', text: 'ok', annotations: [] }]
+            }
+        ],
+        usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 }
+    }
+    for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol']) {
+        for (const effort of ['xhigh', 'max']) {
+            for (const streaming of [false, true]) {
+                const { requester, requests } = fixture(
+                    { provider: 'openai', nonStreaming: !streaming },
+                    (request) =>
+                        request.body.stream
+                            ? sse([
+                                  {
+                                      type: 'response.output_text.delta',
+                                      delta: 'ok'
+                                  },
+                                  { type: 'response.completed', response }
+                              ])
+                            : response
+                )
+                const request = params(`${model}-${effort}-thinking`)
+                if (streaming)
+                    await collect(requester.completionStream(request))
+                else await requester.completion(request)
+                assert.ok(requests[0].url.endsWith('/responses'))
+                assert.equal(requests[0].body.model, model)
+                assert.equal(requests[0].body.reasoning.effort, effort)
+            }
+        }
+    }
+    const { requester, requests } = fixture({ provider: 'openai' }, response)
+    await requester.completion(params('gpt-6-sol-non-thinking'))
+    assert.equal(requests[0].body.reasoning.effort, 'none')
+    await assert.rejects(
+        requester.completion(params('gpt-6-astra-non-thinking')),
+        (error) =>
+            /supports reasoning_effort/.test(
+                error.originError?.message || error.message
+            )
+    )
+})
 const sse = (frames) =>
     frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('') +
     'data: [DONE]\n\n'
@@ -1051,13 +1197,11 @@ test('Gemini deletes accept empty HTTP 204 and pre-aborted uploads make no reque
         new Response(null, { status: 204 })
     )
     assert.deepEqual(
-        await requester
-            .geminiResources()
-            .request({
-                resource: 'files',
-                action: 'delete',
-                name: 'files/mock'
-            }),
+        await requester.geminiResources().request({
+            resource: 'files',
+            action: 'delete',
+            name: 'files/mock'
+        }),
         {}
     )
     const abort = new AbortController()

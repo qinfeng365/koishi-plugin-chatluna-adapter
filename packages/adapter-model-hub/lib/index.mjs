@@ -1078,6 +1078,8 @@ function anthropicEffortForModel(model, effort) {
 __name(anthropicEffortForModel, "anthropicEffortForModel");
 function nativeReasoningEfforts(model) {
   const lower = model.toLowerCase();
+  if (/^gpt-6-sol(?:-|$)/.test(lower))
+    return ["none", "low", "medium", "high", "xhigh", "max"];
   if (lower.startsWith("gpt-6"))
     return ["low", "medium", "high", "xhigh", "max"];
   if (lower.includes("kimi-k3") || /glm-5\.3/.test(lower))
@@ -1494,10 +1496,24 @@ function makeOpenAIEntry(id, item) {
     type: inferOpenAIModelType(id, item),
     maxTokens: item.context_length ?? item.max_context_length ?? item.input_token_limit ?? item.limit?.context ?? item.limit?.input ?? item.token_limit ?? item.top_provider?.context_length ?? item.meta?.n_ctx_train ?? item.meta?.n_ctx,
     capabilities: openAICapabilities(item),
-    capabilityOverrides: openAICapabilityOverrides(item)
+    capabilityOverrides: openAICapabilityOverrides(item),
+    reasoningEfforts: declaredOpenAIReasoningEfforts(item)
   };
 }
 __name(makeOpenAIEntry, "makeOpenAIEntry");
+function declaredOpenAIReasoningEfforts(item) {
+  for (const values of [
+    item.supported_reasoning_efforts,
+    item.reasoning_efforts,
+    item.reasoning_effort
+  ]) {
+    if (!Array.isArray(values)) continue;
+    if (values.length === 0) return [];
+    const efforts = values.map(normalizeReasoningEffort2).filter((value) => value != null);
+    if (efforts.length) return [...new Set(efforts)];
+  }
+}
+__name(declaredOpenAIReasoningEfforts, "declaredOpenAIReasoningEfforts");
 function inferOpenAIModelType(id, item) {
   const type = item.type?.toLowerCase();
   if (type === "embedding" || type === "embeddings") {
@@ -1594,7 +1610,9 @@ function openAICapabilities(item) {
   if (item.tool_call === true || parameters.has("tools") || parameters.has("tool_choice")) {
     result.add(ModelCapabilities2.ToolCall);
   }
-  if (item.reasoning === true || item.supports_reasoning === true || parameters.has("reasoning") || parameters.has("reasoning_effort")) {
+  if (item.reasoning === true || item.supports_reasoning === true || declaredOpenAIReasoningEfforts(item)?.some(
+    (effort) => effort !== "none"
+  ) || parameters.has("reasoning") || parameters.has("reasoning_effort")) {
     result.add(ModelCapabilities2.Thinking);
   }
   if (input.has("image") || item.supports_image_in === true) {
@@ -6440,7 +6458,7 @@ var ModelMetadataStore = class {
         ...capabilityOverridesFromMetadata(metadata),
         ...model.capabilityOverrides
       },
-      reasoningEfforts: model.reasoningEfforts ?? reasoningEffortsFromMetadata(provider, metadata)
+      reasoningEfforts: model.reasoningEfforts ?? (model.name.toLowerCase().startsWith("gpt-6") ? nativeReasoningEfforts(model.name) : void 0) ?? reasoningEffortsFromMetadata(provider, metadata)
     };
   }
   getMaxTokens(provider, model) {

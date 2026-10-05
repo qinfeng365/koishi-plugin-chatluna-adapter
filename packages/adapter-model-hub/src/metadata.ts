@@ -5,6 +5,7 @@ import { parseOpenAIModelNameWithReasoningEffort } from '@chatluna/v1-shared-ada
 import type { Context } from 'koishi'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ProviderModelEntry, ReasoningEffortLevel } from './types'
+import { nativeReasoningEfforts } from './adapters/reasoning-protocols'
 
 type ModelsDevModel = {
     id?: string
@@ -159,6 +160,9 @@ export class ModelMetadataStore {
             },
             reasoningEfforts:
                 model.reasoningEfforts ??
+                (model.name.toLowerCase().startsWith('gpt-6')
+                    ? nativeReasoningEfforts(model.name)
+                    : undefined) ??
                 reasoningEffortsFromMetadata(provider, metadata)
         }
     }

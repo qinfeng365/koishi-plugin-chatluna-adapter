@@ -47,6 +47,9 @@ type OpenAIModelObject = {
     supported_parameters?: string[]
     reasoning?: boolean
     supports_reasoning?: boolean
+    reasoning_effort?: boolean | string[]
+    reasoning_efforts?: string[]
+    supported_reasoning_efforts?: string[]
     tool_call?: boolean
     supports_image_in?: boolean
     supports_video_in?: boolean
@@ -603,7 +606,23 @@ function makeOpenAIEntry(
             item.meta?.n_ctx_train ??
             item.meta?.n_ctx,
         capabilities: openAICapabilities(item),
-        capabilityOverrides: openAICapabilityOverrides(item)
+        capabilityOverrides: openAICapabilityOverrides(item),
+        reasoningEfforts: declaredOpenAIReasoningEfforts(item)
+    }
+}
+
+function declaredOpenAIReasoningEfforts(item: OpenAIModelObject) {
+    for (const values of [
+        item.supported_reasoning_efforts,
+        item.reasoning_efforts,
+        item.reasoning_effort
+    ]) {
+        if (!Array.isArray(values)) continue
+        if (values.length === 0) return []
+        const efforts = values
+            .map(normalizeReasoningEffort)
+            .filter((value): value is ReasoningEffortLevel => value != null)
+        if (efforts.length) return [...new Set(efforts)]
     }
 }
 
@@ -726,6 +745,9 @@ function openAICapabilities(item: OpenAIModelObject) {
     if (
         item.reasoning === true ||
         item.supports_reasoning === true ||
+        declaredOpenAIReasoningEfforts(item)?.some(
+            (effort) => effort !== 'none'
+        ) ||
         parameters.has('reasoning') ||
         parameters.has('reasoning_effort')
     ) {
