@@ -31,10 +31,11 @@ export declare class ModelHubConsoleService extends DataService<ModelHubConsoleD
             enabled: boolean;
             configured: boolean;
             pullModels: boolean;
-            status: "disabled" | "error" | "loaded" | "configured" | "missing-key";
+            status: "disabled" | "error" | "partial" | "loaded" | "configured" | "missing-key";
             modelCount: number;
             modelsUpdatedAt: number;
             error: string;
+            connections: import("./types").ConnectionStatus[];
         }[];
         models: ModelHubConsoleModel[];
         presets: {
@@ -58,7 +59,7 @@ export declare class ModelHubConsoleService extends DataService<ModelHubConsoleD
         frontendMode: "performance" | "polished";
     }>;
     saveSettings(settings: ModelHubConsoleSettings): Promise<ModelHubActionResult>;
-    refreshProvider(platform?: string): Promise<ModelHubActionResult>;
+    refreshProvider(platform?: string, sourceId?: string): Promise<ModelHubActionResult>;
     geminiResource(platform: string, request: GeminiResourceRequest): Promise<any>;
     private _modelsFor;
     private _platformOf;
@@ -86,6 +87,6 @@ declare module '@koishijs/plugin-console' {
         'chatluna-model-hub/geminiResource': (platform: string, request: GeminiResourceRequest) => Promise<Record<string, unknown>>;
         'chatluna-model-hub/getData': () => Promise<ModelHubConsoleData>;
         'chatluna-model-hub/saveSettings': (settings: ModelHubConsoleSettings) => Promise<ModelHubActionResult>;
-        'chatluna-model-hub/refresh': (platform?: string) => Promise<ModelHubActionResult>;
+        'chatluna-model-hub/refresh': (platform?: string, sourceId?: string) => Promise<ModelHubActionResult>;
     }
 }

@@ -347,7 +347,9 @@ test('Responses inline PDF is sent as file_data rather than a data URL file_url'
 test('per-model file handling covers declared Gemini media and excludes unsupported media', () => {
     const client = Object.create(ModelHubClient.prototype)
     client._runtime = { provider: { adapter: 'gemini' } }
-    Object.defineProperty(client, 'config', { value: { geminiFileUpload: false } })
+    Object.defineProperty(client, 'config', {
+        value: { geminiFileUpload: false }
+    })
     const config = client._fileHandlingConfig('opaque-id', {
         capabilities: [
             Cap.ImageInput,
@@ -1024,9 +1026,25 @@ test('plugin startup and settings reload do not erase metadata recovery errors',
     await events.get('ready')()
     assert.equal(options.runtime.errors.get('__metadata__'), 'offline')
     await options.saveSettings({
+        revision: options.getSettings().revision,
         providers: [],
         additionalModels: [],
         blacklistModels: []
     })
     assert.equal(options.runtime.errors.get('__metadata__'), 'offline')
+    const revision = options.getSettings().revision
+    const concurrentPayload = {
+        revision,
+        providers: [],
+        additionalModels: [],
+        blacklistModels: []
+    }
+    const [first, second] = await Promise.allSettled([
+        options.saveSettings(concurrentPayload),
+        options.saveSettings(concurrentPayload)
+    ])
+    assert.equal(first.status, 'fulfilled')
+    assert.equal(second.status, 'rejected')
+    assert.match(second.reason.message, /其他页面修改/)
+    assert.equal(options.getSettings().revision, revision + 1)
 })

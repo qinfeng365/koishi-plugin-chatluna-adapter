@@ -160,7 +160,11 @@ test('console model snapshot preserves provider ID, explicit variant parent and 
     const service = Object.create(ModelHubConsoleService.prototype)
     service._options = {
         getSettings: () => ({ additionalModels: [] }),
-        runtime: { clients: new Map([['hub-a', { lastUsedAt: () => 123 }]]) }
+        runtime: {
+            clients: new Map([
+                ['hub-a', { lastUsedAt: () => 123, modelCandidates: () => [] }]
+            ])
+        }
     }
     service.ctx = {
         chatluna: {

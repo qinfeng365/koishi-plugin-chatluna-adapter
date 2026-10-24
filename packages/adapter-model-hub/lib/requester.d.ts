@@ -7,13 +7,15 @@ import type { ClientConfigPool } from 'koishi-plugin-chatluna/llm-core/platform/
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat';
 import { ModelCapabilities, type ModelInfo } from 'koishi-plugin-chatluna/llm-core/platform/types';
 import { GeminiResources } from './adapters/gemini-resources';
-import type { ModelHubClientConfig, ModelHubResolvedConfig, ProviderModelEntry } from './types';
+import type { ModelHubClientConfig, ModelHubResolvedConfig, DifyRuntimeAppConfig, ProviderModelEntry } from './types';
 export declare class ModelHubRequester extends ModelRequester<ModelHubClientConfig, ModelHubResolvedConfig> implements EmbeddingsRequester, RerankerRequester {
     private _modelCapabilities;
     private _geminiResources;
     private _recentModels;
     private _cancelUsageRefresh?;
     private _usageDisposed;
+    private _difyApps?;
+    setDifyApps(apps: Record<string, DifyRuntimeAppConfig>): void;
     lastUsedAt(model: string): number;
     private _recordModelUse;
     geminiResources(): GeminiResources;

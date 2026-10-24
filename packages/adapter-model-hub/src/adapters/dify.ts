@@ -438,16 +438,15 @@ async function getDifyAppParameters(
     signal?: AbortSignal
 ): Promise<DifyParametersResponse | undefined> {
     try {
-        const response = await requester.requestContext().plugin.fetch(
-            concatDifyUrl(config.apiEndpoint, '/parameters'),
-            {
+        const response = await requester
+            .requestContext()
+            .plugin.fetch(concatDifyUrl(config.apiEndpoint, '/parameters'), {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${config.apiKey}`
                 },
                 signal
-            }
-        )
+            })
         if (!response.ok) {
             requester.logger.warn(
                 `Dify parameters fetch failed for ${config.modelName}: ${response.status} ${response.statusText}`
@@ -628,7 +627,13 @@ function addMimeGroup(target: Set<string>, type: DifyFileType) {
             'text/markdown',
             'text/csv'
         ],
-        audio: ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm'],
+        audio: [
+            'audio/mpeg',
+            'audio/mp4',
+            'audio/wav',
+            'audio/ogg',
+            'audio/webm'
+        ],
         video: ['video/mp4', 'video/quicktime', 'video/webm'],
         custom: []
     }
@@ -762,8 +767,7 @@ function usageFromDify(usage: DifyUsage | undefined) {
     const inputTokens = numberOrUndefined(usage.prompt_tokens) ?? 0
     const outputTokens = numberOrUndefined(usage.completion_tokens) ?? 0
     const totalTokens =
-        numberOrUndefined(usage.total_tokens) ??
-        inputTokens + outputTokens
+        numberOrUndefined(usage.total_tokens) ?? inputTokens + outputTokens
     if (totalTokens < 1 && inputTokens < 1 && outputTokens < 1) return undefined
     return createUsageMetadata({
         inputTokens,
@@ -878,7 +882,12 @@ function buildDifyInputs(
 
     for (const control of config?.parameters?.inputControls ?? []) {
         if (inputs[control.variable] !== undefined) continue
-        const resolved = resolveDifyControlValue(control, variables, query, inputs)
+        const resolved = resolveDifyControlValue(
+            control,
+            variables,
+            query,
+            inputs
+        )
         if (resolved !== undefined) inputs[control.variable] = resolved
     }
 
@@ -1005,7 +1014,8 @@ function serializeDifyInputValue(value: unknown) {
 
 function stringifyForPrompt(value: unknown) {
     if (value == null) return ''
-    const text = typeof value === 'string' ? value : serializeDifyInputValue(value)
+    const text =
+        typeof value === 'string' ? value : serializeDifyInputValue(value)
     return String(text ?? '').trim()
 }
 
@@ -1119,10 +1129,7 @@ function extractUploadCandidates(lastMessage?: BaseMessage) {
 
     const candidates: DifyUploadCandidate[] = []
     const seen = new Set<string>()
-    const add = (
-        source: DifyUploadCandidate['source'],
-        type: DifyFileType
-    ) => {
+    const add = (source: DifyUploadCandidate['source'], type: DifyFileType) => {
         const key = typeof source === 'string' ? `${type}:${source}` : undefined
         if (key && seen.has(key)) return
         if (key) seen.add(key)
@@ -1185,7 +1192,8 @@ async function multimodalToDifyFile(
 
     const payload = await resolveFilePayload(requester, candidate, signal)
     if (!payload) return null
-    if (!isDifyPayloadAllowed(requester, payload, candidate, config)) return null
+    if (!isDifyPayloadAllowed(requester, payload, candidate, config))
+        return null
 
     const uploadFileId = await uploadFileToDify(
         requester,
@@ -1295,7 +1303,13 @@ async function resolveFilePayload(
         if (dataUrlPayload) return dataUrlPayload
 
         if (source.startsWith('http://') || source.startsWith('https://')) {
-            return fetchRemoteFile(requester, source, fileName, mimeType, signal)
+            return fetchRemoteFile(
+                requester,
+                source,
+                fileName,
+                mimeType,
+                signal
+            )
         }
 
         return readLocalFile(requester, source, fileName, mimeType)
@@ -1404,17 +1418,16 @@ async function uploadFileToDify(
     )
     formData.set('user', difyUser)
 
-    const response = await requester.requestContext().plugin.fetch(
-        concatDifyUrl(config.apiEndpoint, '/files/upload'),
-        {
+    const response = await requester
+        .requestContext()
+        .plugin.fetch(concatDifyUrl(config.apiEndpoint, '/files/upload'), {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${config.apiKey}`
             },
             body: formData,
             signal
-        }
-    )
+        })
 
     if (!response.ok) {
         requester.logger.warn(
@@ -1437,9 +1450,9 @@ function postDify(
     body: Record<string, unknown>,
     signal?: AbortSignal
 ) {
-    return requester.requestContext().plugin.fetch(
-        concatDifyUrl(config.apiEndpoint, path),
-        {
+    return requester
+        .requestContext()
+        .plugin.fetch(concatDifyUrl(config.apiEndpoint, path), {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${config.apiKey}`,
@@ -1447,8 +1460,7 @@ function postDify(
             },
             body: JSON.stringify(stripUndefined(body)),
             signal
-        }
-    )
+        })
 }
 
 function concatDifyUrl(endpoint: string, path: string) {
@@ -1462,10 +1474,12 @@ async function getDifyConversationId(
     conversationId: string,
     config: DifyRuntimeAppConfig
 ) {
-    const cached = await requester.koishiContext().chatluna.cache.get(
-        'chatluna/keys',
-        difyCacheKey(conversationId, config)
-    )
+    const cached = await requester
+        .koishiContext()
+        .chatluna.cache.get(
+            'chatluna/keys',
+            difyCacheKey(conversationId, config)
+        )
     if (cached == null) return undefined
 
     try {
@@ -1508,7 +1522,11 @@ async function disposeDifyConversation(
     const cached = await requester
         .koishiContext()
         .chatluna.cache.get('chatluna/keys', key)
-    const difyConversationId = await getDifyConversationId(requester, id, config)
+    const difyConversationId = await getDifyConversationId(
+        requester,
+        id,
+        config
+    )
     if (!difyConversationId) return
 
     let user = 'chatluna'
@@ -1518,17 +1536,22 @@ async function disposeDifyConversation(
         } catch {}
     }
 
-    const response = await requester.requestContext().plugin.fetch(
-        concatDifyUrl(config.apiEndpoint, `/conversations/${difyConversationId}`),
-        {
-            method: 'DELETE',
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ user })
-        }
-    )
+    const response = await requester
+        .requestContext()
+        .plugin.fetch(
+            concatDifyUrl(
+                config.apiEndpoint,
+                `/conversations/${difyConversationId}`
+            ),
+            {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${config.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ user })
+            }
+        )
 
     if (response.ok) {
         await requester
@@ -1540,7 +1563,7 @@ async function disposeDifyConversation(
 }
 
 function difyCacheKey(conversationId: string, config: DifyRuntimeAppConfig) {
-    return `dify/${conversationId}/${config.platform}/${config.modelName}`
+    return `dify/${conversationId}/${config.platform}/${config.modelName}${config.connectionScope ? `/${config.connectionScope}` : ''}`
 }
 
 function safeSerializeMultimodal(

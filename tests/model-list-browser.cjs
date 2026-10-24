@@ -63,7 +63,7 @@ async function main() {
                             contents:
                                 name === 'types'
                                     ? `export const ModelCapabilities={TextInput:'text_input',ToolCall:'tool_call',ImageInput:'image_input',Thinking:'thinking',ImageGeneration:'image_generation',AudioInput:'audio_input',VideoInput:'video_input',FileInput:'file_input'};`
-                                    : `import {reactive,ref,watch} from 'vue'; export const store=reactive(window.fixture);window.qaStore=store; export async function send(){return {success:true}}; export function useStorage(key,version,fallback){const k='koishi.console.'+key;const state=ref(JSON.parse(localStorage.getItem(k)||'null')||fallback());watch(state,v=>localStorage.setItem(k,JSON.stringify(v)),{deep:true});return state;}`,
+                                    : `import {reactive,ref,watch} from 'vue'; export const store=reactive(window.fixture);window.qaStore=store;window.qaCalls=[]; export async function send(event,...args){window.qaCalls.push({event,args});if(event.endsWith('/getData'))return store.chatluna_model_hub;if(event.endsWith('/saveSettings')){const next=JSON.parse(JSON.stringify(args[0]));next.revision=(next.revision||0)+1;for(const p of next.providers)for(const s of p.sources||[])for(const c of s.credentials){if(c.apiKey){c.apiKey='';c.hasApiKey=true;c.apiKeyPreview='已保存';c.secretAction='keep'}}store.chatluna_model_hub.settings=next;store.chatluna_model_hub.revision++;}return {success:true}}; export function useStorage(key,version,fallback){const k='koishi.console.'+key;const state=ref(JSON.parse(localStorage.getItem(k)||'null')||fallback());watch(state,v=>localStorage.setItem(k,JSON.stringify(v)),{deep:true});return state;}`,
                             resolveDir: root,
                             loader: 'js'
                         })
@@ -249,7 +249,7 @@ async function main() {
         assert.equal(await largeGroup.locator('.model-family').count(), 61)
         await page.reload()
         await page.getByRole('tab', { name: '模型', exact: true }).click()
-        for (const width of [1280, 375]) {
+        for (const width of [1280, 768, 375]) {
             await page.setViewportSize({ width, height: 900 })
             for (const theme of ['light', 'dark', 'black']) {
                 await page.evaluate((value) => {
@@ -332,6 +332,319 @@ async function main() {
                 )
             }
         }
+        // Exercise the actual source/key forms, with only the console transport mocked.
+        await page.evaluate(() => {
+            const key = {
+                id: 'key-one',
+                name: 'Primary key',
+                apiKey: '',
+                hasApiKey: true,
+                apiKeyPreview: 'saved…1234',
+                enabled: true,
+                generation: 1,
+                secretAction: 'keep'
+            }
+            const provider = {
+                id: 'stable-platform',
+                provider: 'alpha',
+                name: 'Alpha primary',
+                platform: 'hub-a',
+                apiKey: '',
+                hasApiKey: true,
+                apiKeyPreview: 'saved…1234',
+                apiEndpoint: 'https://primary.example/v1',
+                enabled: true,
+                pullModels: true,
+                customHeaders: [],
+                chatConcurrentMaxSize: 3,
+                chatTimeLimit: 200,
+                configMode: 'default',
+                maxRetries: 4,
+                timeout: 300000,
+                proxyMode: 'system',
+                proxyAddress: '',
+                maxContextRatio: 0.35,
+                temperature: 1,
+                presencePenalty: 0,
+                frequencyPenalty: 0,
+                nonStreaming: false,
+                expandReasoningVariants: false,
+                nonLlmInputTokenLimit: 8192,
+                sources: [
+                    {
+                        id: 'source-one',
+                        name: 'Primary',
+                        provider: 'alpha',
+                        apiEndpoint: 'https://primary.example/v1',
+                        enabled: true,
+                        pullModels: true,
+                        priority: 0,
+                        weight: 1,
+                        settings: {},
+                        credentials: [key]
+                    }
+                ],
+                routes: []
+            }
+            const data = window.qaStore.chatluna_model_hub
+            data.settings = {
+                schemaVersion: 2,
+                revision: 5,
+                providers: [provider],
+                additionalModels: [],
+                blacklistModels: []
+            }
+            data.presets = [
+                {
+                    id: 'alpha',
+                    name: 'Alpha',
+                    adapter: 'openai-chat',
+                    defaultEndpoint: 'https://primary.example/v1',
+                    defaultPlatform: 'hub-a',
+                    kind: 'cloud'
+                }
+            ]
+            data.presets.push({
+                id: 'gemini',
+                name: 'Gemini',
+                adapter: 'gemini',
+                defaultEndpoint:
+                    'https://generativelanguage.googleapis.com/v1beta',
+                defaultPlatform: 'gemini',
+                kind: 'cloud'
+            })
+            data.providers[0].error =
+                '模型目录暂时不可用，当前显示上次成功的结果。请检查连接源配置后重试。'
+            data.providers[0].connections = [
+                {
+                    sourceId: 'source-one',
+                    credentialId: 'key-one',
+                    state: 'ready',
+                    modelCount: 2
+                }
+            ]
+            data.revision++
+            window.qaCalls = []
+        })
+        await page.getByRole('tab', { name: '服务商', exact: true }).click()
+        await page.setViewportSize({ width: 1280, height: 1000 })
+        await page
+            .getByRole('heading', { name: '连接源与密钥', exact: true })
+            .waitFor()
+        assert.equal(await page.locator('.source-card').count(), 1)
+        assert.equal(
+            (await page.evaluate(() => window.qaCalls)).length,
+            0,
+            'Opening provider does not call vendor APIs'
+        )
+        await page
+            .locator('.source-card')
+            .getByRole('button', { name: '添加 Key', exact: true })
+            .click()
+        const keys = page.locator('.source-card .key-card')
+        assert.equal(await keys.count(), 2)
+        await keys.nth(1).locator('input[type=password]').fill('ui-test-secret')
+        assert.ok(
+            !(await page.evaluate(() => JSON.stringify(localStorage))).includes(
+                'ui-test-secret'
+            )
+        )
+        await page.getByRole('button', { name: '保存', exact: true }).click()
+        await page.getByText('已保存并重新加载', { exact: true }).waitFor()
+        const saves = await page.evaluate(() =>
+            window.qaCalls.filter((c) => c.event.endsWith('/saveSettings'))
+        )
+        assert.equal(saves.length, 1)
+        assert.equal(saves[0].args[0].revision, 5)
+        assert.equal(
+            saves[0].args[0].providers[0].sources[0].credentials[1].apiKey,
+            'ui-test-secret'
+        )
+        assert.equal(
+            await page.locator('.key-card input[type=password]').count(),
+            2
+        )
+        assert.ok(
+            (
+                await page
+                    .locator('.key-card input[type=password]')
+                    .evaluateAll((inputs) => inputs.map((input) => input.value))
+            ).every((v) => v === '')
+        )
+        await page
+            .getByRole('button', { name: '添加连接源', exact: true })
+            .click()
+        assert.equal(await page.locator('.source-card').count(), 2)
+        await page.locator('.source-card > summary').nth(1).click()
+        await page.locator('.routes-editor > summary').click()
+        await page
+            .getByRole('button', { name: '添加路由', exact: true })
+            .click()
+        assert.equal(await page.locator('.route-card').count(), 1)
+        await page
+            .locator('.source-card')
+            .nth(1)
+            .locator('.overrides > summary')
+            .click()
+        const secondSource = page.locator('.source-card').nth(1)
+        await secondSource
+            .locator('label')
+            .filter({ hasText: '接口模板' })
+            .locator('.el-select')
+            .click()
+        await page
+            .getByRole('option', { name: 'Gemini · gemini', exact: true })
+            .click()
+        await page
+            .locator('.section')
+            .filter({
+                has: page.getByRole('heading', {
+                    name: '自定义请求头',
+                    exact: true
+                })
+            })
+            .getByRole('button', { name: '添加', exact: true })
+            .click()
+        const jsonInput = secondSource
+            .locator('label')
+            .filter({ hasText: '响应 JSON Schema' })
+            .locator('textarea')
+        await jsonInput.fill('{broken')
+        assert.equal(
+            await jsonInput.inputValue(),
+            '{broken',
+            'Invalid JSON remains editable'
+        )
+        assert.equal(
+            await page
+                .getByRole('button', { name: '保存', exact: true })
+                .isDisabled(),
+            true
+        )
+        await jsonInput.fill('{"type":"object"}')
+        assert.equal(
+            await page
+                .getByRole('button', { name: '保存', exact: true })
+                .isDisabled(),
+            false
+        )
+        for (const width of [1280, 768, 375]) {
+            await page.setViewportSize({ width, height: 1000 })
+            for (const theme of ['light', 'dark', 'black']) {
+                await page.evaluate((value) => {
+                    document.documentElement.dataset.theme = value
+                    document.documentElement.classList.toggle(
+                        'dark',
+                        value !== 'light'
+                    )
+                    document.documentElement.setAttribute(
+                        'theme',
+                        `default-${value}`
+                    )
+                }, theme)
+                await page.evaluate(() => {
+                    const main = document.querySelector('.model-hub-main')
+                    const panel = document.querySelector('.detail-panel')
+                    panel.querySelector('.detail-scroll').scrollTop = 0
+                    if (innerWidth < 1180)
+                        main.scrollTop +=
+                            panel.getBoundingClientRect().top -
+                            main.getBoundingClientRect().top
+                })
+                assert.equal(
+                    await page.evaluate(
+                        () => document.documentElement.scrollWidth > innerWidth
+                    ),
+                    false,
+                    `connections ${width}/${theme} overflow`
+                )
+                await page.screenshot({
+                    path: path.join(
+                        artifacts,
+                        `connections-${width}-${theme}.png`
+                    ),
+                    fullPage: true,
+                    animations: 'disabled'
+                })
+                const layout = await page.evaluate(() => {
+                    const panel = document.querySelector('.detail-panel')
+                    const scroll = panel.querySelector('.detail-scroll')
+                    const error = scroll.querySelector('.error-box')
+                    const style = getComputedStyle(error)
+                    return {
+                        overflowingControls: [
+                            ...panel.querySelectorAll(
+                                '.el-input, .el-select, .el-textarea, .el-input-number, .header-row'
+                            )
+                        ]
+                            .filter((el) => {
+                                const rect = el.getBoundingClientRect()
+                                const bounds = panel.getBoundingClientRect()
+                                return (
+                                    rect.width > 0 &&
+                                    rect.height > 0 &&
+                                    (rect.left < bounds.left ||
+                                        rect.right > bounds.right)
+                                )
+                            })
+                            .map((el) => el.className),
+                        switchColumns: getComputedStyle(
+                            panel.querySelector('.switch-grid')
+                        ).gridTemplateColumns.split(' ').length,
+                        headerColumns: getComputedStyle(
+                            panel.querySelector('.header-row')
+                        ).gridTemplateColumns.split(' ').length,
+                        panelBottom: panel.getBoundingClientRect().bottom,
+                        contentBottom: Math.max(
+                            ...[...scroll.children].map(
+                                (el) => el.getBoundingClientRect().bottom
+                            )
+                        ),
+                        errorHeight: error.getBoundingClientRect().height,
+                        errorMinimum:
+                            parseFloat(style.fontSize) +
+                            parseFloat(style.paddingTop) +
+                            parseFloat(style.paddingBottom),
+                        errorClientHeight: error.clientHeight,
+                        errorScrollHeight: error.scrollHeight
+                    }
+                })
+                assert.ok(
+                    layout.errorHeight >= layout.errorMinimum &&
+                        layout.errorScrollHeight <=
+                            layout.errorClientHeight + 1,
+                    `connections ${width}/${theme} clipped error: ${JSON.stringify(layout)}`
+                )
+                assert.deepEqual(
+                    layout.overflowingControls,
+                    [],
+                    `connections ${width}/${theme} clipped controls`
+                )
+                if (width <= 900) {
+                    assert.equal(
+                        layout.switchColumns,
+                        1,
+                        'Narrow switches use a full-width row'
+                    )
+                    assert.equal(
+                        layout.headerColumns,
+                        1,
+                        'Narrow header inputs use full-width rows'
+                    )
+                }
+                if (width < 1180) {
+                    assert.ok(
+                        layout.contentBottom <= layout.panelBottom + 1,
+                        `connections ${width}/${theme} content outside detail card: ${JSON.stringify(layout)}`
+                    )
+                }
+                const lastControl = page
+                    .locator('.detail-scroll button:visible')
+                    .last()
+                await lastControl.scrollIntoViewIfNeeded()
+                await lastControl.click({ trial: true })
+            }
+        }
         assert.deepEqual(errors, [])
         console.log(
             JSON.stringify({
@@ -346,7 +659,11 @@ async function main() {
                     'large-list incremental rendering',
                     'dark surfaces and dropdown brightness',
                     'light/dark/black',
-                    'desktop/mobile overflow'
+                    'desktop/mobile overflow',
+                    'multi-source/key form, secret write and revision readback',
+                    'explicit model routes and source overrides',
+                    'JSON validation prevents invalid saves',
+                    'unclipped errors, contained mobile cards and reachable final controls'
                 ],
                 artifacts
             })

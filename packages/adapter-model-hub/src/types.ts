@@ -15,6 +15,7 @@ export type ProviderAdapterId =
 
 export type ModelHubProviderStatus =
     | 'loaded'
+    | 'partial'
     | 'configured'
     | 'missing-key'
     | 'disabled'
@@ -45,6 +46,7 @@ export interface ModelFilterEntry {
 }
 
 export interface HeaderEntry {
+    id?: string
     target: string
     name: string
     value: string
@@ -162,6 +164,7 @@ export interface DifyAppParameters {
 }
 
 export interface DifyRuntimeAppConfig {
+    connectionScope?: string
     apiKey: string
     apiEndpoint: string
     platform: string
@@ -176,6 +179,8 @@ export interface DifyRuntimeAppConfig {
 }
 
 export interface ModelHubSettings {
+    schemaVersion?: number
+    revision?: number
     providers: ProviderEntry[]
     additionalModels: AdditionalModelEntry[]
     blacklistModels: ModelFilterEntry[]
@@ -189,6 +194,9 @@ export interface ProviderEntry
         GeminiProviderSettings,
         AnthropicProviderSettings,
         DifyProviderSettings {
+    id?: string
+    sources?: SourceConnection[]
+    routes?: ModelRoute[]
     provider: string
     name?: string
     platform: string
@@ -200,13 +208,86 @@ export interface ProviderEntry
 
 export interface ConsoleProviderEntry extends Omit<
     ProviderEntry,
-    'apiKey' | 'customHeaders'
+    'apiKey' | 'customHeaders' | 'sources'
 > {
+    sources?: ConsoleSourceConnection[]
     apiKey: string
     apiKeyPreview: string
     hasApiKey: boolean
     clearApiKey?: boolean
     customHeaders: ConsoleHeaderEntry[]
+}
+
+export type ConnectionSettings = ProviderAdvancedSettings &
+    OpenAICompatibleProviderSettings &
+    OpenAIProviderSettings &
+    GeminiProviderSettings &
+    AnthropicProviderSettings &
+    DifyProviderSettings
+
+export interface SourceConnection {
+    resourceCredentialId?: string
+    resourceCredentialGeneration?: number
+    id: string
+    name: string
+    provider: string
+    apiEndpoint: string
+    enabled: boolean
+    pullModels: boolean
+    priority: number
+    weight: number
+    settings: Partial<ConnectionSettings>
+    credentials: SourceCredential[]
+}
+
+export interface SourceCredential {
+    id: string
+    name: string
+    apiKey: string
+    enabled: boolean
+    generation: number
+    organization?: string
+    project?: string
+    quotaGroup?: string
+    concurrentMaxSize?: number
+    hourlyLimit?: number
+}
+
+export interface ConsoleSourceCredential extends Omit<
+    SourceCredential,
+    'apiKey'
+> {
+    apiKey: string
+    hasApiKey: boolean
+    apiKeyPreview: string
+    secretAction?: 'keep' | 'replace' | 'clear'
+}
+
+export interface ConsoleSourceConnection extends Omit<
+    SourceConnection,
+    'credentials' | 'settings'
+> {
+    credentials: ConsoleSourceCredential[]
+    settings: Omit<Partial<ConnectionSettings>, 'customHeaders'> & {
+        customHeaders?: ConsoleHeaderEntry[]
+    }
+}
+
+export interface ModelRouteCandidate {
+    sourceId: string
+    credentialIds?: string[]
+    upstreamModel: string
+    /** Required for cross-source embeddings; same dimension alone is insufficient. */
+    embeddingSpace?: string
+}
+
+export interface ModelRoute {
+    model: string
+    candidates: ModelRouteCandidate[]
+    allowFallback: boolean
+    capabilities?: ModelCapabilities[]
+    modelType?: 'llm' | 'embeddings' | 'reranker'
+    contextSize?: number
 }
 
 export interface ConsoleHeaderEntry extends Omit<HeaderEntry, 'value'> {
@@ -278,6 +359,18 @@ export interface ProviderPreset {
 }
 
 export interface RuntimeProviderEntry extends ProviderEntry {
+    resourceCredentialId?: string
+    resourceCredentialGeneration?: number
+    sourceId?: string
+    credentialId?: string
+    credentialGeneration?: number
+    sourcePriority?: number
+    sourceWeight?: number
+    quotaGroup?: string
+    credentialConcurrentMaxSize?: number
+    credentialHourlyLimit?: number
+    organization?: string
+    project?: string
     provider: string
     providerName: string
     icon: string
@@ -303,6 +396,18 @@ export interface ModelHubClientConfig
         GeminiProviderSettings,
         AnthropicProviderSettings,
         DifyProviderSettings {
+    resourceCredentialId?: string
+    resourceCredentialGeneration?: number
+    sourceId?: string
+    credentialId?: string
+    credentialGeneration?: number
+    sourcePriority?: number
+    sourceWeight?: number
+    quotaGroup?: string
+    credentialConcurrentMaxSize?: number
+    credentialHourlyLimit?: number
+    organization?: string
+    project?: string
     provider: string
     providerName: string
     icon: string
@@ -337,6 +442,17 @@ export interface ModelHubConsoleProvider {
     modelCount: number
     modelsUpdatedAt?: number
     error?: string
+    connections?: ConnectionStatus[]
+}
+
+export interface ConnectionStatus {
+    sourceId: string
+    credentialId: string
+    state: 'ready' | 'stale' | 'error' | 'cooldown' | 'disabled'
+    updatedAt?: number
+    retryAt?: number
+    modelCount: number
+    error?: string
 }
 
 export interface ModelHubConsoleModel {
@@ -350,6 +466,15 @@ export interface ModelHubConsoleModel {
     source: 'api' | 'custom'
     reasoningVariantOf?: string
     lastUsedAt?: number
+    candidates?: {
+        sourceId: string
+        credentialId: string
+        upstreamModel: string
+        sourceName?: string
+        credentialName?: string
+        capabilities?: ModelCapabilities[]
+        available?: boolean
+    }[]
 }
 
 export interface ModelHubConsolePreset {

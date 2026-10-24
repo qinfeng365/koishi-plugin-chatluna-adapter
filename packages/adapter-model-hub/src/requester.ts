@@ -41,6 +41,7 @@ import { GeminiResources } from './adapters/gemini-resources'
 import type {
     ModelHubClientConfig,
     ModelHubResolvedConfig,
+    DifyRuntimeAppConfig,
     OpenAICompatibleReasoningProtocol,
     ProviderModelEntry
 } from './types'
@@ -54,6 +55,11 @@ export class ModelHubRequester
     private _recentModels = new Map<string, number>()
     private _cancelUsageRefresh?: () => void
     private _usageDisposed = false
+    private _difyApps?: Record<string, DifyRuntimeAppConfig>
+
+    setDifyApps(apps: Record<string, DifyRuntimeAppConfig>) {
+        this._difyApps = apps
+    }
 
     lastUsedAt(model: string) {
         return this._recentModels.get(model)
@@ -211,6 +217,9 @@ export class ModelHubRequester
         ) {
             result.Authorization = `Bearer ${current.apiKey}`
         }
+        if (current.organization)
+            result['OpenAI-Organization'] = current.organization
+        if (current.project) result['OpenAI-Project'] = current.project
 
         for (const header of current.customHeaders ?? []) {
             const name = header.name?.trim()
@@ -318,7 +327,9 @@ export class ModelHubRequester
     }
 
     currentConfig() {
-        return this._config.value
+        return this._difyApps
+            ? { ...this._config.value, difyApps: this._difyApps }
+            : this._config.value
     }
 
     koishiContext() {

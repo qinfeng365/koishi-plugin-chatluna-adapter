@@ -1,5 +1,8 @@
 import type { ModelHubRequester } from '../requester';
 export interface GeminiResourceRequest {
+    sourceId?: string;
+    credentialId?: string;
+    credentialGeneration?: number;
     resource: 'files' | 'cachedContents' | 'interactions';
     action: 'list' | 'get' | 'create' | 'update' | 'delete' | 'cancel';
     name?: string;

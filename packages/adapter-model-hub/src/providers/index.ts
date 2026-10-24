@@ -179,6 +179,59 @@ export function resolveRuntimeProviders(
     const groups = new Map<string, RuntimeProvider>()
 
     for (const [configIndex, entry] of (entries ?? []).entries()) {
+        if (entry.sources) {
+            if (!entry.enabled) continue
+            const preset = getProviderPreset(entry.provider)
+            const group: RuntimeProvider = {
+                provider: preset,
+                adapter: preset.adapter,
+                platform: entry.platform,
+                entries: []
+            }
+            for (const source of entry.sources) {
+                if (!source.enabled) continue
+                const sourcePreset = getProviderPreset(source.provider)
+                for (const credential of source.credentials) {
+                    if (
+                        !credential.enabled ||
+                        (!credential.apiKey && !sourcePreset.allowEmptyApiKey)
+                    )
+                        continue
+                    group.entries.push({
+                        ...entry,
+                        ...source.settings,
+                        provider: sourcePreset.id,
+                        providerName: source.name,
+                        icon: sourcePreset.icon,
+                        apiEndpoint: source.apiEndpoint,
+                        apiKey: credential.apiKey,
+                        platform: entry.platform,
+                        configIndex,
+                        pullModels: source.pullModels,
+                        sourceId: source.id,
+                        credentialId: credential.id,
+                        credentialGeneration: credential.generation,
+                        resourceCredentialId: source.resourceCredentialId,
+                        resourceCredentialGeneration:
+                            source.resourceCredentialGeneration,
+                        sourcePriority: source.priority,
+                        sourceWeight: source.weight,
+                        quotaGroup: credential.quotaGroup,
+                        organization: credential.organization,
+                        project: credential.project,
+                        credentialConcurrentMaxSize:
+                            credential.concurrentMaxSize,
+                        credentialHourlyLimit: credential.hourlyLimit
+                    })
+                }
+            }
+            if (group.entries.length) {
+                if (groups.has(group.platform))
+                    throw new Error(`重复平台入口：${group.platform}`)
+                groups.set(group.platform, group)
+            }
+            continue
+        }
         const preset = getProviderPreset(entry.provider)
         const requestedPlatform = normalizePlatformName(
             entry.platform,

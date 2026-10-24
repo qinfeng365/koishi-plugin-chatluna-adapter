@@ -3,6 +3,9 @@ import { checkResponse } from 'koishi-plugin-chatluna/utils/sse'
 import type { ModelHubRequester } from '../requester'
 
 export interface GeminiResourceRequest {
+    sourceId?: string
+    credentialId?: string
+    credentialGeneration?: number
     resource: 'files' | 'cachedContents' | 'interactions'
     action: 'list' | 'get' | 'create' | 'update' | 'delete' | 'cancel'
     name?: string
@@ -181,7 +184,9 @@ export class GeminiResources {
             return new Response(
                 [204, 205, 304].includes(response.status) ? null : buffer,
                 { status: response.status, headers: response.headers as any }
-            ) as unknown as Awaited<ReturnType<ModelHubRequester['vendorFetch']>>
+            ) as unknown as Awaited<
+                ReturnType<ModelHubRequester['vendorFetch']>
+            >
         } finally {
             init.signal?.removeEventListener('abort', cancelCaller)
             this.lifetime.signal.removeEventListener('abort', cancelLifetime)

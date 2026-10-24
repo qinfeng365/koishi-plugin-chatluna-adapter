@@ -19,6 +19,37 @@
                     · 使用于 {{ usedAt }}</template
                 >
             </small>
+            <details
+                v-if="model.candidates?.length"
+                class="model-connections"
+                @click.stop
+            >
+                <summary>
+                    {{
+                        model.candidates.filter((c) => c.available !== false)
+                            .length
+                    }}/{{ model.candidates.length }} 可用连接
+                </summary>
+                <div
+                    v-for="candidate in model.candidates"
+                    :key="candidate.sourceId + candidate.credentialId"
+                >
+                    {{ candidate.sourceName || candidate.sourceId }} ·
+                    {{ candidate.credentialName || 'Key' }} →
+                    {{ candidate.upstreamModel }}
+                    <small
+                        >{{
+                            candidate.available === false ? '暂不可用' : '可用'
+                        }}
+                        ·
+                        {{
+                            candidate.capabilities
+                                ?.map((c) => labels[c] || c)
+                                .join(' / ')
+                        }}</small
+                    >
+                </div>
+            </details>
         </div>
         <span class="model-capabilities">{{
             capabilities || '未声明能力'
@@ -89,6 +120,17 @@ const usedAt = computed(() =>
 .model-capabilities {
     color: var(--k-text-light);
     font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+.model-connections {
+    font-size: 0.75rem;
+    color: var(--k-text-light);
+}
+.model-connections summary {
+    cursor: pointer;
+}
+.model-connections div {
+    margin-top: 0.4rem;
     overflow-wrap: anywhere;
 }
 .model-favorite,

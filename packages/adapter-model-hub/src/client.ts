@@ -28,6 +28,8 @@ import {
 } from '@chatluna/v1-shared-adapter'
 import { logger } from '.'
 import { ModelHubRequester } from './requester'
+import { ModelHubRouter } from './router'
+import { ConnectionCatalogStore } from './connection-catalog'
 import { getTargetedAdditionalModels, getTargetedBlacklist } from './providers'
 import { ModelMetadataStore } from './metadata'
 import {
@@ -54,6 +56,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         return this._requester.lastUsedAt(model)
     }
 
+    shutdown() {
+        return this._requester.dispose()
+    }
+
     constructor(
         ctx: Context,
         private _config: ModelHubResolvedConfig,
@@ -62,20 +68,41 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
             ModelHubResolvedConfig
         >,
         private _runtime: RuntimeProvider,
-        private _metadata: ModelMetadataStore
+        private _metadata: ModelMetadataStore,
+        catalog?: ConnectionCatalogStore
     ) {
         super(ctx, plugin.platformConfigPool)
         this.platform = _runtime.platform
-        this._requester = new ModelHubRequester(
-            ctx,
-            plugin.platformConfigPool,
-            _config,
-            plugin
-        )
+        this._requester = _runtime.entries.some((e) => e.sourceId)
+            ? new ModelHubRouter(
+                  ctx,
+                  _config,
+                  plugin,
+                  _runtime,
+                  _metadata,
+                  catalog
+              )
+            : new ModelHubRequester(
+                  ctx,
+                  plugin.platformConfigPool,
+                  _config,
+                  plugin
+              )
     }
 
     async refreshModels(config?: RunnableConfig): Promise<ModelInfo[]> {
         try {
+            if (this._requester instanceof ModelHubRouter) {
+                const models = await this._requester.refreshCatalog(config)
+                this.modelsUpdatedAt =
+                    Math.max(
+                        0,
+                        ...this._requester
+                            .status()
+                            .map((connection) => connection.updatedAt ?? 0)
+                    ) || undefined
+                return models
+            }
             const current = this.config
             const rawModels =
                 current?.pullModels === true ||
@@ -148,7 +175,45 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
     }
 
     async geminiResource(request: GeminiResourceRequest) {
+        if (this._requester instanceof ModelHubRouter)
+            return this._requester.resource(request)
         return this._requester.geminiResources().request(request)
+    }
+
+    connectionStatus() {
+        return this._requester instanceof ModelHubRouter
+            ? this._requester.status()
+            : []
+    }
+
+    modelCandidates(model: string) {
+        return this._requester instanceof ModelHubRouter
+            ? this._requester.modelCandidates(model)
+            : []
+    }
+
+    prepareUpdate(config: ModelHubResolvedConfig, runtime: RuntimeProvider) {
+        if (!(this._requester instanceof ModelHubRouter))
+            throw new Error('旧平台需要重新加载插件')
+        const router = this._requester
+        const next = router.prepare(config, runtime)
+        return () => {
+            router.activate(next)
+            this._config = config
+            this._runtime = runtime
+            this._modelInfos = {}
+        }
+    }
+
+    async refreshSource(sourceId?: string) {
+        if (!(this._requester instanceof ModelHubRouter))
+            return this.reloadModels()
+        const models = await this._requester.refreshCatalog(undefined, sourceId)
+        this._modelInfos = Object.fromEntries(
+            models.map((model) => [model.name, model])
+        )
+        this.modelsUpdatedAt = Date.now()
+        return models
     }
 
     registerSelf() {
@@ -156,6 +221,8 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
     }
 
     getFileHandlingConfig(): FileHandlingConfig | null {
+        if (this._requester instanceof ModelHubRouter)
+            return this._requester.platformFileHandling()
         if (this._runtime.provider.adapter === 'anthropic') {
             return ANTHROPIC_FILE_HANDLING_CONFIG
         }
@@ -223,7 +290,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
 
         if (info.type === ModelType.llm) {
-            const current = this.config ?? this._config
+            const current =
+                this._requester instanceof ModelHubRouter
+                    ? this._config
+                    : (this.config ?? this._config)
             const modelMaxContextSize = getModelMaxContextSize(info)
             return new ChatLunaChatModel({
                 usageReporter: report,
@@ -239,7 +309,10 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
                 presencePenalty: current.presencePenalty,
                 timeout: current.timeout,
                 temperature: current.temperature,
-                maxRetries: current.maxRetries,
+                maxRetries:
+                    this._requester instanceof ModelHubRouter
+                        ? 0
+                        : current.maxRetries,
                 llmType: this._runtime.provider.id,
                 fileHandlingConfig: this._fileHandlingConfig(model, info),
                 isThinkModel: info.capabilities.includes(
@@ -249,22 +322,34 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         }
 
         if (info.type === ModelType.reranker) {
-            const current = this.config ?? this._config
+            const current =
+                this._requester instanceof ModelHubRouter
+                    ? this._config
+                    : (this.config ?? this._config)
             return new ChatLunaReranker({
                 usageReporter: report,
                 client: this._requester,
                 model,
-                maxRetries: current.maxRetries,
+                maxRetries:
+                    this._requester instanceof ModelHubRouter
+                        ? 0
+                        : current.maxRetries,
                 timeout: current.timeout
             })
         }
 
-        const current = this.config ?? this._config
+        const current =
+            this._requester instanceof ModelHubRouter
+                ? this._config
+                : (this.config ?? this._config)
         return new ChatLunaEmbeddings({
             usageReporter: report,
             client: this._requester,
             model,
-            maxRetries: current.maxRetries
+            maxRetries:
+                this._requester instanceof ModelHubRouter
+                    ? 0
+                    : current.maxRetries
         })
     }
 
@@ -389,6 +474,8 @@ export class ModelHubClient extends PlatformModelEmbeddingsAndRerankerClient<Mod
         model: string,
         info: ModelInfo
     ): FileHandlingConfig | undefined {
+        if (this._requester instanceof ModelHubRouter)
+            return this._requester.fileHandling(model)
         if (this._runtime.provider.adapter === 'anthropic') {
             const supportedMimeTypes = new Set(
                 [...ANTHROPIC_FILE_HANDLING_CONFIG.supportedMimeTypes].filter(

@@ -5,6 +5,7 @@ export declare const DEFAULT_PROVIDER_ADVANCED_SETTINGS: ProviderAdvancedSetting
 export declare const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings;
 export declare class ModelHubSettingsStore {
     readonly path: string;
+    readonly legacyPath: string;
     constructor(ctx: Context, settingsPath: string | undefined);
     load(legacy?: unknown): Promise<ModelHubSettings>;
     save(settings: ModelHubSettings): Promise<void>;

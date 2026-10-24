@@ -77,6 +77,42 @@ export function capabilityFileHandling(
     adapter: ProviderAdapterId,
     capabilities: Cap[]
 ): FileHandlingConfig | undefined {
+    if (adapter === 'anthropic') {
+        const supportedMimeTypes = new Set([
+            ...(capabilities.includes(Cap.ImageInput)
+                ? ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+                : []),
+            ...(capabilities.includes(Cap.FileInput)
+                ? [
+                      'text/html',
+                      'text/css',
+                      'text/plain',
+                      'text/markdown',
+                      'text/xml',
+                      'text/csv',
+                      'text/rtf',
+                      'text/javascript',
+                      'application/json',
+                      'application/pdf'
+                  ]
+                : [])
+        ])
+        return supportedMimeTypes.size
+            ? {
+                  supportedMimeTypes,
+                  maxTotalSizeBytes: 32 * 1024 * 1024,
+                  maxFileSizeBytes: 32 * 1024 * 1024,
+                  maxFileSizeBytesOverrides: Object.fromEntries(
+                      [
+                          'image/jpeg',
+                          'image/png',
+                          'image/gif',
+                          'image/webp'
+                      ].map((mime) => [mime, 5 * 1024 * 1024])
+                  )
+              }
+            : undefined
+    }
     const mimes = new Set<string>()
     if (capabilities.includes(Cap.ImageInput))
         IMAGE_MIMES.forEach((mime) => mimes.add(mime))

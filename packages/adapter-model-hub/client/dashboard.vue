@@ -45,7 +45,10 @@
                     <div class="panel-head">
                         <div>
                             <h2>服务商</h2>
-                            <span>{{ visibleProviders.length }} / {{ form.providers.length }}</span>
+                            <span
+                                >{{ visibleProviders.length }} /
+                                {{ form.providers.length }}</span
+                            >
                         </div>
                         <el-button type="primary" @click="openAddDialog">
                             添加
@@ -81,15 +84,23 @@
                             :key="`${item.provider.provider}:${item.provider.platform}:${item.index}`"
                             type="button"
                             class="provider-row"
-                            :class="{ active: selectedProviderIndex === item.index }"
+                            :class="{
+                                active: selectedProviderIndex === item.index
+                            }"
                             :aria-pressed="selectedProviderIndex === item.index"
                             @click="selectProvider(item.index)"
                         >
                             <span class="provider-icon">
-                                <span>{{ fallbackName(providerName(item.provider)) }}</span>
+                                <span>{{
+                                    fallbackName(providerName(item.provider))
+                                }}</span>
                                 <img
                                     :key="providerIcon(item.provider)"
-                                    :src="firstIconUrl(providerIcon(item.provider))"
+                                    :src="
+                                        firstIconUrl(
+                                            providerIcon(item.provider)
+                                        )
+                                    "
                                     :alt="providerName(item.provider)"
                                     :data-icon="providerIcon(item.provider)"
                                     @load="showIcon"
@@ -97,7 +108,9 @@
                                 />
                             </span>
                             <span class="provider-copy">
-                                <strong>{{ providerName(item.provider) }}</strong>
+                                <strong>{{
+                                    providerName(item.provider)
+                                }}</strong>
                                 <small>
                                     {{ item.provider.platform || '未命名平台' }}
                                 </small>
@@ -106,7 +119,9 @@
                                 class="status-dot"
                                 :data-status="item.runtime?.status ?? 'preset'"
                                 role="img"
-                                :aria-label="statusText(item.runtime?.status ?? 'preset')"
+                                :aria-label="
+                                    statusText(item.runtime?.status ?? 'preset')
+                                "
                             ></span>
                         </button>
 
@@ -118,627 +133,1228 @@
                         >
                             添加服务商
                         </button>
-                        <p v-else-if="visibleProviders.length === 0" class="empty-text compact">
+                        <p
+                            v-else-if="visibleProviders.length === 0"
+                            class="empty-text compact"
+                        >
                             没有匹配的服务商
                         </p>
                     </div>
                 </aside>
 
                 <transition name="panel-fade" mode="out-in">
-                    <section v-if="selectedProvider" :key="selectedProviderIndex" class="detail-panel">
-                    <header class="detail-head">
-                        <div class="detail-title">
-                            <span class="provider-icon large">
-                                <span>{{ fallbackName(providerName(selectedProvider)) }}</span>
-                                <img
-                                    :key="providerIcon(selectedProvider)"
-                                    :src="firstIconUrl(providerIcon(selectedProvider))"
-                                    :alt="providerName(selectedProvider)"
-                                    :data-icon="providerIcon(selectedProvider)"
-                                    @load="showIcon"
-                                    @error="tryNextIcon"
-                                />
-                            </span>
-                            <div>
-                                <strong>{{ providerName(selectedProvider) }}</strong>
-                                <small>{{ selectedProvider.platform || '未命名平台' }}</small>
-                            </div>
-                        </div>
-
-                        <div class="detail-actions">
-                            <span
-                                class="status-pill"
-                                :data-status="selectedRuntimeProvider?.status ?? 'preset'"
-                            >
-                                {{ statusText(selectedRuntimeProvider?.status ?? 'preset') }}
-                            </span>
-                            <el-button
-                                :loading="saving"
-                                type="primary"
-                                :disabled="!dirty"
-                                @click="saveSettings"
-                            >
-                                保存
-                            </el-button>
-                            <el-button
-                                :loading="refreshingProvider === selectedProvider"
-                                :disabled="!selectedRuntimeProvider"
-                                @click="refreshProvider(selectedProvider)"
-                            >
-                                刷新
-                            </el-button>
-                            <el-button @click="copyProvider(selectedProvider)">
-                                复制
-                            </el-button>
-                            <el-button @click="duplicateProvider(selectedProviderIndex)">
-                                克隆
-                            </el-button>
-                            <el-button
-                                type="danger"
-                                @click="removeProvider(selectedProviderIndex)"
-                            >
-                                删除
-                            </el-button>
-                        </div>
-                    </header>
-
-                    <div class="detail-scroll">
-                        <p v-if="selectedRuntimeProvider?.error" class="error-box">
-                            {{ selectedRuntimeProvider.error }}
-                        </p>
-
-                        <section class="section">
-                            <div class="section-head">
-                                <h3>连接</h3>
-                                <div class="mini-stats">
-                                    <span>{{ selectedRuntimeProvider?.modelCount ?? 0 }} 模型</span>
-                                    <span>
-                                        {{
-                                            selectedProvider.hasApiKey
-                                                ? selectedProvider.apiKeyPreview || '已保存密钥'
-                                                : '未配置密钥'
-                                        }}
-                                    </span>
+                    <section
+                        v-if="selectedProvider"
+                        :key="selectedProviderIndex"
+                        class="detail-panel"
+                    >
+                        <header class="detail-head">
+                            <div class="detail-title">
+                                <span class="provider-icon large">
+                                    <span>{{
+                                        fallbackName(
+                                            providerName(selectedProvider)
+                                        )
+                                    }}</span>
+                                    <img
+                                        :key="providerIcon(selectedProvider)"
+                                        :src="
+                                            firstIconUrl(
+                                                providerIcon(selectedProvider)
+                                            )
+                                        "
+                                        :alt="providerName(selectedProvider)"
+                                        :data-icon="
+                                            providerIcon(selectedProvider)
+                                        "
+                                        @load="showIcon"
+                                        @error="tryNextIcon"
+                                    />
+                                </span>
+                                <div>
+                                    <strong>{{
+                                        providerName(selectedProvider)
+                                    }}</strong>
+                                    <small>{{
+                                        selectedProvider.platform ||
+                                        '未命名平台'
+                                    }}</small>
                                 </div>
                             </div>
 
-                            <div class="grid two">
-                                <label>
-                                    <span>服务商名称</span>
-                                    <el-input v-model="selectedProvider.name" />
-                                </label>
-                                <label>
-                                    <span>ChatLuna 平台 ID</span>
-                                    <el-input
-                                        :model-value="selectedProvider.platform"
-                                        @update:model-value="updateProviderPlatform(selectedProvider, String($event))"
-                                    />
-                                </label>
-                                <label class="wide">
-                                    <span>API 地址</span>
-                                    <el-input v-model="selectedProvider.apiEndpoint" />
-                                </label>
-                                <label class="wide">
-                                    <span>API Key</span>
-                                    <el-input
-                                        v-model="selectedProvider.apiKey"
-                                        show-password
-                                        :placeholder="selectedProvider.apiKeyPreview || '输入新密钥'"
-                                        @input="selectedProvider.clearApiKey = false"
-                                    />
-                                </label>
-                            </div>
-
-                            <div
-                                v-if="selectedProvider.hasApiKey && !selectedProvider.clearApiKey"
-                                class="secret-row"
-                            >
-                                <span>已保存 {{ selectedProvider.apiKeyPreview }}</span>
-                                <button type="button" @click="clearProviderKey(selectedProvider)">
-                                    清除
-                                </button>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>启用服务商</span>
-                                    <el-switch v-model="selectedProvider.enabled" />
-                                </label>
-                                <label>
-                                    <span>拉取 /models</span>
-                                    <el-switch
-                                        v-model="selectedProvider.pullModels"
-                                        :disabled="selectedProvider.provider === 'dify'"
-                                    />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section v-if="selectedProvider.provider === 'dify'" class="section">
-                            <div class="section-head">
-                                <h3>Dify App</h3>
-                            </div>
-
-                            <div class="grid two">
-                                <label>
-                                    <span>应用类型</span>
-                                    <el-select v-model="selectedProvider.difyAppType">
-                                        <el-option label="ChatBot" value="chat" />
-                                        <el-option label="Agent" value="agent" />
-                                        <el-option label="Workflow" value="workflow" />
-                                        <el-option label="Completion" value="completion" />
-                                    </el-select>
-                                </label>
-                                <label>
-                                    <span>模型名</span>
-                                    <el-input
-                                        v-model="selectedProvider.difyModelName"
-                                        placeholder="默认使用服务商名称"
-                                    />
-                                </label>
-                                <label v-if="selectedProvider.difyAppType === 'workflow'">
-                                    <span>Workflow ID</span>
-                                    <el-input
-                                        v-model="selectedProvider.difyWorkflowId"
-                                        placeholder="可选"
-                                    />
-                                </label>
-                                <label v-if="selectedProvider.difyAppType === 'workflow'">
-                                    <span>输出变量</span>
-                                    <el-input
-                                        v-model="selectedProvider.difyOutputVariable"
-                                        placeholder="answer / text / output"
-                                    />
-                                </label>
-                                <label>
-                                    <span>上下文大小</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.difyContextSize"
-                                        :min="1"
-                                        controls-position="right"
-                                    />
-                                </label>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>文件上传</span>
-                                    <el-switch v-model="selectedProvider.difyEnableFileUpload" />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section v-if="['openai', 'xai'].includes(selectedProvider.provider)" class="section">
-                            <div class="section-head">
-                                <h3>Responses</h3>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>启用 Responses API</span>
-                                    <el-switch v-model="selectedProvider.responseApi" />
-                                </label>
-                            </div>
-
-                            <div v-if="selectedProvider.responseApi" class="grid two">
-                                <label>
-                                    <span>内置工具</span>
-                                    <el-select v-model="selectedProvider.responseBuiltinTools" multiple>
-                                        <el-option label="网页搜索" value="web_search" />
-                                        <el-option v-if="selectedProvider.provider === 'xai'" label="X 搜索" value="x_search" />
-                                        <el-option v-if="selectedProvider.provider === 'openai'" label="图片生成" value="image_generation" />
-                                        <el-option label="代码解释器" value="code_interpreter" />
-                                        <el-option v-if="selectedProvider.provider === 'openai'" label="文件搜索" value="file_search" />
-                                    </el-select>
-                                </label>
-                                <label class="wide">
-                                    <span>支持工具的模型</span>
-                                    <el-input
-                                        v-model="responseSupportModelsText"
-                                        placeholder="用英文逗号分隔"
-                                    />
-                                </label>
-                                <label class="wide">
-                                    <span>File Search Vector Store IDs</span>
-                                    <el-input
-                                        v-model="responseVectorStoresText"
-                                        placeholder="用英文逗号分隔"
-                                    />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section v-if="['openai', 'moonshot'].includes(selectedProvider.provider)" class="section">
-                            <div class="section-head"><h3>Prompt Cache</h3></div>
-                            <div class="grid two">
-                                <label><span>缓存模式</span><el-select v-model="selectedProvider.promptCacheMode">
-                                    <el-option label="服务商默认" value="default" />
-                                    <el-option label="隐式缓存" value="implicit" />
-                                    <el-option v-if="selectedProvider.provider === 'openai'" label="显式缓存（自动标记历史断点）" value="explicit" />
-                                </el-select></label>
-                                <label><span>TTL（仅支持新缓存协议的模型）</span><el-select v-model="selectedProvider.promptCacheTtl">
-                                    <el-option v-if="selectedProvider.provider === 'moonshot'" label="5 分钟" value="5m" />
-                                    <el-option v-if="selectedProvider.provider === 'openai'" label="30 分钟" value="30m" />
-                                    <el-option v-if="selectedProvider.provider === 'moonshot'" label="1 小时" value="1h" />
-                                </el-select></label>
-                                <label class="wide"><span>缓存 Key（可选）</span><el-input v-model="selectedProvider.promptCacheKey" /></label>
-                            </div>
-                        </section>
-
-                        <section v-if="selectedProvider.provider === 'gemini'" class="section">
-                            <div class="section-head">
-                                <h3>Gemini Tools</h3>
-                            </div>
-
-                            <div class="grid two">
-                                <label><span>API 工作流</span><el-select v-model="selectedProvider.geminiApi">
-                                    <el-option label="Generate Content（默认）" value="generateContent" />
-                                    <el-option label="Interactions（stateless）" value="interactions" />
-                                </el-select></label>
-                                <label><span>结构化输出 MIME（可选）</span><el-input v-model="selectedProvider.geminiResponseMimeType" placeholder="application/json" /></label>
-                                <label class="wide"><span>输出 JSON Schema（可选）</span><el-input v-model="geminiSchemaText" type="textarea" :rows="4" placeholder='{"type":"object","properties":{}}' @input="dirty = true" @blur="applyGeminiSchema" /></label>
-                                <label class="wide"><span>Cached Content（仅 generateContent）</span><el-input v-model="selectedProvider.geminiCachedContent" placeholder="cachedContents/..." /></label>
-                                <label><span>允许上传到 Gemini Files（服务端保留最多 48h）</span><el-switch v-model="selectedProvider.geminiFileUpload" /></label>
-                                <label v-if="selectedProvider.geminiFileUpload"><span>上传上限（MiB）</span><el-input-number v-model="selectedProvider.geminiMaxFileSizeMb" :min="1" :max="2048" /></label>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>Google Search</span>
-                                    <el-switch v-model="selectedProvider.googleSearch" />
-                                </label>
-                                <label>
-                                    <span>Code Execution</span>
-                                    <el-switch v-model="selectedProvider.codeExecution" />
-                                </label>
-                                <label>
-                                    <span>URL Context</span>
-                                    <el-switch v-model="selectedProvider.urlContext" />
-                                </label>
-                                <label>
-                                    <span>Image Generation</span>
-                                    <el-switch v-model="selectedProvider.imageGeneration" />
-                                </label>
-                                <label>
-                                    <span>Agentic Video（支持的 Gemini 3.5–3.8 Flash）</span>
-                                    <el-switch v-model="selectedProvider.agenticVideo" />
-                                </label>
-                                <label>
-                                    <span>Camel Case Media Fields</span>
-                                    <el-switch v-model="selectedProvider.useCamelCaseMediaFields" />
-                                </label>
-                                <label>
-                                    <span>Include Thoughts</span>
-                                    <el-switch v-model="selectedProvider.includeThoughts" />
-                                </label>
-                                <label>
-                                    <span>Show Grounding</span>
-                                    <el-switch v-model="selectedProvider.groundingContentDisplay" />
-                                </label>
-                            </div>
-
-                            <div class="grid two">
-                                <label>
-                                    <span>Thinking Budget</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.thinkingBudget"
-                                        :min="-1"
-                                        :max="24576"
-                                        controls-position="right"
-                                    />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section v-if="selectedProvider.provider === 'gemini'" class="section">
-                            <div class="section-head"><h3>Gemini 资源管理（需管理员权限，先保存配置）</h3></div>
-                            <div class="grid two">
-                                <label><span>资源</span><el-select v-model="geminiResourceType"><el-option label="缓存" value="cachedContents" /><el-option label="文件" value="files" /><el-option label="Interaction" value="interactions" /></el-select></label>
-                                <label><span>资源名称</span><el-input v-model="geminiResourceName" :placeholder="geminiResourceType + '/...'" /></label>
-                                <label class="wide"><span>创建 / TTL 更新 JSON（创建缓存可能计费）</span><el-input v-model="geminiResourceBody" type="textarea" :rows="3" placeholder='{"ttl":"3600s"}' /></label>
-                            </div>
-                            <div class="section-head">
-                                <el-button v-if="geminiResourceType !== 'interactions'" :loading="resourceBusy" @click="runGeminiResource('list')">列出资源</el-button>
-                                <el-button :loading="resourceBusy" @click="runGeminiResource('get')">读取</el-button>
-                                <el-button v-if="geminiResourceType === 'cachedContents'" :loading="resourceBusy" @click="runGeminiResource('create')">创建缓存</el-button>
-                                <el-button v-if="geminiResourceType === 'cachedContents'" :loading="resourceBusy" @click="runGeminiResource('update')">更新 TTL</el-button>
-                                <el-button :loading="resourceBusy" @click="runGeminiResource('delete')">删除资源</el-button>
-                            </div>
-                            <el-input v-if="geminiResourceResult" :model-value="geminiResourceResult" type="textarea" :rows="6" readonly aria-label="Gemini 资源操作结果" />
-                        </section>
-
-                        <section v-if="selectedProvider.provider === 'anthropic'" class="section">
-                            <div class="section-head">
-                                <h3>Prompt Cache</h3>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>启用缓存</span>
-                                    <el-switch v-model="selectedProvider.anthropicPromptCache" />
-                                </label>
-                            </div>
-
-                            <div v-if="selectedProvider.anthropicPromptCache" class="grid two">
-                                <label>
-                                    <span>缓存 TTL</span>
-                                    <el-select v-model="selectedProvider.anthropicPromptCacheTtl">
-                                        <el-option label="5 分钟" value="5m" />
-                                        <el-option label="1 小时" value="1h" />
-                                    </el-select>
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="section">
-                            <div class="section-head">
-                                <h3>请求</h3>
-                            </div>
-
-                            <div class="grid two">
-                                <label class="slider-field">
-                                    <span>最大上下文比例</span>
-                                    <el-slider
-                                        v-model="selectedProvider.maxContextRatio"
-                                        :min="0"
-                                        :max="1"
-                                        :step="0.01"
-                                        show-input
-                                    />
-                                </label>
-                                <label>
-                                    <span>非 LLM 输入保护</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.nonLlmInputTokenLimit"
-                                        :min="1"
-                                        :step="1024"
-                                        controls-position="right"
-                                    />
-                                </label>
-                                <label class="slider-field">
-                                    <span>Temperature</span>
-                                    <el-slider
-                                        v-model="selectedProvider.temperature"
-                                        :min="0"
-                                        :max="2"
-                                        :step="0.1"
-                                        show-input
-                                    />
-                                </label>
-                                <label class="slider-field">
-                                    <span>Presence penalty</span>
-                                    <el-slider
-                                        v-model="selectedProvider.presencePenalty"
-                                        :min="-2"
-                                        :max="2"
-                                        :step="0.1"
-                                        show-input
-                                    />
-                                </label>
-                                <label class="slider-field">
-                                    <span>Frequency penalty</span>
-                                    <el-slider
-                                        v-model="selectedProvider.frequencyPenalty"
-                                        :min="-2"
-                                        :max="2"
-                                        :step="0.1"
-                                        show-input
-                                    />
-                                </label>
-                            </div>
-
-                            <div
-                                v-if="supportsReasoningProtocol(selectedProvider)"
-                                class="grid two"
-                            >
-                                <label>
-                                    <span>思考协议</span>
-                                    <el-select v-model="selectedProvider.reasoningProtocol">
-                                        <el-option label="OpenAI" value="openai" />
-                                        <el-option label="Auto" value="auto" />
-                                        <el-option label="DeepSeek" value="deepseek" />
-                                        <el-option label="Qwen" value="qwen" />
-                                        <el-option label="Gemini" value="gemini" />
-                                        <el-option label="Anthropic" value="anthropic" />
-                                        <el-option label="OpenRouter" value="openrouter" />
-                                    </el-select>
-                                </label>
-                            </div>
-
-                            <div class="switch-grid">
-                                <label>
-                                    <span>强制非流式</span>
-                                    <el-switch v-model="selectedProvider.nonStreaming" />
-                                </label>
-                                <label>
-                                    <span>展开思考等级</span>
-                                    <el-switch v-model="selectedProvider.expandReasoningVariants" />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="section">
-                            <div class="section-head">
-                                <h3>自定义模型</h3>
+                            <div class="detail-actions">
+                                <span
+                                    class="status-pill"
+                                    :data-status="
+                                        selectedRuntimeProvider?.status ??
+                                        'preset'
+                                    "
+                                >
+                                    {{
+                                        statusText(
+                                            selectedRuntimeProvider?.status ??
+                                                'preset'
+                                        )
+                                    }}
+                                </span>
                                 <el-button
-                                    size="small"
-                                    :disabled="!selectedProvider.platform.trim()"
-                                    @click="addCustomModel(selectedProvider)"
+                                    :loading="saving"
+                                    type="primary"
+                                    :disabled="!dirty || !sourceSettingsValid"
+                                    @click="saveSettings"
                                 >
-                                    添加
+                                    保存
+                                </el-button>
+                                <el-button
+                                    :loading="
+                                        refreshingProvider === selectedProvider
+                                    "
+                                    :disabled="!selectedRuntimeProvider"
+                                    @click="refreshProvider(selectedProvider)"
+                                >
+                                    刷新
+                                </el-button>
+                                <el-button
+                                    @click="copyProvider(selectedProvider)"
+                                >
+                                    复制
+                                </el-button>
+                                <el-button
+                                    @click="
+                                        duplicateProvider(selectedProviderIndex)
+                                    "
+                                >
+                                    克隆
+                                </el-button>
+                                <el-button
+                                    type="danger"
+                                    @click="
+                                        removeProvider(selectedProviderIndex)
+                                    "
+                                >
+                                    删除
                                 </el-button>
                             </div>
+                        </header>
 
-                            <div class="model-list">
+                        <div class="detail-scroll" :inert="saving || undefined">
+                            <p
+                                v-if="selectedRuntimeProvider?.error"
+                                class="error-box"
+                            >
+                                {{ selectedRuntimeProvider.error }}
+                            </p>
+
+                            <section class="section">
+                                <div class="section-head">
+                                    <h3>连接</h3>
+                                    <div class="mini-stats">
+                                        <span
+                                            >{{
+                                                selectedRuntimeProvider?.modelCount ??
+                                                0
+                                            }}
+                                            模型</span
+                                        >
+                                        <span>
+                                            {{
+                                                selectedProvider.hasApiKey
+                                                    ? selectedProvider.apiKeyPreview ||
+                                                      '已保存密钥'
+                                                    : '未配置密钥'
+                                            }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="grid two">
+                                    <label>
+                                        <span>服务商名称</span>
+                                        <el-input
+                                            v-model="selectedProvider.name"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>ChatLuna 平台 ID</span>
+                                        <el-input
+                                            :model-value="
+                                                selectedProvider.platform
+                                            "
+                                            @update:model-value="
+                                                updateProviderPlatform(
+                                                    selectedProvider,
+                                                    String($event)
+                                                )
+                                            "
+                                        />
+                                    </label>
+                                    <label
+                                        v-if="!selectedProvider.sources"
+                                        class="wide"
+                                    >
+                                        <span>API 地址</span>
+                                        <el-input
+                                            v-model="
+                                                selectedProvider.apiEndpoint
+                                            "
+                                        />
+                                    </label>
+                                    <label
+                                        v-if="!selectedProvider.sources"
+                                        class="wide"
+                                    >
+                                        <span>API Key</span>
+                                        <el-input
+                                            v-model="selectedProvider.apiKey"
+                                            show-password
+                                            :placeholder="
+                                                selectedProvider.apiKeyPreview ||
+                                                '输入新密钥'
+                                            "
+                                            @input="
+                                                selectedProvider.clearApiKey = false
+                                            "
+                                        />
+                                    </label>
+                                </div>
+
                                 <div
-                                    v-for="(model, index) in selectedCustomModels"
-                                    :key="`${model.target}:${model.model}:${index}`"
-                                    class="model-row"
+                                    v-if="
+                                        !selectedProvider.sources &&
+                                        selectedProvider.hasApiKey &&
+                                        !selectedProvider.clearApiKey
+                                    "
+                                    class="secret-row"
                                 >
-                                    <el-input
-                                        v-model="model.model"
-                                        placeholder="模型名"
-                                    />
-                                    <el-select v-model="model.modelType">
-                                        <el-option
-                                            v-for="option in modelTypeOptions"
-                                            :key="option.value"
-                                            :label="option.label"
-                                            :value="option.value"
-                                        />
-                                    </el-select>
-                                    <el-input-number
-                                        v-model="model.contextSize"
-                                        :min="1"
-                                        :step="4096"
-                                        controls-position="right"
-                                    />
-                                    <el-select
-                                        v-model="model.modelCapabilities"
-                                        multiple
-                                        collapse-tags
-                                        collapse-tags-tooltip
+                                    <span
+                                        >已保存
+                                        {{
+                                            selectedProvider.apiKeyPreview
+                                        }}</span
                                     >
-                                        <el-option
-                                            v-for="option in capabilityOptions"
-                                            :key="option.value"
-                                            :label="option.label"
-                                            :value="option.value"
+                                    <button
+                                        type="button"
+                                        @click="
+                                            clearProviderKey(selectedProvider)
+                                        "
+                                    >
+                                        清除
+                                    </button>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>启用服务商</span>
+                                        <el-switch
+                                            v-model="selectedProvider.enabled"
                                         />
-                                    </el-select>
+                                    </label>
+                                    <label v-if="!selectedProvider.sources">
+                                        <span>拉取 /models</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.pullModels
+                                            "
+                                            :disabled="
+                                                selectedProvider.provider ===
+                                                'dify'
+                                            "
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <source-editor
+                                v-if="selectedProvider.sources"
+                                :key="
+                                    selectedProvider.id || selectedProviderIndex
+                                "
+                                class="section"
+                                :provider="selectedProvider"
+                                :presets="data.presets"
+                                :statuses="selectedRuntimeProvider?.connections"
+                                :dirty="dirty"
+                                @refresh="refreshSource"
+                                @validation="sourceSettingsValid = $event"
+                            />
+                            <route-editor
+                                v-if="selectedProvider.sources"
+                                class="section"
+                                :provider="selectedProvider"
+                            />
+
+                            <section
+                                v-if="selectedProvider.provider === 'dify'"
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>Dify App</h3>
+                                </div>
+
+                                <div class="grid two">
+                                    <label>
+                                        <span>应用类型</span>
+                                        <el-select
+                                            v-model="
+                                                selectedProvider.difyAppType
+                                            "
+                                        >
+                                            <el-option
+                                                label="ChatBot"
+                                                value="chat"
+                                            />
+                                            <el-option
+                                                label="Agent"
+                                                value="agent"
+                                            />
+                                            <el-option
+                                                label="Workflow"
+                                                value="workflow"
+                                            />
+                                            <el-option
+                                                label="Completion"
+                                                value="completion"
+                                            />
+                                        </el-select>
+                                    </label>
+                                    <label>
+                                        <span>模型名</span>
+                                        <el-input
+                                            v-model="
+                                                selectedProvider.difyModelName
+                                            "
+                                            placeholder="默认使用服务商名称"
+                                        />
+                                    </label>
+                                    <label
+                                        v-if="
+                                            selectedProvider.difyAppType ===
+                                            'workflow'
+                                        "
+                                    >
+                                        <span>Workflow ID</span>
+                                        <el-input
+                                            v-model="
+                                                selectedProvider.difyWorkflowId
+                                            "
+                                            placeholder="可选"
+                                        />
+                                    </label>
+                                    <label
+                                        v-if="
+                                            selectedProvider.difyAppType ===
+                                            'workflow'
+                                        "
+                                    >
+                                        <span>输出变量</span>
+                                        <el-input
+                                            v-model="
+                                                selectedProvider.difyOutputVariable
+                                            "
+                                            placeholder="answer / text / output"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>上下文大小</span>
+                                        <el-input-number
+                                            v-model="
+                                                selectedProvider.difyContextSize
+                                            "
+                                            :min="1"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>文件上传</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.difyEnableFileUpload
+                                            "
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section
+                                v-if="
+                                    ['openai', 'xai'].includes(
+                                        selectedProvider.provider
+                                    )
+                                "
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>Responses</h3>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>启用 Responses API</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.responseApi
+                                            "
+                                        />
+                                    </label>
+                                </div>
+
+                                <div
+                                    v-if="selectedProvider.responseApi"
+                                    class="grid two"
+                                >
+                                    <label>
+                                        <span>内置工具</span>
+                                        <el-select
+                                            v-model="
+                                                selectedProvider.responseBuiltinTools
+                                            "
+                                            multiple
+                                        >
+                                            <el-option
+                                                label="网页搜索"
+                                                value="web_search"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'xai'
+                                                "
+                                                label="X 搜索"
+                                                value="x_search"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'openai'
+                                                "
+                                                label="图片生成"
+                                                value="image_generation"
+                                            />
+                                            <el-option
+                                                label="代码解释器"
+                                                value="code_interpreter"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'openai'
+                                                "
+                                                label="文件搜索"
+                                                value="file_search"
+                                            />
+                                        </el-select>
+                                    </label>
+                                    <label class="wide">
+                                        <span>支持工具的模型</span>
+                                        <el-input
+                                            v-model="responseSupportModelsText"
+                                            placeholder="用英文逗号分隔"
+                                        />
+                                    </label>
+                                    <label class="wide">
+                                        <span
+                                            >File Search Vector Store IDs</span
+                                        >
+                                        <el-input
+                                            v-model="responseVectorStoresText"
+                                            placeholder="用英文逗号分隔"
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section
+                                v-if="
+                                    ['openai', 'moonshot'].includes(
+                                        selectedProvider.provider
+                                    )
+                                "
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>Prompt Cache</h3>
+                                </div>
+                                <div class="grid two">
+                                    <label
+                                        ><span>缓存模式</span
+                                        ><el-select
+                                            v-model="
+                                                selectedProvider.promptCacheMode
+                                            "
+                                        >
+                                            <el-option
+                                                label="服务商默认"
+                                                value="default"
+                                            />
+                                            <el-option
+                                                label="隐式缓存"
+                                                value="implicit"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'openai'
+                                                "
+                                                label="显式缓存（自动标记历史断点）"
+                                                value="explicit"
+                                            /> </el-select
+                                    ></label>
+                                    <label
+                                        ><span
+                                            >TTL（仅支持新缓存协议的模型）</span
+                                        ><el-select
+                                            v-model="
+                                                selectedProvider.promptCacheTtl
+                                            "
+                                        >
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'moonshot'
+                                                "
+                                                label="5 分钟"
+                                                value="5m"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'openai'
+                                                "
+                                                label="30 分钟"
+                                                value="30m"
+                                            />
+                                            <el-option
+                                                v-if="
+                                                    selectedProvider.provider ===
+                                                    'moonshot'
+                                                "
+                                                label="1 小时"
+                                                value="1h"
+                                            /> </el-select
+                                    ></label>
+                                    <label class="wide"
+                                        ><span>缓存 Key（可选）</span
+                                        ><el-input
+                                            v-model="
+                                                selectedProvider.promptCacheKey
+                                            "
+                                    /></label>
+                                </div>
+                            </section>
+
+                            <section
+                                v-if="selectedProvider.provider === 'gemini'"
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>Gemini Tools</h3>
+                                </div>
+
+                                <div class="grid two">
+                                    <label
+                                        ><span>API 工作流</span
+                                        ><el-select
+                                            v-model="selectedProvider.geminiApi"
+                                        >
+                                            <el-option
+                                                label="Generate Content（默认）"
+                                                value="generateContent"
+                                            />
+                                            <el-option
+                                                label="Interactions（stateless）"
+                                                value="interactions"
+                                            /> </el-select
+                                    ></label>
+                                    <label
+                                        ><span>结构化输出 MIME（可选）</span
+                                        ><el-input
+                                            v-model="
+                                                selectedProvider.geminiResponseMimeType
+                                            "
+                                            placeholder="application/json"
+                                    /></label>
+                                    <label class="wide"
+                                        ><span>输出 JSON Schema（可选）</span
+                                        ><el-input
+                                            v-model="geminiSchemaText"
+                                            type="textarea"
+                                            :rows="4"
+                                            placeholder='{"type":"object","properties":{}}'
+                                            @input="dirty = true"
+                                            @blur="applyGeminiSchema"
+                                    /></label>
+                                    <label class="wide"
+                                        ><span
+                                            >Cached Content（仅
+                                            generateContent）</span
+                                        ><el-input
+                                            v-model="
+                                                selectedProvider.geminiCachedContent
+                                            "
+                                            placeholder="cachedContents/..."
+                                    /></label>
+                                    <label
+                                        ><span
+                                            >允许上传到 Gemini
+                                            Files（服务端保留最多 48h）</span
+                                        ><el-switch
+                                            v-model="
+                                                selectedProvider.geminiFileUpload
+                                            "
+                                    /></label>
+                                    <label
+                                        v-if="selectedProvider.geminiFileUpload"
+                                        ><span>上传上限（MiB）</span
+                                        ><el-input-number
+                                            v-model="
+                                                selectedProvider.geminiMaxFileSizeMb
+                                            "
+                                            :min="1"
+                                            :max="2048"
+                                    /></label>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>Google Search</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.googleSearch
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Code Execution</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.codeExecution
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>URL Context</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.urlContext
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Image Generation</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.imageGeneration
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span
+                                            >Agentic Video（支持的 Gemini
+                                            3.5–3.8 Flash）</span
+                                        >
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.agenticVideo
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Camel Case Media Fields</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.useCamelCaseMediaFields
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Include Thoughts</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.includeThoughts
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>Show Grounding</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.groundingContentDisplay
+                                            "
+                                        />
+                                    </label>
+                                </div>
+
+                                <div class="grid two">
+                                    <label>
+                                        <span>Thinking Budget</span>
+                                        <el-input-number
+                                            v-model="
+                                                selectedProvider.thinkingBudget
+                                            "
+                                            :min="-1"
+                                            :max="24576"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section
+                                v-if="
+                                    selectedProvider.provider === 'gemini' ||
+                                    selectedProvider.sources?.some(
+                                        (s) => s.provider === 'gemini'
+                                    )
+                                "
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>
+                                        Gemini
+                                        资源管理（需管理员权限，先保存配置）
+                                    </h3>
+                                </div>
+                                <div class="grid two">
+                                    <label
+                                        ><span>资源连接源</span
+                                        ><el-select
+                                            v-model="resourceSourceId"
+                                            @change="resourceCredentialId = ''"
+                                            ><el-option
+                                                v-for="source in selectedProvider.sources?.filter(
+                                                    (s) =>
+                                                        s.provider ===
+                                                            'gemini' &&
+                                                        s.enabled
+                                                ) ?? []"
+                                                :key="source.id"
+                                                :label="source.name"
+                                                :value="source.id" /></el-select
+                                    ></label>
+                                    <label
+                                        ><span>资源 Key</span
+                                        ><el-select
+                                            v-model="resourceCredentialId"
+                                            ><el-option
+                                                v-for="key in selectedProvider.sources
+                                                    ?.find(
+                                                        (s) =>
+                                                            s.id ===
+                                                            resourceSourceId
+                                                    )
+                                                    ?.credentials.filter(
+                                                        (c) => c.enabled
+                                                    ) ?? []"
+                                                :key="key.id"
+                                                :label="key.name"
+                                                :value="key.id" /></el-select
+                                    ></label>
+                                    <label
+                                        ><span>资源</span
+                                        ><el-select v-model="geminiResourceType"
+                                            ><el-option
+                                                label="缓存"
+                                                value="cachedContents" /><el-option
+                                                label="文件"
+                                                value="files" /><el-option
+                                                label="Interaction"
+                                                value="interactions" /></el-select
+                                    ></label>
+                                    <label
+                                        ><span>资源名称</span
+                                        ><el-input
+                                            v-model="geminiResourceName"
+                                            :placeholder="
+                                                geminiResourceType + '/...'
+                                            "
+                                    /></label>
+                                    <label class="wide"
+                                        ><span
+                                            >创建 / TTL 更新
+                                            JSON（创建缓存可能计费）</span
+                                        ><el-input
+                                            v-model="geminiResourceBody"
+                                            type="textarea"
+                                            :rows="3"
+                                            placeholder='{"ttl":"3600s"}'
+                                    /></label>
+                                </div>
+                                <div class="section-head">
                                     <el-button
-                                        type="danger"
-                                        @click="removeCustomModel(model)"
+                                        v-if="
+                                            geminiResourceType !==
+                                            'interactions'
+                                        "
+                                        :loading="resourceBusy"
+                                        @click="runGeminiResource('list')"
+                                        >列出资源</el-button
                                     >
-                                        删除
+                                    <el-button
+                                        :loading="resourceBusy"
+                                        @click="runGeminiResource('get')"
+                                        >读取</el-button
+                                    >
+                                    <el-button
+                                        v-if="
+                                            geminiResourceType ===
+                                            'cachedContents'
+                                        "
+                                        :loading="resourceBusy"
+                                        @click="runGeminiResource('create')"
+                                        >创建缓存</el-button
+                                    >
+                                    <el-button
+                                        v-if="
+                                            geminiResourceType ===
+                                            'cachedContents'
+                                        "
+                                        :loading="resourceBusy"
+                                        @click="runGeminiResource('update')"
+                                        >更新 TTL</el-button
+                                    >
+                                    <el-button
+                                        :loading="resourceBusy"
+                                        @click="runGeminiResource('delete')"
+                                        >删除资源</el-button
+                                    >
+                                </div>
+                                <el-input
+                                    v-if="geminiResourceResult"
+                                    :model-value="geminiResourceResult"
+                                    type="textarea"
+                                    :rows="6"
+                                    readonly
+                                    aria-label="Gemini 资源操作结果"
+                                />
+                            </section>
+
+                            <section
+                                v-if="selectedProvider.provider === 'anthropic'"
+                                class="section"
+                            >
+                                <div class="section-head">
+                                    <h3>Prompt Cache</h3>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>启用缓存</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.anthropicPromptCache
+                                            "
+                                        />
+                                    </label>
+                                </div>
+
+                                <div
+                                    v-if="selectedProvider.anthropicPromptCache"
+                                    class="grid two"
+                                >
+                                    <label>
+                                        <span>缓存 TTL</span>
+                                        <el-select
+                                            v-model="
+                                                selectedProvider.anthropicPromptCacheTtl
+                                            "
+                                        >
+                                            <el-option
+                                                label="5 分钟"
+                                                value="5m"
+                                            />
+                                            <el-option
+                                                label="1 小时"
+                                                value="1h"
+                                            />
+                                        </el-select>
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="section">
+                                <div class="section-head">
+                                    <h3>请求</h3>
+                                </div>
+
+                                <div class="grid two">
+                                    <label class="slider-field">
+                                        <span>最大上下文比例</span>
+                                        <el-slider
+                                            v-model="
+                                                selectedProvider.maxContextRatio
+                                            "
+                                            :min="0"
+                                            :max="1"
+                                            :step="0.01"
+                                            show-input
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>非 LLM 输入保护</span>
+                                        <el-input-number
+                                            v-model="
+                                                selectedProvider.nonLlmInputTokenLimit
+                                            "
+                                            :min="1"
+                                            :step="1024"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                    <label class="slider-field">
+                                        <span>Temperature</span>
+                                        <el-slider
+                                            v-model="
+                                                selectedProvider.temperature
+                                            "
+                                            :min="0"
+                                            :max="2"
+                                            :step="0.1"
+                                            show-input
+                                        />
+                                    </label>
+                                    <label class="slider-field">
+                                        <span>Presence penalty</span>
+                                        <el-slider
+                                            v-model="
+                                                selectedProvider.presencePenalty
+                                            "
+                                            :min="-2"
+                                            :max="2"
+                                            :step="0.1"
+                                            show-input
+                                        />
+                                    </label>
+                                    <label class="slider-field">
+                                        <span>Frequency penalty</span>
+                                        <el-slider
+                                            v-model="
+                                                selectedProvider.frequencyPenalty
+                                            "
+                                            :min="-2"
+                                            :max="2"
+                                            :step="0.1"
+                                            show-input
+                                        />
+                                    </label>
+                                </div>
+
+                                <div
+                                    v-if="
+                                        supportsReasoningProtocol(
+                                            selectedProvider
+                                        )
+                                    "
+                                    class="grid two"
+                                >
+                                    <label>
+                                        <span>思考协议</span>
+                                        <el-select
+                                            v-model="
+                                                selectedProvider.reasoningProtocol
+                                            "
+                                        >
+                                            <el-option
+                                                label="OpenAI"
+                                                value="openai"
+                                            />
+                                            <el-option
+                                                label="Auto"
+                                                value="auto"
+                                            />
+                                            <el-option
+                                                label="DeepSeek"
+                                                value="deepseek"
+                                            />
+                                            <el-option
+                                                label="Qwen"
+                                                value="qwen"
+                                            />
+                                            <el-option
+                                                label="Gemini"
+                                                value="gemini"
+                                            />
+                                            <el-option
+                                                label="Anthropic"
+                                                value="anthropic"
+                                            />
+                                            <el-option
+                                                label="OpenRouter"
+                                                value="openrouter"
+                                            />
+                                        </el-select>
+                                    </label>
+                                </div>
+
+                                <div class="switch-grid">
+                                    <label>
+                                        <span>强制非流式</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.nonStreaming
+                                            "
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>展开思考等级</span>
+                                        <el-switch
+                                            v-model="
+                                                selectedProvider.expandReasoningVariants
+                                            "
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="section">
+                                <div class="section-head">
+                                    <h3>自定义模型</h3>
+                                    <el-button
+                                        size="small"
+                                        :disabled="
+                                            !selectedProvider.platform.trim()
+                                        "
+                                        @click="
+                                            addCustomModel(selectedProvider)
+                                        "
+                                    >
+                                        添加
                                     </el-button>
                                 </div>
-                                <p
-                                    v-if="selectedCustomModels.length === 0"
-                                    class="empty-text compact"
-                                >
-                                    暂无自定义模型
-                                </p>
-                            </div>
-                        </section>
 
-                        <section class="section">
-                            <div class="section-head">
-                                <h3>网络</h3>
-                            </div>
-
-                            <div class="grid three">
-                                <label>
-                                    <span>超时毫秒</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.timeout"
-                                        :min="1000"
-                                        :step="1000"
-                                        controls-position="right"
-                                    />
-                                </label>
-                                <label>
-                                    <span>最大重试</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.maxRetries"
-                                        :min="0"
-                                        :max="6"
-                                        controls-position="right"
-                                    />
-                                </label>
-                                <label>
-                                    <span>并发数</span>
-                                    <el-input-number
-                                        v-model="selectedProvider.chatConcurrentMaxSize"
-                                        :min="1"
-                                        :max="8"
-                                        controls-position="right"
-                                    />
-                                </label>
-                                <label>
-                                    <span>配置模式</span>
-                                    <el-select v-model="selectedProvider.configMode">
-                                        <el-option label="顺序" value="default" />
-                                        <el-option label="负载均衡" value="balance" />
-                                    </el-select>
-                                </label>
-                                <label>
-                                    <span>代理模式</span>
-                                    <el-select v-model="selectedProvider.proxyMode">
-                                        <el-option label="跟随 ChatLuna" value="system" />
-                                        <el-option label="关闭" value="off" />
-                                        <el-option label="自定义" value="on" />
-                                    </el-select>
-                                </label>
-                                <label v-if="selectedProvider.proxyMode === 'on'">
-                                    <span>代理地址</span>
-                                    <el-input v-model="selectedProvider.proxyAddress" />
-                                </label>
-                            </div>
-                        </section>
-
-                        <section class="section">
-                            <div class="section-head">
-                                <h3>自定义请求头</h3>
-                                <el-button size="small" @click="addHeader(selectedProvider)">
-                                    添加
-                                </el-button>
-                            </div>
-
-                            <div class="header-list">
-                                <div
-                                    v-for="(header, index) in selectedProvider.customHeaders"
-                                    :key="`${header.name}:${index}`"
-                                    class="header-row"
-                                >
-                                    <el-input
-                                        v-model="header.name"
-                                        placeholder="Header 名称"
-                                    />
-                                    <el-input
-                                        v-model="header.value"
-                                        show-password
-                                        :placeholder="header.valuePreview || 'Header 值'"
-                                        @input="header.clearValue = false"
-                                    />
-                                    <el-button
-                                        v-if="header.hasValue && !header.clearValue"
-                                        @click="clearHeaderValue(header)"
+                                <div class="model-list">
+                                    <div
+                                        v-for="(
+                                            model, index
+                                        ) in selectedCustomModels"
+                                        :key="`${model.target}:${model.model}:${index}`"
+                                        class="model-row"
                                     >
-                                        清除值
-                                    </el-button>
-                                    <el-button
-                                        type="danger"
-                                        @click="removeHeader(selectedProvider, index)"
+                                        <el-input
+                                            v-model="model.model"
+                                            placeholder="模型名"
+                                        />
+                                        <el-select v-model="model.modelType">
+                                            <el-option
+                                                v-for="option in modelTypeOptions"
+                                                :key="option.value"
+                                                :label="option.label"
+                                                :value="option.value"
+                                            />
+                                        </el-select>
+                                        <el-input-number
+                                            v-model="model.contextSize"
+                                            :min="1"
+                                            :step="4096"
+                                            controls-position="right"
+                                        />
+                                        <el-select
+                                            v-model="model.modelCapabilities"
+                                            multiple
+                                            collapse-tags
+                                            collapse-tags-tooltip
+                                        >
+                                            <el-option
+                                                v-for="option in capabilityOptions"
+                                                :key="option.value"
+                                                :label="option.label"
+                                                :value="option.value"
+                                            />
+                                        </el-select>
+                                        <el-button
+                                            type="danger"
+                                            @click="removeCustomModel(model)"
+                                        >
+                                            删除
+                                        </el-button>
+                                    </div>
+                                    <p
+                                        v-if="selectedCustomModels.length === 0"
+                                        class="empty-text compact"
                                     >
-                                        删除
+                                        暂无自定义模型
+                                    </p>
+                                </div>
+                            </section>
+
+                            <section class="section">
+                                <div class="section-head">
+                                    <h3>网络</h3>
+                                </div>
+
+                                <div class="grid three">
+                                    <label>
+                                        <span>超时毫秒</span>
+                                        <el-input-number
+                                            v-model="selectedProvider.timeout"
+                                            :min="1000"
+                                            :step="1000"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>最大重试</span>
+                                        <el-input-number
+                                            v-model="
+                                                selectedProvider.maxRetries
+                                            "
+                                            :min="0"
+                                            :max="6"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>并发数</span>
+                                        <el-input-number
+                                            v-model="
+                                                selectedProvider.chatConcurrentMaxSize
+                                            "
+                                            :min="1"
+                                            :max="8"
+                                            controls-position="right"
+                                        />
+                                    </label>
+                                    <label>
+                                        <span>配置模式</span>
+                                        <el-select
+                                            v-model="
+                                                selectedProvider.configMode
+                                            "
+                                        >
+                                            <el-option
+                                                label="顺序"
+                                                value="default"
+                                            />
+                                            <el-option
+                                                label="负载均衡"
+                                                value="balance"
+                                            />
+                                        </el-select>
+                                    </label>
+                                    <label>
+                                        <span>代理模式</span>
+                                        <el-select
+                                            v-model="selectedProvider.proxyMode"
+                                        >
+                                            <el-option
+                                                label="跟随 ChatLuna"
+                                                value="system"
+                                            />
+                                            <el-option
+                                                label="关闭"
+                                                value="off"
+                                            />
+                                            <el-option
+                                                label="自定义"
+                                                value="on"
+                                            />
+                                        </el-select>
+                                    </label>
+                                    <label
+                                        v-if="
+                                            selectedProvider.proxyMode === 'on'
+                                        "
+                                    >
+                                        <span>代理地址</span>
+                                        <el-input
+                                            v-model="
+                                                selectedProvider.proxyAddress
+                                            "
+                                        />
+                                    </label>
+                                </div>
+                            </section>
+
+                            <section class="section">
+                                <div class="section-head">
+                                    <h3>自定义请求头</h3>
+                                    <el-button
+                                        size="small"
+                                        @click="addHeader(selectedProvider)"
+                                    >
+                                        添加
                                     </el-button>
                                 </div>
-                                <p
-                                    v-if="selectedProvider.customHeaders.length === 0"
-                                    class="empty-text compact"
-                                >
-                                    暂无请求头
-                                </p>
-                            </div>
-                        </section>
-                    </div>
-                </section>
 
-                <section v-else key="empty" class="empty-detail">
-                    <strong>暂无服务商</strong>
-                    <el-button type="primary" @click="openAddDialog">
-                        添加服务商
-                    </el-button>
-                </section>
+                                <div class="header-list">
+                                    <div
+                                        v-for="(
+                                            header, index
+                                        ) in selectedProvider.customHeaders"
+                                        :key="`${header.name}:${index}`"
+                                        class="header-row"
+                                    >
+                                        <el-input
+                                            v-model="header.name"
+                                            placeholder="Header 名称"
+                                        />
+                                        <el-input
+                                            v-model="header.value"
+                                            show-password
+                                            :placeholder="
+                                                header.valuePreview ||
+                                                'Header 值'
+                                            "
+                                            @input="header.clearValue = false"
+                                        />
+                                        <el-button
+                                            v-if="
+                                                header.hasValue &&
+                                                !header.clearValue
+                                            "
+                                            @click="clearHeaderValue(header)"
+                                        >
+                                            清除值
+                                        </el-button>
+                                        <el-button
+                                            type="danger"
+                                            @click="
+                                                removeHeader(
+                                                    selectedProvider,
+                                                    index
+                                                )
+                                            "
+                                        >
+                                            删除
+                                        </el-button>
+                                    </div>
+                                    <p
+                                        v-if="
+                                            selectedProvider.customHeaders
+                                                .length === 0
+                                        "
+                                        class="empty-text compact"
+                                    >
+                                        暂无请求头
+                                    </p>
+                                </div>
+                            </section>
+                        </div>
+                    </section>
+
+                    <section v-else key="empty" class="empty-detail">
+                        <strong>暂无服务商</strong>
+                        <el-button type="primary" @click="openAddDialog">
+                            添加服务商
+                        </el-button>
+                    </section>
                 </transition>
             </section>
 
-            <section v-show="activeTab === 'models'" class="workspace models-workspace">
+            <section
+                v-show="activeTab === 'models'"
+                class="workspace models-workspace"
+            >
                 <div class="section-head">
                     <div class="model-heading">
                         <h2>已加载模型</h2>
-                        <span>{{ visibleModelCount }} / {{ data?.models?.length ?? 0 }} 个模型 · {{ modelGroups.length }} 个平台实例</span>
+                        <span
+                            >{{ visibleModelCount }} /
+                            {{ data?.models?.length ?? 0 }} 个模型 ·
+                            {{ modelGroups.length }} 个平台实例</span
+                        >
                     </div>
                     <div class="detail-actions">
                         <label class="search-box model-search">
@@ -750,7 +1366,12 @@
                                 aria-label="搜索模型、提供商或平台"
                             />
                         </label>
-                        <span class="status-pill" :data-status="data?.totals?.models ? 'loaded' : 'missing-key'">
+                        <span
+                            class="status-pill"
+                            :data-status="
+                                data?.totals?.models ? 'loaded' : 'missing-key'
+                            "
+                        >
                             {{ data?.totals?.models ?? 0 }} 个模型
                         </span>
                         <el-button :loading="refreshing" @click="refreshAll">
@@ -760,54 +1381,199 @@
                 </div>
 
                 <div class="model-browser-filters">
-                    <label><span>提供商</span><el-select v-model="modelProvider" aria-label="筛选提供商" placeholder="全部提供商" popper-class="model-hub-model-popper">
-                        <el-option label="全部提供商" value="" />
-                        <el-option v-for="provider in modelProviders" :key="provider.id" :label="provider.name" :value="provider.id" />
-                    </el-select></label>
-                    <label><span>模型类型</span><el-select v-model="modelType" aria-label="筛选模型类型" placeholder="全部类型" popper-class="model-hub-model-popper">
-                        <el-option label="全部类型" value="" />
-                        <el-option label="LLM" value="llm" /><el-option label="Embeddings" value="embeddings" /><el-option label="Reranker" value="reranker" />
-                    </el-select></label>
-                    <label class="capability-filter"><span>能力（同时满足）</span><el-select v-model="modelCapabilities" multiple clearable aria-label="筛选模型能力" placeholder="全部能力" popper-class="model-hub-model-popper">
-                        <el-option v-for="option in modelCapabilityFilters" :key="option.value" :label="option.label" :value="option.value" />
-                    </el-select></label>
-                    <el-button v-if="modelFiltersActive" @click="resetModelFilters">清除筛选</el-button>
+                    <label
+                        ><span>提供商</span
+                        ><el-select
+                            v-model="modelProvider"
+                            aria-label="筛选提供商"
+                            placeholder="全部提供商"
+                            popper-class="model-hub-model-popper"
+                        >
+                            <el-option label="全部提供商" value="" />
+                            <el-option
+                                v-for="provider in modelProviders"
+                                :key="provider.id"
+                                :label="provider.name"
+                                :value="provider.id"
+                            /> </el-select
+                    ></label>
+                    <label
+                        ><span>模型类型</span
+                        ><el-select
+                            v-model="modelType"
+                            aria-label="筛选模型类型"
+                            placeholder="全部类型"
+                            popper-class="model-hub-model-popper"
+                        >
+                            <el-option label="全部类型" value="" />
+                            <el-option label="LLM" value="llm" /><el-option
+                                label="Embeddings"
+                                value="embeddings"
+                            /><el-option
+                                label="Reranker"
+                                value="reranker"
+                            /> </el-select
+                    ></label>
+                    <label class="capability-filter"
+                        ><span>能力（同时满足）</span
+                        ><el-select
+                            v-model="modelCapabilities"
+                            multiple
+                            clearable
+                            aria-label="筛选模型能力"
+                            placeholder="全部能力"
+                            popper-class="model-hub-model-popper"
+                        >
+                            <el-option
+                                v-for="option in modelCapabilityFilters"
+                                :key="option.value"
+                                :label="option.label"
+                                :value="option.value"
+                            /> </el-select
+                    ></label>
+                    <el-button
+                        v-if="modelFiltersActive"
+                        @click="resetModelFilters"
+                        >清除筛选</el-button
+                    >
                 </div>
                 <div class="model-browser-scopes" aria-label="模型列表范围">
-                    <button v-for="scope in modelScopes" :key="scope.value" type="button" :class="{ active: modelScope === scope.value }" :aria-pressed="modelScope === scope.value" @click="modelScope = scope.value">{{ scope.label }}</button>
-                    <small>{{ modelScope === 'recent' ? '记录当前服务商加载期间的成功调用，不含失败或取消的请求。' : '收藏保存在当前浏览器；推理变体默认折叠，可展开查看。' }}</small>
+                    <button
+                        v-for="scope in modelScopes"
+                        :key="scope.value"
+                        type="button"
+                        :class="{ active: modelScope === scope.value }"
+                        :aria-pressed="modelScope === scope.value"
+                        @click="modelScope = scope.value"
+                    >
+                        {{ scope.label }}
+                    </button>
+                    <small>{{
+                        modelScope === 'recent'
+                            ? '记录当前服务商加载期间的成功调用，不含失败或取消的请求。'
+                            : '收藏保存在当前浏览器；推理变体默认折叠，可展开查看。'
+                    }}</small>
                 </div>
-                <section v-for="group in modelGroups" :key="group.key" class="section model-provider-group">
+                <section
+                    v-for="group in modelGroups"
+                    :key="group.key"
+                    class="section model-provider-group"
+                >
                     <div class="section-head">
                         <div class="model-heading">
-                            <h3>{{ group.label }}<small v-if="group.label !== group.provider"> · {{ group.provider }}</small></h3>
-                            <span>{{ group.platform }} · {{ group.count }} 个模型 · {{ group.families.length }} 项</span>
+                            <h3>
+                                {{ group.label
+                                }}<small v-if="group.label !== group.provider">
+                                    · {{ group.provider }}</small
+                                >
+                            </h3>
+                            <span
+                                >{{ group.platform }} · {{ group.count }} 个模型
+                                · {{ group.families.length }} 项</span
+                            >
                         </div>
-                        <small v-if="group.updatedAt" class="model-updated">上次成功更新 {{ formatModelTime(group.updatedAt) }}</small>
+                        <small v-if="group.updatedAt" class="model-updated"
+                            >上次成功更新
+                            {{ formatModelTime(group.updatedAt) }}</small
+                        >
                     </div>
-                    <p v-if="group.error" class="error-box">刷新异常，保留上次成功的列表：{{ group.error }}</p>
+                    <p v-if="group.error" class="error-box">
+                        刷新异常，保留上次成功的列表：{{ group.error }}
+                    </p>
                     <div class="model-table">
-                        <div v-for="family in group.families.slice(0, modelPageSizes[group.key] ?? 50)" :key="family.key" class="model-family">
-                            <details v-if="family.variants.length" class="model-variants" @toggle="setModelFamilyOpen(family.key, $event)">
+                        <div
+                            v-for="family in group.families.slice(
+                                0,
+                                modelPageSizes[group.key] ?? 50
+                            )"
+                            :key="family.key"
+                            class="model-family"
+                        >
+                            <details
+                                v-if="family.variants.length"
+                                class="model-variants"
+                                @toggle="setModelFamilyOpen(family.key, $event)"
+                            >
                                 <summary>
-                                    <ModelRow :model="family.primary" :favorite="modelFavorites.has(modelKey(family.primary))" @favorite="toggleModelFavorite(family.primary)" @copy="copyModel(family.primary)" />
-                                    <span class="model-variant-count">{{ family.variants.length }} 个推理变体 · 展开 / 收起</span>
+                                    <ModelRow
+                                        :model="family.primary"
+                                        :favorite="
+                                            modelFavorites.has(
+                                                modelKey(family.primary)
+                                            )
+                                        "
+                                        @favorite="
+                                            toggleModelFavorite(family.primary)
+                                        "
+                                        @copy="copyModel(family.primary)"
+                                    />
+                                    <span class="model-variant-count"
+                                        >{{ family.variants.length }} 个推理变体
+                                        · 展开 / 收起</span
+                                    >
                                 </summary>
-                                <div v-if="openModelFamilies.has(family.key)" class="model-variant-rows">
-                                    <ModelRow v-for="variant in family.variants" :key="modelKey(variant)" :model="variant" :favorite="modelFavorites.has(modelKey(variant))" @favorite="toggleModelFavorite(variant)" @copy="copyModel(variant)" />
+                                <div
+                                    v-if="openModelFamilies.has(family.key)"
+                                    class="model-variant-rows"
+                                >
+                                    <ModelRow
+                                        v-for="variant in family.variants"
+                                        :key="modelKey(variant)"
+                                        :model="variant"
+                                        :favorite="
+                                            modelFavorites.has(
+                                                modelKey(variant)
+                                            )
+                                        "
+                                        @favorite="toggleModelFavorite(variant)"
+                                        @copy="copyModel(variant)"
+                                    />
                                 </div>
                             </details>
-                            <ModelRow v-else :model="family.primary" :favorite="modelFavorites.has(modelKey(family.primary))" @favorite="toggleModelFavorite(family.primary)" @copy="copyModel(family.primary)" />
+                            <ModelRow
+                                v-else
+                                :model="family.primary"
+                                :favorite="
+                                    modelFavorites.has(modelKey(family.primary))
+                                "
+                                @favorite="toggleModelFavorite(family.primary)"
+                                @copy="copyModel(family.primary)"
+                            />
                         </div>
                     </div>
-                    <div v-if="group.families.length > (modelPageSizes[group.key] ?? 50)" class="model-more">
-                        <span>已显示 {{ modelPageSizes[group.key] ?? 50 }} / {{ group.families.length }} 项</span>
-                        <el-button @click="modelPageSizes[group.key] = (modelPageSizes[group.key] ?? 50) + 50">显示更多</el-button>
+                    <div
+                        v-if="
+                            group.families.length >
+                            (modelPageSizes[group.key] ?? 50)
+                        "
+                        class="model-more"
+                    >
+                        <span
+                            >已显示 {{ modelPageSizes[group.key] ?? 50 }} /
+                            {{ group.families.length }} 项</span
+                        >
+                        <el-button
+                            @click="
+                                modelPageSizes[group.key] =
+                                    (modelPageSizes[group.key] ?? 50) + 50
+                            "
+                            >显示更多</el-button
+                        >
                     </div>
                 </section>
                 <div v-if="visibleModelCount === 0" class="section model-empty">
-                    <p class="empty-text">{{ data?.models?.length ? '没有符合条件的模型' : '暂无已加载模型，请先启用并配置服务商。' }}</p>
-                    <el-button v-if="modelFiltersActive" @click="resetModelFilters">显示全部模型</el-button>
+                    <p class="empty-text">
+                        {{
+                            data?.models?.length
+                                ? '没有符合条件的模型'
+                                : '暂无已加载模型，请先启用并配置服务商。'
+                        }}
+                    </p>
+                    <el-button
+                        v-if="modelFiltersActive"
+                        @click="resetModelFilters"
+                        >显示全部模型</el-button
+                    >
                 </div>
             </section>
 
@@ -823,7 +1589,10 @@
                     <div class="catalog-panel">
                         <div class="dialog-toolbar">
                             <label class="search-box compact-search">
-                                <span class="search-icon" aria-hidden="true"></span>
+                                <span
+                                    class="search-icon"
+                                    aria-hidden="true"
+                                ></span>
                                 <input
                                     v-model.trim="presetSearch"
                                     type="search"
@@ -837,7 +1606,9 @@
                                     v-for="kind in kindOptions"
                                     :key="kind.value"
                                     type="button"
-                                    :class="{ active: presetKind === kind.value }"
+                                    :class="{
+                                        active: presetKind === kind.value
+                                    }"
                                     :aria-pressed="presetKind === kind.value"
                                     @click="presetKind = kind.value"
                                 >
@@ -852,7 +1623,9 @@
                                 :key="preset.id"
                                 type="button"
                                 class="preset-card"
-                                :class="{ selected: selectedPreset?.id === preset.id }"
+                                :class="{
+                                    selected: selectedPreset?.id === preset.id
+                                }"
                                 @click="selectPreset(preset)"
                             >
                                 <span class="provider-icon large">
@@ -876,10 +1649,14 @@
                     <aside v-if="newProvider" class="new-provider">
                         <div class="detail-title">
                             <span class="provider-icon">
-                                <span>{{ fallbackName(selectedPreset?.name || '') }}</span>
+                                <span>{{
+                                    fallbackName(selectedPreset?.name || '')
+                                }}</span>
                                 <img
                                     :key="selectedPreset?.icon || ''"
-                                    :src="firstIconUrl(selectedPreset?.icon || '')"
+                                    :src="
+                                        firstIconUrl(selectedPreset?.icon || '')
+                                    "
                                     :alt="selectedPreset?.name"
                                     :data-icon="selectedPreset?.icon || ''"
                                     @load="showIcon"
@@ -910,7 +1687,11 @@
                                 <el-input
                                     v-model="newProvider.apiKey"
                                     show-password
-                                    :placeholder="selectedPreset?.allowEmptyApiKey ? '本地服务可留空' : '输入 API Key'"
+                                    :placeholder="
+                                        selectedPreset?.allowEmptyApiKey
+                                            ? '本地服务可留空'
+                                            : '输入 API Key'
+                                    "
                                 />
                             </label>
                             <div class="switch-grid compact">
@@ -922,7 +1703,9 @@
                                     <span>拉取 /models</span>
                                     <el-switch
                                         v-model="newProvider.pullModels"
-                                        :disabled="selectedPreset?.id === 'dify'"
+                                        :disabled="
+                                            selectedPreset?.id === 'dify'
+                                        "
                                     />
                                 </label>
                             </div>
@@ -949,7 +1732,17 @@
 import { computed, ref, watch } from 'vue'
 import { send, store, useStorage } from '@koishijs/client'
 import ModelRow from './model-row.vue'
-import { buildModelGroups, modelKey, normalizeFavorites, providerKey, toggleFavorite, type ModelListScope } from './model-list'
+import SourceEditor from './source-editor.vue'
+import RouteEditor from './route-editor.vue'
+import { withoutProviderSecrets } from './connection-form'
+import {
+    buildModelGroups,
+    modelKey,
+    normalizeFavorites,
+    providerKey,
+    toggleFavorite,
+    type ModelListScope
+} from './model-list'
 import type {
     AdditionalModelEntry,
     ConsoleHeaderEntry,
@@ -998,6 +1791,7 @@ const form = ref<ModelHubConsoleSettings>(emptySettings())
 const activeTab = ref<(typeof tabs)[number]['value']>('providers')
 const dirty = ref(false)
 const saving = ref(false)
+const sourceSettingsValid = ref(true)
 const refreshing = ref(false)
 const refreshingProvider = ref<ConsoleProviderEntry>()
 const showAddDialog = ref(false)
@@ -1016,8 +1810,14 @@ const modelCapabilities = ref<string[]>([])
 const modelScope = ref<ModelListScope>('all')
 const modelPageSizes = ref<Record<string, number>>({})
 const openModelFamilies = ref(new Set<string>())
-const modelPreferences = useStorage<{ favorites: string[] }>('chatluna-model-hub.model-list', 1, () => ({ favorites: [] }))
-const modelFavorites = computed(() => new Set(normalizeFavorites(modelPreferences.value?.favorites)))
+const modelPreferences = useStorage<{ favorites: string[] }>(
+    'chatluna-model-hub.model-list',
+    1,
+    () => ({ favorites: [] })
+)
+const modelFavorites = computed(
+    () => new Set(normalizeFavorites(modelPreferences.value?.favorites))
+)
 const modelScopes = [
     { label: '全部模型', value: 'all' },
     { label: '收藏', value: 'favorites' },
@@ -1034,13 +1834,20 @@ const modelCapabilityFilters = [
 ]
 const selectedProviderIndex = ref(-1)
 const resourceBusy = ref(false)
-const geminiResourceType = ref<'cachedContents' | 'files' | 'interactions'>('cachedContents')
+const resourceSourceId = ref('')
+const resourceCredentialId = ref('')
+const geminiResourceType = ref<'cachedContents' | 'files' | 'interactions'>(
+    'cachedContents'
+)
 const geminiResourceName = ref('')
 const geminiResourceBody = ref('')
 const geminiResourceResult = ref('')
 const geminiSchemaText = ref('')
 watch(selectedProviderIndex, () => {
+    sourceSettingsValid.value = true
     geminiResourceResult.value = ''
+    resourceSourceId.value = ''
+    resourceCredentialId.value = ''
 })
 let hydrating = false
 
@@ -1077,10 +1884,16 @@ const visibleProviders = computed(() => {
         .filter(({ provider }) => {
             if (providerKind.value !== 'all') {
                 const preset = providerPreset(provider)
-                if ((preset?.kind ?? 'cloud') !== providerKind.value) return false
+                if ((preset?.kind ?? 'cloud') !== providerKind.value)
+                    return false
             }
             if (!text) return true
-            return [providerName(provider), provider.platform, provider.provider, provider.apiEndpoint]
+            return [
+                providerName(provider),
+                provider.platform,
+                provider.provider,
+                provider.apiEndpoint
+            ]
                 .join(' ')
                 .toLowerCase()
                 .includes(text)
@@ -1094,7 +1907,12 @@ const filteredPresets = computed(() => {
             return false
         }
         if (!text) return true
-        return [preset.name, preset.id, preset.defaultPlatform, preset.defaultEndpoint]
+        return [
+            preset.name,
+            preset.id,
+            preset.defaultPlatform,
+            preset.defaultEndpoint
+        ]
             .join(' ')
             .toLowerCase()
             .includes(text)
@@ -1103,20 +1921,45 @@ const filteredPresets = computed(() => {
 
 const modelProviders = computed(() => {
     const providers = new Map<string, string>()
-    for (const model of data.value?.models ?? []) providers.set(providerKey(model), model.provider)
-    return [...providers].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+    for (const model of data.value?.models ?? [])
+        providers.set(providerKey(model), model.provider)
+    return [...providers]
+        .map(([id, name]) => ({ id, name }))
+        .sort(
+            (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+        )
 })
-const modelGroups = computed(() => buildModelGroups(data.value?.models ?? [], data.value?.providers ?? [], {
-    keyword: modelKeyword.value, provider: modelProvider.value, type: modelType.value,
-    capabilities: modelCapabilities.value, scope: modelScope.value,
-    favorites: [...modelFavorites.value]
-}))
-const visibleModelCount = computed(() => modelGroups.value.reduce((sum, group) => sum + group.count, 0))
-const modelFiltersActive = computed(() => !!(modelKeyword.value || modelProvider.value || modelType.value || modelCapabilities.value.length || modelScope.value !== 'all'))
+const modelGroups = computed(() =>
+    buildModelGroups(data.value?.models ?? [], data.value?.providers ?? [], {
+        keyword: modelKeyword.value,
+        provider: modelProvider.value,
+        type: modelType.value,
+        capabilities: modelCapabilities.value,
+        scope: modelScope.value,
+        favorites: [...modelFavorites.value]
+    })
+)
+const visibleModelCount = computed(() =>
+    modelGroups.value.reduce((sum, group) => sum + group.count, 0)
+)
+const modelFiltersActive = computed(
+    () =>
+        !!(
+            modelKeyword.value ||
+            modelProvider.value ||
+            modelType.value ||
+            modelCapabilities.value.length ||
+            modelScope.value !== 'all'
+        )
+)
 
-watch([modelKeyword, modelProvider, modelType, modelScope, modelCapabilities], () => {
-    modelPageSizes.value = {}
-}, { deep: true })
+watch(
+    [modelKeyword, modelProvider, modelType, modelScope, modelCapabilities],
+    () => {
+        modelPageSizes.value = {}
+    },
+    { deep: true }
+)
 
 function setModelFamilyOpen(key: string, event: Event) {
     const open = new Set(openModelFamilies.value)
@@ -1134,51 +1977,119 @@ function resetModelFilters() {
 }
 
 function toggleModelFavorite(model: ModelHubConsoleModel) {
-    modelPreferences.value = { ...modelPreferences.value, favorites: toggleFavorite(modelPreferences.value?.favorites, modelKey(model)) }
+    modelPreferences.value = {
+        ...modelPreferences.value,
+        favorites: toggleFavorite(
+            modelPreferences.value?.favorites,
+            modelKey(model)
+        )
+    }
 }
 
-function formatModelTime(time: number) { return new Date(time).toLocaleString() }
+function formatModelTime(time: number) {
+    return new Date(time).toLocaleString()
+}
 
 async function copyModel(model: ModelHubConsoleModel) {
     try {
         if (!navigator.clipboard) throw new Error('当前环境不支持剪贴板')
         await navigator.clipboard.writeText(`${model.platform}/${model.name}`)
         showMessage('已复制平台/模型标识', 'success')
-    } catch (error) { showMessage(String(error), 'danger') }
+    } catch (error) {
+        showMessage(String(error), 'danger')
+    }
 }
 
 const selectedProvider = computed(() =>
-    selectedProviderIndex.value >= 0 ? form.value.providers[selectedProviderIndex.value] : undefined
+    selectedProviderIndex.value >= 0
+        ? form.value.providers[selectedProviderIndex.value]
+        : undefined
 )
 
 function applyGeminiSchema() {
     if (!selectedProvider.value) return true
     try {
-        const schema = geminiSchemaText.value.trim() ? JSON.parse(geminiSchemaText.value) : undefined
-        if (schema && (typeof schema !== 'object' || Array.isArray(schema))) throw new Error('JSON Schema 必须为对象')
+        const schema = geminiSchemaText.value.trim()
+            ? JSON.parse(geminiSchemaText.value)
+            : undefined
+        if (schema && (typeof schema !== 'object' || Array.isArray(schema)))
+            throw new Error('JSON Schema 必须为对象')
         selectedProvider.value.geminiResponseJsonSchema = schema
         return true
-    } catch { showMessage('JSON Schema 无效，请修正后保存', 'danger'); return false }
+    } catch {
+        showMessage('JSON Schema 无效，请修正后保存', 'danger')
+        return false
+    }
 }
 
-watch(() => selectedProvider.value?.geminiResponseJsonSchema, (schema) => {
-    geminiSchemaText.value = schema ? JSON.stringify(schema, null, 2) : ''
-}, { immediate: true })
+watch(
+    () => selectedProvider.value?.geminiResponseJsonSchema,
+    (schema) => {
+        geminiSchemaText.value = schema ? JSON.stringify(schema, null, 2) : ''
+    },
+    { immediate: true }
+)
 
-async function runGeminiResource(action: 'list' | 'get' | 'create' | 'update' | 'delete') {
+async function runGeminiResource(
+    action: 'list' | 'get' | 'create' | 'update' | 'delete'
+) {
     if (!selectedProvider.value || resourceBusy.value) return
-    if (dirty.value) { showMessage('请先保存服务商设置', 'info'); return }
-    if (['delete', 'create'].includes(action) && !window.confirm(action === 'delete' ? '确认删除该远端资源？引用它的对话可能失效。' : '确认创建远端缓存？此操作可能产生费用。')) return
+    if (dirty.value) {
+        showMessage('请先保存服务商设置', 'info')
+        return
+    }
+    if (
+        selectedProvider.value.sources &&
+        (!resourceSourceId.value || !resourceCredentialId.value)
+    ) {
+        showMessage('请选择资源所属连接源及 Key', 'info')
+        return
+    }
+    if (
+        ['delete', 'create'].includes(action) &&
+        !window.confirm(
+            action === 'delete'
+                ? '确认删除该远端资源？引用它的对话可能失效。'
+                : '确认创建远端缓存？此操作可能产生费用。'
+        )
+    )
+        return
     resourceBusy.value = true
-    const platform = selectedRuntimeProvider.value?.platform || selectedProvider.value.platform
+    const platform =
+        selectedRuntimeProvider.value?.platform ||
+        selectedProvider.value.platform
     try {
-        const result = await send('chatluna-model-hub/geminiResource', platform, {
-            resource: geminiResourceType.value, action, name: geminiResourceName.value,
-            body: ['create', 'update'].includes(action) && geminiResourceBody.value.trim() ? JSON.parse(geminiResourceBody.value) : undefined
-        })
-        if ((selectedRuntimeProvider.value?.platform || selectedProvider.value?.platform) === platform) geminiResourceResult.value = JSON.stringify(result, null, 2)
-    } catch (error) { showMessage(String(error), 'danger') }
-    finally { resourceBusy.value = false }
+        const result = await send(
+            'chatluna-model-hub/geminiResource',
+            platform,
+            {
+                sourceId: resourceSourceId.value,
+                credentialId: resourceCredentialId.value,
+                credentialGeneration: selectedProvider.value.sources
+                    ?.find((s) => s.id === resourceSourceId.value)
+                    ?.credentials.find(
+                        (c) => c.id === resourceCredentialId.value
+                    )?.generation,
+                resource: geminiResourceType.value,
+                action,
+                name: geminiResourceName.value,
+                body:
+                    ['create', 'update'].includes(action) &&
+                    geminiResourceBody.value.trim()
+                        ? JSON.parse(geminiResourceBody.value)
+                        : undefined
+            }
+        )
+        if (
+            (selectedRuntimeProvider.value?.platform ||
+                selectedProvider.value?.platform) === platform
+        )
+            geminiResourceResult.value = JSON.stringify(result, null, 2)
+    } catch (error) {
+        showMessage(String(error), 'danger')
+    } finally {
+        resourceBusy.value = false
+    }
 }
 
 const selectedRuntimeProvider = computed(() =>
@@ -1194,18 +2105,24 @@ const selectedCustomModels = computed(() => {
 })
 
 const responseSupportModelsText = computed({
-    get: () => selectedProvider.value?.responseBuiltinToolSupportModel?.join(', ') ?? '',
+    get: () =>
+        selectedProvider.value?.responseBuiltinToolSupportModel?.join(', ') ??
+        '',
     set: (value: string) => {
         if (!selectedProvider.value) return
-        selectedProvider.value.responseBuiltinToolSupportModel = splitList(value)
+        selectedProvider.value.responseBuiltinToolSupportModel =
+            splitList(value)
     }
 })
 
 const responseVectorStoresText = computed({
-    get: () => selectedProvider.value?.responseFileSearchVectorStoreIds?.join(', ') ?? '',
+    get: () =>
+        selectedProvider.value?.responseFileSearchVectorStoreIds?.join(', ') ??
+        '',
     set: (value: string) => {
         if (!selectedProvider.value) return
-        selectedProvider.value.responseFileSearchVectorStoreIds = splitList(value)
+        selectedProvider.value.responseFileSearchVectorStoreIds =
+            splitList(value)
     }
 })
 
@@ -1274,9 +2191,13 @@ function createProviderDefaults(provider = '') {
         reasoningProtocol: 'openai',
         responseApi: provider === 'xai',
         responseBuiltinTools: [],
-        responseBuiltinToolSupportModel: provider === 'xai' ? ['grok'] : ['gpt-4o', 'gpt-4.1', 'gpt-5', 'gpt-6', 'o3', 'o4'],
+        responseBuiltinToolSupportModel:
+            provider === 'xai'
+                ? ['grok']
+                : ['gpt-4o', 'gpt-4.1', 'gpt-5', 'gpt-6', 'o3', 'o4'],
         promptCacheMode: 'default' as const,
-        promptCacheTtl: provider === 'moonshot' ? '5m' as const : '30m' as const,
+        promptCacheTtl:
+            provider === 'moonshot' ? ('5m' as const) : ('30m' as const),
         responseFileSearchVectorStoreIds: [],
         googleSearch: false,
         agenticVideo: false,
@@ -1362,7 +2283,9 @@ function uniquePlatform(base: string) {
 }
 
 function providerPreset(provider: ConsoleProviderEntry) {
-    return data.value?.presets?.find((preset) => preset.id === provider.provider)
+    return data.value?.presets?.find(
+        (preset) => preset.id === provider.provider
+    )
 }
 
 function providerName(provider: ConsoleProviderEntry) {
@@ -1425,7 +2348,10 @@ function modelTargetsSelectedProvider(
     )
 }
 
-function updateProviderPlatform(provider: ConsoleProviderEntry, platform: string) {
+function updateProviderPlatform(
+    provider: ConsoleProviderEntry,
+    platform: string
+) {
     const previous = provider.platform
     provider.platform = platform
     if (!platform.trim()) return
@@ -1462,11 +2388,13 @@ function retargetCustomModels(from: string, to: string) {
 }
 
 function normalizeTarget(value: string) {
-    return (value || '*')
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9._-]+/g, '-')
-        .replace(/^-+|-+$/g, '') || '*'
+    return (
+        (value || '*')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9._-]+/g, '-')
+            .replace(/^-+|-+$/g, '') || '*'
+    )
 }
 
 function isPlatformTarget(target: string, normalizedPlatform: string) {
@@ -1490,7 +2418,7 @@ function duplicateProvider(index: number) {
     if (!source) return
     const nextPlatform = uniquePlatform(source.platform)
     form.value.providers.splice(index + 1, 0, {
-        ...clone(source),
+        ...withoutProviderSecrets(source),
         platform: nextPlatform,
         apiKey: '',
         apiKeyPreview: '',
@@ -1531,7 +2459,10 @@ function removeProvider(index: number) {
             (model) => !isPlatformTarget(model.target, removedTarget)
         )
     }
-    selectedProviderIndex.value = Math.min(index, form.value.providers.length - 1)
+    selectedProviderIndex.value = Math.min(
+        index,
+        form.value.providers.length - 1
+    )
     normalizeSelectedProvider()
 }
 
@@ -1539,7 +2470,7 @@ async function copyProvider(provider: ConsoleProviderEntry) {
     try {
         if (!navigator.clipboard) throw new Error('当前环境不支持剪贴板')
         await navigator.clipboard.writeText(
-            JSON.stringify({ ...provider, apiKey: '' }, null, 2)
+            JSON.stringify(withoutProviderSecrets(provider), null, 2)
         )
         showMessage('已复制配置', 'success')
     } catch {
@@ -1548,26 +2479,61 @@ async function copyProvider(provider: ConsoleProviderEntry) {
 }
 
 async function saveSettings() {
-    if (selectedProvider.value?.provider === 'gemini' && !applyGeminiSchema()) return
+    if (!sourceSettingsValid.value) {
+        showMessage('连接源 JSON 无效，请修正后保存', 'danger')
+        return
+    }
+    if (selectedProvider.value?.provider === 'gemini' && !applyGeminiSchema())
+        return
     saving.value = true
     try {
-        const result = (await send('chatluna-model-hub/saveSettings', clone(form.value))) as ModelHubActionResult
+        const result = (await send(
+            'chatluna-model-hub/saveSettings',
+            clone(form.value)
+        )) as ModelHubActionResult
         dirty.value = false
+        // Read back backend-issued identities/revision and never retain write-only secrets.
+        const snapshot = await send('chatluna-model-hub/getData')
+        hydrate(snapshot.settings)
         showMessage(
             result.success ? '已保存并重新加载' : '已保存，部分服务商加载失败',
             result.success ? 'success' : 'danger'
         )
-    } catch {
-        showMessage('保存失败，请检查控制台连接', 'danger')
+    } catch (error) {
+        showMessage(`保存失败：${String(error)}`, 'danger')
     } finally {
         saving.value = false
+    }
+}
+
+async function refreshSource(sourceId: string) {
+    if (!selectedProvider.value || dirty.value) {
+        showMessage('请先保存连接设置', 'info')
+        return
+    }
+    try {
+        const result = await send(
+            'chatluna-model-hub/refresh',
+            selectedProvider.value.platform,
+            sourceId
+        )
+        showMessage(
+            result.success
+                ? '连接目录已刷新'
+                : '部分连接目录不可用，请查看 Key 状态',
+            result.success ? 'success' : 'danger'
+        )
+    } catch (error) {
+        showMessage(String(error), 'danger')
     }
 }
 
 async function refreshAll() {
     refreshing.value = true
     try {
-        const result = (await send('chatluna-model-hub/refresh')) as ModelHubActionResult
+        const result = (await send(
+            'chatluna-model-hub/refresh'
+        )) as ModelHubActionResult
         showMessage(
             result.success ? `已刷新 ${result.models ?? 0} 个模型` : '刷新失败',
             result.success ? 'success' : 'danger'
@@ -1587,7 +2553,9 @@ async function refreshProvider(provider: ConsoleProviderEntry) {
             provider.platform
         )) as ModelHubActionResult
         showMessage(
-            result.success ? `已刷新 ${provider.platform}` : `${provider.platform} 刷新失败`,
+            result.success
+                ? `已刷新 ${provider.platform}`
+                : `${provider.platform} 刷新失败`,
             result.success ? 'success' : 'danger'
         )
     } catch {
@@ -1707,6 +2675,7 @@ function showIcon(event: Event) {
 function statusText(status: ModelHubProviderStatus) {
     const map: Record<ModelHubProviderStatus, string> = {
         loaded: '已加载',
+        partial: '部分可用',
         configured: '已配置',
         'missing-key': '待配置',
         disabled: '停用',
@@ -1782,7 +2751,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     .dirty-indicator {
         border-radius: 999px;
-        background: color-mix(in srgb, var(--el-color-warning) 14%, transparent);
+        background: color-mix(
+            in srgb,
+            var(--el-color-warning) 14%,
+            transparent
+        );
         color: var(--el-color-warning);
         font-size: 0.75rem;
         font-weight: 650;
@@ -1934,8 +2907,13 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     padding: 0 0.8rem;
 
     &:focus-within {
-        border-color: color-mix(in srgb, var(--k-color-primary), var(--k-card-border) 35%);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--k-color-primary) 16%, transparent);
+        border-color: color-mix(
+            in srgb,
+            var(--k-color-primary),
+            var(--k-card-border) 35%
+        );
+        box-shadow: 0 0 0 2px
+            color-mix(in srgb, var(--k-color-primary) 16%, transparent);
     }
 
     input {
@@ -1989,7 +2967,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         padding: 0.55rem 0.6rem;
 
         &.active {
-            background: color-mix(in srgb, var(--k-color-primary), transparent 88%);
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary),
+                transparent 88%
+            );
             color: var(--k-color-primary);
         }
     }
@@ -2019,12 +3001,20 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     text-align: left;
 
     &:hover {
-        border-color: color-mix(in srgb, var(--k-color-primary), transparent 82%);
+        border-color: color-mix(
+            in srgb,
+            var(--k-color-primary),
+            transparent 82%
+        );
         background: color-mix(in srgb, var(--k-color-primary), transparent 96%);
     }
 
     &.active {
-        border-color: color-mix(in srgb, var(--k-color-primary), transparent 62%);
+        border-color: color-mix(
+            in srgb,
+            var(--k-color-primary),
+            transparent 62%
+        );
         background: color-mix(in srgb, var(--k-color-primary), transparent 92%);
     }
 }
@@ -2054,7 +3044,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     width: 2.45rem;
     height: 2.45rem;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--k-card-bg), var(--k-color-divider) 28%);
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg),
+        var(--k-color-divider) 28%
+    );
 
     &.large {
         width: 3.25rem;
@@ -2160,7 +3154,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     white-space: nowrap;
 
     &[data-status='loaded'] {
-        background: color-mix(in srgb, var(--el-color-success), transparent 86%);
+        background: color-mix(
+            in srgb,
+            var(--el-color-success),
+            transparent 86%
+        );
         color: var(--el-color-success);
     }
 
@@ -2178,6 +3176,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
 .detail-scroll {
     display: grid;
+    grid-auto-rows: max-content;
     align-content: start;
     gap: 1rem;
     min-height: 0;
@@ -2262,7 +3261,8 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         justify-content: space-between;
         gap: 1rem;
         min-width: 0;
-        border: 1px solid color-mix(in srgb, var(--k-card-border), transparent 30%);
+        border: 1px solid
+            color-mix(in srgb, var(--k-card-border), transparent 30%);
         border-radius: 8px;
         background: var(--k-card-bg);
         padding: 0.65rem 0.75rem;
@@ -2354,10 +3354,22 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     align-items: end;
     flex-wrap: wrap;
     gap: 0.75rem;
-    label { display: grid; gap: 0.35rem; flex: 1 1 10rem; min-width: 0; }
-    label > span { color: var(--k-text-light); font-size: 0.8rem; }
-    .capability-filter { flex: 2 1 15rem; }
-    .el-select { width: 100%; }
+    label {
+        display: grid;
+        gap: 0.35rem;
+        flex: 1 1 10rem;
+        min-width: 0;
+    }
+    label > span {
+        color: var(--k-text-light);
+        font-size: 0.8rem;
+    }
+    .capability-filter {
+        flex: 2 1 15rem;
+    }
+    .el-select {
+        width: 100%;
+    }
 }
 .model-browser-scopes {
     display: flex;
@@ -2372,46 +3384,107 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         color: var(--k-text-light);
         padding: 0.4rem 0.8rem;
         cursor: pointer;
-        &.active { color: var(--k-color-primary); border-color: var(--k-color-primary); }
-        &:focus-visible { outline: 2px solid var(--k-color-primary); outline-offset: 2px; }
+        &.active {
+            color: var(--k-color-primary);
+            border-color: var(--k-color-primary);
+        }
+        &:focus-visible {
+            outline: 2px solid var(--k-color-primary);
+            outline-offset: 2px;
+        }
     }
-    small { color: var(--k-text-light); font-size: 0.8rem; }
+    small {
+        color: var(--k-text-light);
+        font-size: 0.8rem;
+    }
 }
 .model-provider-group {
     min-width: 0;
-    .section-head { flex-wrap: wrap; }
-    .model-heading span, .model-updated { overflow-wrap: anywhere; color: var(--k-text-light); font-size: 0.8rem; }
-    h3 small { font-size: 0.8rem; font-weight: normal; color: var(--k-text-light); }
+    .section-head {
+        flex-wrap: wrap;
+    }
+    .model-heading span,
+    .model-updated {
+        overflow-wrap: anywhere;
+        color: var(--k-text-light);
+        font-size: 0.8rem;
+    }
+    h3 small {
+        font-size: 0.8rem;
+        font-weight: normal;
+        color: var(--k-text-light);
+    }
 }
 .model-family {
     border-bottom: 1px solid var(--k-card-border);
-    &:last-child { border-bottom: 0; }
+    &:last-child {
+        border-bottom: 0;
+    }
 }
 .model-variants {
     summary {
         cursor: pointer;
         list-style: none;
-        &::-webkit-details-marker { display: none; }
-        &:focus-visible { outline: 2px solid var(--k-color-primary); outline-offset: -2px; }
+        &::-webkit-details-marker {
+            display: none;
+        }
+        &:focus-visible {
+            outline: 2px solid var(--k-color-primary);
+            outline-offset: -2px;
+        }
     }
-    &[open] > summary { background: color-mix(in srgb, var(--k-color-primary) 5%, transparent); }
+    &[open] > summary {
+        background: color-mix(in srgb, var(--k-color-primary) 5%, transparent);
+    }
 }
-.model-variant-count { display: block; padding: 0 0.85rem 0.65rem 3.5rem; font-size: 0.75rem; color: var(--k-color-primary); }
-.model-variant-rows { padding-left: 1rem; border-top: 1px solid var(--k-card-border); }
-.model-empty { display: grid; justify-items: center; gap: 1rem; }
-.model-more { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.8rem; color: var(--k-text-light); font-size: 0.8rem; }
+.model-variant-count {
+    display: block;
+    padding: 0 0.85rem 0.65rem 3.5rem;
+    font-size: 0.75rem;
+    color: var(--k-color-primary);
+}
+.model-variant-rows {
+    padding-left: 1rem;
+    border-top: 1px solid var(--k-card-border);
+}
+.model-empty {
+    display: grid;
+    justify-items: center;
+    gap: 1rem;
+}
+.model-more {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.8rem;
+    color: var(--k-text-light);
+    font-size: 0.8rem;
+}
 
 @media (max-width: 600px) {
-    .model-browser-filters label { flex-basis: 100%; }
-    .model-browser-scopes small { flex-basis: 100%; }
-    .model-variant-rows { padding-left: 0.35rem; }
-    .model-variant-count { padding-left: 3.1rem; }
+    .model-browser-filters label {
+        flex-basis: 100%;
+    }
+    .model-browser-scopes small {
+        flex-basis: 100%;
+    }
+    .model-variant-rows {
+        padding-left: 0.35rem;
+    }
+    .model-variant-count {
+        padding-left: 3.1rem;
+    }
 }
 
 .model-head,
 .model-row-view {
     display: grid;
-    grid-template-columns: minmax(12rem, 1.5fr) minmax(8rem, 1fr) 8rem minmax(10rem, 1fr);
+    grid-template-columns: minmax(12rem, 1.5fr) minmax(8rem, 1fr) 8rem minmax(
+            10rem,
+            1fr
+        );
     gap: 0.75rem;
     align-items: center;
     border-bottom: 1px solid var(--k-card-border);
@@ -2468,25 +3541,37 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 }
 
 .empty-action {
-    transition: border-color 0.22s ease, background-color 0.22s ease, transform 0.22s ease;
+    transition:
+        border-color 0.22s ease,
+        background-color 0.22s ease,
+        transform 0.22s ease;
 
     &:hover {
-        border-color: color-mix(in srgb, var(--k-color-primary) 55%, var(--k-card-border));
-        background: color-mix(in srgb, var(--k-color-primary) 6%, var(--k-card-bg));
+        border-color: color-mix(
+            in srgb,
+            var(--k-color-primary) 55%,
+            var(--k-card-border)
+        );
+        background: color-mix(
+            in srgb,
+            var(--k-color-primary) 6%,
+            var(--k-card-bg)
+        );
         color: var(--k-color-primary);
     }
 }
 
 .error-box {
-    overflow: hidden;
+    min-width: 0;
     margin: 0;
     border-radius: 8px;
     background: color-mix(in srgb, var(--el-color-danger), transparent 92%);
     color: var(--el-color-danger);
     font-size: 0.82rem;
+    line-height: 1.5;
     padding: 0.55rem 0.7rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
 }
 
 .dialog-shell {
@@ -2559,7 +3644,8 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     &.selected {
         border-color: var(--k-color-primary);
-        box-shadow: 0 10px 24px color-mix(in srgb, var(--k-color-primary) 10%, transparent);
+        box-shadow: 0 10px 24px
+            color-mix(in srgb, var(--k-color-primary) 10%, transparent);
     }
 
     > strong,
@@ -2626,7 +3712,6 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .model-hub-main {
         height: calc(100vh - 6rem);
     }
-
 }
 
 /* ==========================================
@@ -2636,7 +3721,9 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 // --- 1. Global / All-Mode Smooth Transitions ---
 .model-hub-page {
     // Basic transitions
-    transition: background-color 0.22s ease, color 0.22s ease;
+    transition:
+        background-color 0.22s ease,
+        color 0.22s ease;
 
     button,
     .provider-row,
@@ -2653,7 +3740,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .el-button,
     .el-input__inner,
     .el-switch {
-        transition: 
+        transition:
             color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
             background 0.22s cubic-bezier(0.16, 1, 0.3, 1),
             border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
@@ -2676,17 +3763,36 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .model-hub-page.market-mode-polished {
     --market-polished-ease: cubic-bezier(0.16, 1, 0.3, 1);
     --market-polished-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-    --market-polished-shadow: 0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    --market-polished-shadow-glow: 0 16px 32px rgba(0, 0, 0, 0.08), 0 4px 10px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-    --market-polished-glass: color-mix(in srgb, var(--k-card-bg) 55%, transparent);
-    --market-polished-glass-hover: color-mix(in srgb, var(--k-card-bg) 70%, transparent);
-    --market-polished-line: color-mix(in srgb, var(--k-color-primary) 12%, var(--k-card-border));
+    --market-polished-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --market-polished-shadow-glow:
+        0 16px 32px rgba(0, 0, 0, 0.08), 0 4px 10px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    --market-polished-glass: color-mix(
+        in srgb,
+        var(--k-card-bg) 55%,
+        transparent
+    );
+    --market-polished-glass-hover: color-mix(
+        in srgb,
+        var(--k-card-bg) 70%,
+        transparent
+    );
+    --market-polished-line: color-mix(
+        in srgb,
+        var(--k-color-primary) 12%,
+        var(--k-card-border)
+    );
 
     // Dynamic background glow
     .model-hub-main {
         position: relative;
         background-color: var(--k-page-bg, var(--k-bg-darker)) !important;
-        background-image: radial-gradient(color-mix(in srgb, var(--k-text-light, #7f8490) 6%, transparent) 1px, transparent 1px) !important;
+        background-image: radial-gradient(
+            color-mix(in srgb, var(--k-text-light, #7f8490) 6%, transparent) 1px,
+            transparent 1px
+        ) !important;
         background-size: 20px 20px !important;
         overflow-x: hidden;
         z-index: 1;
@@ -2696,9 +3802,24 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
             position: absolute;
             inset: -15%;
             background:
-                radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--k-color-primary) 16%, transparent) 0%, transparent 40%),
-                radial-gradient(circle at 85% 75%, color-mix(in srgb, var(--k-color-success) 12%, transparent) 0%, transparent 40%),
-                radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--k-color-warning) 8%, transparent) 0%, transparent 35%);
+                radial-gradient(
+                    circle at 15% 20%,
+                    color-mix(in srgb, var(--k-color-primary) 16%, transparent)
+                        0%,
+                    transparent 40%
+                ),
+                radial-gradient(
+                    circle at 85% 75%,
+                    color-mix(in srgb, var(--k-color-success) 12%, transparent)
+                        0%,
+                    transparent 40%
+                ),
+                radial-gradient(
+                    circle at 50% 30%,
+                    color-mix(in srgb, var(--k-color-warning) 8%, transparent)
+                        0%,
+                    transparent 35%
+                );
             pointer-events: none;
             z-index: 0;
             opacity: 0.65;
@@ -2706,7 +3827,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         }
 
         // Place all components above the background gradient
-        .notice, .mode-tabs, .workspace, .models-workspace {
+        .notice,
+        .mode-tabs,
+        .workspace,
+        .models-workspace {
             position: relative;
             z-index: 2;
         }
@@ -2726,13 +3850,22 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     // Nested sections should have a slightly lighter/glassy look
     .section {
-        background: color-mix(in srgb, var(--k-card-bg) 30%, transparent) !important;
-        border-color: color-mix(in srgb, var(--k-color-primary) 8%, var(--k-card-border)) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-card-bg) 30%,
+            transparent
+        ) !important;
+        border-color: color-mix(
+            in srgb,
+            var(--k-color-primary) 8%,
+            var(--k-card-border)
+        ) !important;
     }
 
     // Provider List Staggered Entry Animation
     .provider-list .provider-row {
-        animation: model-hub-polished-card-enter 0.28s var(--market-polished-ease) both;
+        animation: model-hub-polished-card-enter 0.28s
+            var(--market-polished-ease) both;
         @for $i from 1 through 15 {
             &:nth-child(#{$i}) {
                 animation-delay: #{($i - 1) * 0.015}s;
@@ -2747,22 +3880,33 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
         &:hover {
             background: var(--market-polished-glass-hover) !important;
-            border-color: color-mix(in srgb, var(--k-color-primary) 20%, transparent) !important;
+            border-color: color-mix(
+                in srgb,
+                var(--k-color-primary) 20%,
+                transparent
+            ) !important;
             transform: translateY(-1px) translateX(2px);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.03);
         }
 
         &.active {
-            background: color-mix(in srgb, var(--k-color-primary) 12%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 12%,
+                transparent
+            ) !important;
             border-color: var(--k-color-primary) !important;
-            box-shadow: inset 3px 0 0 var(--k-color-primary), 0 4px 12px rgba(0, 0, 0, 0.04) !important;
+            box-shadow:
+                inset 3px 0 0 var(--k-color-primary),
+                0 4px 12px rgba(0, 0, 0, 0.04) !important;
             transform: translateX(4px);
         }
     }
 
     // Models tab list items animation
     .model-row-view {
-        animation: model-hub-polished-card-enter 0.28s var(--market-polished-ease) both;
+        animation: model-hub-polished-card-enter 0.28s
+            var(--market-polished-ease) both;
         @for $i from 1 through 20 {
             &:nth-child(#{$i}) {
                 animation-delay: #{($i - 1) * 0.01}s;
@@ -2776,11 +3920,16 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         background: var(--market-polished-glass);
 
         &:focus-within {
-            border-color: color-mix(in srgb, var(--k-color-primary) 50%, var(--k-color-border));
+            border-color: color-mix(
+                in srgb,
+                var(--k-color-primary) 50%,
+                var(--k-color-border)
+            );
             background: var(--market-polished-glass-hover);
-            box-shadow: 
-                0 8px 20px rgba(0, 0, 0, 0.06), 
-                0 0 0 2px color-mix(in srgb, var(--k-color-primary) 12%, transparent);
+            box-shadow:
+                0 8px 20px rgba(0, 0, 0, 0.06),
+                0 0 0 2px
+                    color-mix(in srgb, var(--k-color-primary) 12%, transparent);
             transform: translateY(-1px);
         }
     }
@@ -2802,11 +3951,16 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
             &.active {
                 background: var(--k-color-primary);
-                box-shadow: 0 4px 10px color-mix(in srgb, var(--k-color-primary) 30%, transparent);
+                box-shadow: 0 4px 10px
+                    color-mix(in srgb, var(--k-color-primary) 30%, transparent);
             }
 
             &:hover:not(.active) {
-                background: color-mix(in srgb, var(--k-color-primary) 6%, transparent);
+                background: color-mix(
+                    in srgb,
+                    var(--k-color-primary) 6%,
+                    transparent
+                );
                 color: var(--k-text-dark);
             }
         }
@@ -2816,7 +3970,7 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .preset-card {
         border-color: var(--market-polished-line) !important;
         background: var(--market-polished-glass) !important;
-        transition: 
+        transition:
             transform 0.24s var(--market-polished-ease-spring),
             box-shadow 0.24s var(--market-polished-ease),
             border-color 0.22s var(--market-polished-ease),
@@ -2831,7 +3985,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
         &.selected {
             border-color: var(--k-color-primary) !important;
-            background: color-mix(in srgb, var(--k-color-primary) 8%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 8%,
+                transparent
+            ) !important;
             box-shadow: var(--market-polished-shadow-glow) !important;
             transform: translateY(-2px);
         }
@@ -2841,13 +3999,16 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .status-dot {
         box-shadow: 0 0 0 0 transparent;
         &[data-status='loaded'] {
-            box-shadow: 0 0 6px color-mix(in srgb, var(--el-color-success) 50%, transparent);
+            box-shadow: 0 0 6px
+                color-mix(in srgb, var(--el-color-success) 50%, transparent);
         }
         &[data-status='configured'] {
-            box-shadow: 0 0 6px color-mix(in srgb, var(--k-color-primary) 50%, transparent);
+            box-shadow: 0 0 6px
+                color-mix(in srgb, var(--k-color-primary) 50%, transparent);
         }
         &[data-status='error'] {
-            box-shadow: 0 0 6px color-mix(in srgb, var(--el-color-danger) 50%, transparent);
+            box-shadow: 0 0 6px
+                color-mix(in srgb, var(--el-color-danger) 50%, transparent);
         }
     }
 
@@ -2876,10 +4037,18 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
     .provider-row {
         &:hover {
-            background: color-mix(in srgb, var(--k-color-primary) 6%, var(--k-hover-bg, rgba(128, 128, 128, 0.05))) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 6%,
+                var(--k-hover-bg, rgba(128, 128, 128, 0.05))
+            ) !important;
         }
         &.active {
-            background: color-mix(in srgb, var(--k-color-primary) 10%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 10%,
+                transparent
+            ) !important;
             border-color: var(--k-color-primary) !important;
         }
     }
@@ -2887,11 +4056,19 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .preset-card {
         &:hover {
             border-color: var(--k-color-primary) !important;
-            background: color-mix(in srgb, var(--k-color-primary) 4%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 4%,
+                transparent
+            ) !important;
         }
         &.selected {
             border-color: var(--k-color-primary) !important;
-            background: color-mix(in srgb, var(--k-color-primary) 8%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 8%,
+                transparent
+            ) !important;
         }
     }
 }
@@ -2909,7 +4086,8 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     :deep(.el-textarea__inner:focus) {
         box-shadow:
             0 0 0 1px var(--k-color-primary) inset,
-            0 0 0 2px color-mix(in srgb, var(--k-color-primary) 16%, transparent) !important;
+            0 0 0 2px
+                color-mix(in srgb, var(--k-color-primary) 16%, transparent) !important;
     }
 
     button:focus-visible,
@@ -2934,7 +4112,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         padding: 0.2rem 0.35rem;
 
         &:hover {
-            background: color-mix(in srgb, var(--el-color-danger) 10%, transparent);
+            background: color-mix(
+                in srgb,
+                var(--el-color-danger) 10%,
+                transparent
+            );
         }
 
         &:active {
@@ -2963,12 +4145,14 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     /* Use one page scroll on narrow screens instead of trapping content in
        nested panels. This keeps long provider forms reachable on touch devices. */
     .model-hub-main {
+        grid-auto-rows: max-content;
         overflow-x: hidden;
         overflow-y: auto;
     }
 
     .workspace,
     .models-workspace {
+        grid-auto-rows: max-content;
         height: auto;
         overflow: visible;
     }
@@ -2976,6 +4160,14 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     .detail-panel,
     .detail-scroll {
         overflow: visible;
+    }
+
+    .detail-panel {
+        grid-template-rows: auto auto;
+    }
+
+    .detail-scroll {
+        min-height: auto;
     }
 }
 
@@ -3037,7 +4229,9 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 // --- 5. Panel Fade Transition ---
 .panel-fade-enter-active,
 .panel-fade-leave-active {
-    transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    transition:
+        opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+        transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .panel-fade-enter-from {
     opacity: 0;
@@ -3051,34 +4245,35 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 // --- 6. Form & Layout Aesthetics Refinements ---
 .detail-head {
     border-bottom: 1px solid var(--market-polished-line) !important;
-    padding: 1.25rem 1.5rem !important;
+    padding: 1.25rem 1.5rem;
     background: color-mix(in srgb, var(--k-card-bg) 20%, transparent);
 }
 
 .detail-scroll {
     gap: 1.25rem !important;
-    padding: 1.5rem !important;
+    padding: 1.5rem;
 }
 
 .section {
     gap: 1.25rem !important;
     border-radius: 12px !important;
-    padding: 1.5rem !important;
+    padding: 1.5rem;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02) !important;
 }
 
 .section-head {
-    border-bottom: 1px solid color-mix(in srgb, var(--k-color-divider) 35%, transparent) !important;
+    border-bottom: 1px solid
+        color-mix(in srgb, var(--k-color-divider) 35%, transparent) !important;
     padding-bottom: 0.75rem !important;
     margin-bottom: 0.25rem !important;
-    
+
     h3 {
         font-size: 1.05rem !important;
         font-weight: 700 !important;
         color: var(--k-text-dark) !important;
         position: relative !important;
         padding-left: 0.75rem !important;
-        
+
         &::before {
             content: '' !important;
             position: absolute !important;
@@ -3094,10 +4289,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
 .grid {
     gap: 1.25rem 1rem !important;
-    
+
     label {
         gap: 0.45rem !important;
-        
+
         span {
             color: var(--k-text-light) !important;
             font-size: 0.85rem !important;
@@ -3105,8 +4300,10 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
             margin-bottom: 0.15rem !important;
         }
     }
-    
-    .el-input, .el-select, .el-input-number {
+
+    .el-input,
+    .el-select,
+    .el-input-number {
         width: 100% !important;
     }
 }
@@ -3114,19 +4311,36 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .switch-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.8rem !important;
-    
+
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr !important;
+    }
+
     label {
-        border: 1px solid color-mix(in srgb, var(--k-card-border), transparent 30%) !important;
+        border: 1px solid
+            color-mix(in srgb, var(--k-card-border), transparent 30%) !important;
         border-radius: 8px !important;
-        background: color-mix(in srgb, var(--k-card-bg) 20%, transparent) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-card-bg) 20%,
+            transparent
+        ) !important;
         padding: 0.75rem 1rem !important;
         margin: 0 !important;
-        
+
         &:hover {
-            border-color: color-mix(in srgb, var(--k-color-primary) 30%, transparent) !important;
-            background: color-mix(in srgb, var(--k-card-bg) 45%, transparent) !important;
+            border-color: color-mix(
+                in srgb,
+                var(--k-color-primary) 30%,
+                transparent
+            ) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-card-bg) 45%,
+                transparent
+            ) !important;
         }
-        
+
         span {
             font-size: 0.88rem !important;
             font-weight: 550 !important;
@@ -3138,10 +4352,18 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .header-row {
     grid-template-columns: 1fr 1.2fr auto auto !important;
     gap: 0.75rem !important;
+
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr !important;
+    }
     padding: 0.75rem !important;
-    background: color-mix(in srgb, var(--k-card-bg) 15%, transparent) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg) 15%,
+        transparent
+    ) !important;
     border: 1px solid var(--k-card-border) !important;
-    
+
     .el-input {
         width: 100% !important;
     }
@@ -3158,7 +4380,12 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .model-hub-page,
 .model-hub-page * {
     scrollbar-width: thin !important;
-    scrollbar-color: color-mix(in srgb, var(--k-color-primary, #7c3aed) 38%, var(--fg3, #7f8490)) transparent !important;
+    scrollbar-color: color-mix(
+            in srgb,
+            var(--k-color-primary, #7c3aed) 38%,
+            var(--fg3, #7f8490)
+        )
+        transparent !important;
 }
 
 .model-hub-page::-webkit-scrollbar,
@@ -3177,13 +4404,21 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     min-height: 32px !important;
     border: 2px solid transparent !important;
     border-radius: 999px !important;
-    background: color-mix(in srgb, var(--k-color-primary, #7c3aed) 26%, var(--fg3, #7f8490)) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-color-primary, #7c3aed) 26%,
+        var(--fg3, #7f8490)
+    ) !important;
     background-clip: content-box !important;
 }
 
 .model-hub-page::-webkit-scrollbar-thumb:hover,
 .model-hub-page *::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in srgb, var(--k-color-primary, #7c3aed) 55%, var(--fg3, #7f8490)) !important;
+    background-color: color-mix(
+        in srgb,
+        var(--k-color-primary, #7c3aed) 55%,
+        var(--fg3, #7f8490)
+    ) !important;
 }
 
 // --- 8. Add Provider Dialog Aesthetics Redesign ---
@@ -3191,30 +4426,38 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
     border-radius: 16px !important;
     overflow: hidden !important;
     border: 1px solid var(--market-polished-line) !important;
-    background: color-mix(in srgb, var(--k-card-bg) 85%, transparent) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg) 85%,
+        transparent
+    ) !important;
     backdrop-filter: blur(20px) saturate(120%) !important;
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.24) !important;
-    
+
     .el-dialog__header {
         border-bottom: 1px solid var(--market-polished-line) !important;
         margin-right: 0 !important;
         padding: 1.25rem 1.5rem !important;
-        
+
         .el-dialog__title {
             font-size: 1.15rem !important;
             font-weight: 700 !important;
             color: var(--k-text-dark) !important;
         }
     }
-    
+
     .el-dialog__body {
         padding: 1.5rem !important;
     }
-    
+
     .el-dialog__footer {
         border-top: 1px solid var(--market-polished-line) !important;
         padding: 1rem 1.5rem !important;
-        background: color-mix(in srgb, var(--k-card-bg) 15%, transparent) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-card-bg) 15%,
+            transparent
+        ) !important;
     }
 }
 
@@ -3236,22 +4479,31 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 
 .kind-switch {
     border: 1px solid var(--market-polished-line) !important;
-    background: color-mix(in srgb, var(--k-card-bg) 15%, transparent) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg) 15%,
+        transparent
+    ) !important;
     border-radius: 8px !important;
     padding: 0.18rem !important;
-    
+
     button {
         font-size: 0.85rem !important;
         border-radius: 6px !important;
-        
+
         &.active {
             background: var(--k-color-primary) !important;
             color: #fff !important;
-            box-shadow: 0 4px 10px color-mix(in srgb, var(--k-color-primary) 30%, transparent) !important;
+            box-shadow: 0 4px 10px
+                color-mix(in srgb, var(--k-color-primary) 30%, transparent) !important;
         }
-        
+
         &:hover:not(.active) {
-            background: color-mix(in srgb, var(--k-color-primary) 6%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-color-primary) 6%,
+                transparent
+            ) !important;
             color: var(--k-text-dark) !important;
         }
     }
@@ -3269,40 +4521,66 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .preset-card {
     border: 1px solid var(--market-polished-line) !important;
     border-radius: 14px !important;
-    background: color-mix(in srgb, var(--k-card-bg) 30%, transparent) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg) 30%,
+        transparent
+    ) !important;
     backdrop-filter: blur(8px) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.02),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
     padding: 1.25rem 0.75rem !important;
     min-height: 9.5rem !important;
-    
+
     &:hover {
-        background: color-mix(in srgb, var(--k-card-bg) 65%, transparent) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-card-bg) 65%,
+            transparent
+        ) !important;
         border-color: var(--k-color-primary) !important;
         transform: translateY(-4px) scale(1.02) !important;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06), 0 0 0 2px color-mix(in srgb, var(--k-color-primary) 20%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+        box-shadow:
+            0 12px 24px rgba(0, 0, 0, 0.06),
+            0 0 0 2px
+                color-mix(in srgb, var(--k-color-primary) 20%, transparent),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
     }
-    
+
     &.selected {
         border-color: var(--k-color-primary) !important;
-        background: color-mix(in srgb, var(--k-color-primary) 8%, var(--k-card-bg)) !important;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08), 0 0 0 3px color-mix(in srgb, var(--k-color-primary) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-color-primary) 8%,
+            var(--k-card-bg)
+        ) !important;
+        box-shadow:
+            0 12px 24px rgba(0, 0, 0, 0.08),
+            0 0 0 3px
+                color-mix(in srgb, var(--k-color-primary) 30%, transparent),
+            inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
         transform: translateY(-2px) !important;
     }
-    
+
     .provider-icon {
-        background: color-mix(in srgb, var(--k-card-bg), var(--k-color-divider) 15%) !important;
+        background: color-mix(
+            in srgb,
+            var(--k-card-bg),
+            var(--k-color-divider) 15%
+        ) !important;
         border-radius: 12px !important;
         margin-bottom: 0.5rem !important;
         border: 1px solid var(--market-polished-line) !important;
     }
-    
+
     strong {
         font-size: 0.92rem !important;
         font-weight: 700 !important;
         color: var(--k-text-dark) !important;
         margin-bottom: 0.1rem !important;
     }
-    
+
     small {
         font-size: 0.76rem !important;
         color: var(--k-text-light) !important;
@@ -3310,7 +4588,8 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 }
 
 .preset-grid .preset-card {
-    animation: model-hub-polished-card-enter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both !important;
+    animation: model-hub-polished-card-enter 0.28s cubic-bezier(0.16, 1, 0.3, 1)
+        both !important;
     @for $i from 1 through 30 {
         &:nth-child(#{$i}) {
             animation-delay: #{($i - 1) * 0.008}s !important;
@@ -3321,14 +4600,18 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 .new-provider {
     border: 1px solid var(--market-polished-line) !important;
     border-radius: 14px !important;
-    background: color-mix(in srgb, var(--k-card-bg) 35%, transparent) !important;
+    background: color-mix(
+        in srgb,
+        var(--k-card-bg) 35%,
+        transparent
+    ) !important;
     backdrop-filter: blur(14px) saturate(110%) !important;
     box-shadow: var(--market-polished-shadow) !important;
     padding: 1.25rem !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 1.25rem !important;
-    
+
     .detail-title {
         display: flex !important;
         align-items: center !important;
@@ -3336,35 +4619,39 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         border-bottom: 1px solid var(--market-polished-line) !important;
         padding-bottom: 0.75rem !important;
         margin-bottom: 0.25rem !important;
-        
+
         .provider-icon {
             width: 2.75rem !important;
             height: 2.75rem !important;
             border-radius: 10px !important;
-            background: color-mix(in srgb, var(--k-card-bg), var(--k-color-divider) 15%) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-card-bg),
+                var(--k-color-divider) 15%
+            ) !important;
             border: 1px solid var(--market-polished-line) !important;
         }
-        
+
         strong {
             font-size: 1rem !important;
             font-weight: 700 !important;
             color: var(--k-text-dark) !important;
         }
-        
+
         small {
             font-size: 0.8rem !important;
             color: var(--k-text-light) !important;
         }
     }
-    
+
     .grid.one {
         gap: 1rem !important;
-        
+
         label {
             display: flex !important;
             flex-direction: column !important;
             gap: 0.45rem !important;
-            
+
             span {
                 color: var(--k-text-light) !important;
                 font-size: 0.82rem !important;
@@ -3372,28 +4659,41 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
                 margin-bottom: 0 !important;
             }
         }
-        
+
         .el-input {
             width: 100% !important;
         }
     }
-    
+
     .switch-grid.compact {
         grid-template-columns: 1fr !important;
         gap: 0.65rem !important;
-        
+
         label {
-            border: 1px solid color-mix(in srgb, var(--k-card-border), transparent 30%) !important;
+            border: 1px solid
+                color-mix(in srgb, var(--k-card-border), transparent 30%) !important;
             border-radius: 8px !important;
-            background: color-mix(in srgb, var(--k-card-bg) 15%, transparent) !important;
+            background: color-mix(
+                in srgb,
+                var(--k-card-bg) 15%,
+                transparent
+            ) !important;
             padding: 0.6rem 0.85rem !important;
             margin: 0 !important;
-            
+
             &:hover {
-                border-color: color-mix(in srgb, var(--k-color-primary) 25%, transparent) !important;
-                background: color-mix(in srgb, var(--k-card-bg) 35%, transparent) !important;
+                border-color: color-mix(
+                    in srgb,
+                    var(--k-color-primary) 25%,
+                    transparent
+                ) !important;
+                background: color-mix(
+                    in srgb,
+                    var(--k-card-bg) 35%,
+                    transparent
+                ) !important;
             }
-            
+
             span {
                 font-size: 0.84rem !important;
                 font-weight: 550 !important;
@@ -3406,12 +4706,24 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
    controls and popovers that otherwise fall back to its light palette. */
 .model-hub-page {
     --hub-panel-bg: var(--k-card-bg);
-    --hub-control-bg: color-mix(in srgb, var(--k-card-bg) 90%, var(--k-page-bg));
+    --hub-control-bg: color-mix(
+        in srgb,
+        var(--k-card-bg) 90%,
+        var(--k-page-bg)
+    );
     --el-bg-color: var(--hub-panel-bg);
     --el-bg-color-overlay: var(--hub-panel-bg);
     --el-fill-color-blank: var(--hub-control-bg);
-    --el-fill-color: color-mix(in srgb, var(--k-text-light) 8%, var(--hub-control-bg));
-    --el-fill-color-light: color-mix(in srgb, var(--k-text-light) 5%, var(--hub-control-bg));
+    --el-fill-color: color-mix(
+        in srgb,
+        var(--k-text-light) 8%,
+        var(--hub-control-bg)
+    );
+    --el-fill-color-light: color-mix(
+        in srgb,
+        var(--k-text-light) 5%,
+        var(--hub-control-bg)
+    );
     --el-text-color-primary: var(--k-text-dark);
     --el-text-color-regular: var(--k-text-dark);
     --el-text-color-secondary: var(--k-text-light);
@@ -3427,7 +4739,11 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
         background: var(--hub-control-bg) !important;
         color: var(--k-text-dark);
     }
-    :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.el-button--success):not(.el-button--warning)) {
+    :deep(
+        .el-button:not(.el-button--primary):not(.el-button--danger):not(
+                .el-button--success
+            ):not(.el-button--warning)
+    ) {
         background: var(--hub-control-bg);
         color: var(--k-text-dark);
         border-color: var(--k-card-border);
@@ -3437,19 +4753,37 @@ function showMessage(text: string, nextTone: 'success' | 'danger' | 'info') {
 html.dark .model-hub-page {
     color-scheme: dark;
     --hub-panel-bg: color-mix(in srgb, var(--k-card-bg) 65%, var(--k-page-bg));
-    --hub-control-bg: color-mix(in srgb, var(--k-card-bg) 45%, var(--k-page-bg));
+    --hub-control-bg: color-mix(
+        in srgb,
+        var(--k-card-bg) 45%,
+        var(--k-page-bg)
+    );
 
-    .section, .provider-panel, .detail-panel, .empty-detail, .new-provider {
+    .section,
+    .provider-panel,
+    .detail-panel,
+    .empty-detail,
+    .new-provider {
         background: var(--hub-panel-bg) !important;
         box-shadow: none !important;
     }
-    .search-box, .model-browser-scopes button, .model-table {
+    .search-box,
+    .model-browser-scopes button,
+    .model-table {
         background: var(--hub-control-bg) !important;
     }
     /* Theme switches must not animate white surfaces through bright gray. */
-    &, .section, .provider-panel, .detail-panel, .empty-detail,
-    .search-box, button, :deep(.el-select__wrapper), :deep(.el-input__wrapper) {
-        transition-property: color, border-color, box-shadow, transform, opacity !important;
+    &,
+    .section,
+    .provider-panel,
+    .detail-panel,
+    .empty-detail,
+    .search-box,
+    button,
+    :deep(.el-select__wrapper),
+    :deep(.el-input__wrapper) {
+        transition-property:
+            color, border-color, box-shadow, transform, opacity !important;
     }
 }
 
@@ -3458,7 +4792,11 @@ html.dark .model-hub-page {
     --el-text-color-regular: var(--k-text-dark);
     --el-text-color-placeholder: var(--k-text-light);
     --el-border-color-light: var(--k-card-border);
-    --el-fill-color-light: color-mix(in srgb, var(--k-color-primary) 8%, var(--k-card-bg));
+    --el-fill-color-light: color-mix(
+        in srgb,
+        var(--k-color-primary) 8%,
+        var(--k-card-bg)
+    );
     background: var(--k-card-bg) !important;
     border-color: var(--k-card-border) !important;
 }

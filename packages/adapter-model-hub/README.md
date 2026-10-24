@@ -46,12 +46,24 @@ yarn test
 
 1. 在 Koishi 中启用 `chatluna-model-hub-adapter`。
 2. 打开 Koishi 控制台中的 Model Hub 页面。
-3. 选择供应商，填写 API Key、Endpoint、ChatLuna 平台 ID。
+3. 选择供应商并填写 ChatLuna 平台 ID，在“连接源与密钥”中配置 Endpoint 和 API Key；同一平台可以添加多个连接源，每个源可以配置多个 Key。
 4. 保存后刷新模型，ChatLuna 会注册对应平台和模型。
 
 OpenAI-compatible 服务商使用 OpenAI Chat Completions 风格接口，路径会按适配器请求自动拼接到 `chat/completions`、`models` 等资源；请填写服务商 API 根地址，例如 `https://api.deepseek.com` 或兼容服务提供的 `/v1` 根地址。
 
 Dify 服务商使用 Dify Application API，不走 OpenAI-compatible。一个配置的 Dify App 会注册成一个 ChatLuna 模型，模型名使用服务商详情中的 Dify 模型名。
+
+### 多源与多 Key
+
+- 平台 ID 是稳定的对外入口，模型引用仍为 `platform/model`。连接源负责接口模板、API 地址和源级覆盖，每个 Key 有独立身份、认证范围、状态与限额。
+- 默认按源优先级主备调度，再在所选源内轮询可用 Key；选择负载均衡模式后按源权重调度，增加 Key 不会增加源权重。共享账户的 Key 可填写相同的共享配额组。
+- 不同源的同名模型不会自动合并或互相兜底。需要跨源时，在“显式模型路由”中配置对外模型名、候选源、上游模型名及是否允许备用源。模型能力默认取候选交集；Embedding 跨源必须声明一致的语义空间和版本。
+- 每个 Key 分别读取模型目录。局部失败保留该范围上次成功的目录并显示异常；成功返回空目录会清除该范围的旧结果。“刷新此源目录”只刷新指定源。
+- 平台、源、Key 与共享配额的限制同时生效。只有明确的鉴权、模型权限或限流拒绝才可能换 Key；已经输出、远端资源请求、网络结果不明或服务端错误不会自动重放。
+- 文件、显式缓存和远端会话绑定具体源、Key 与凭据代次。更换 Key 不会继承旧资源；固定缓存、Vector Store 等需要确认资源归属后重新绑定。资源管理必须选择具体源与 Key。
+- 保存有版本冲突检查；修改配置不影响已经开始的请求。复制与克隆清除已保存和未保存的 Key、请求头及资源绑定。管理员配置不写入浏览器本地存储。
+
+旧配置会按原有平台拆分规则迁移，保留原 `platform/model` 引用；Dify 每个旧应用迁移为独立源，保留应用名及重名后缀。升级前的 Dify 远端会话缓存不会自动复用到新凭据范围；需要继续使用 Dify 时建议新建会话。
 
 ## 配置
 
@@ -60,7 +72,7 @@ Koishi 插件配置页只保留全局运行所需字段：
 - `webui`: 是否启用 Model Hub WebUI。
 - `frontendMode`: 前端模式，默认性能模式。
 - `iconCdn`: 图标 CDN，默认使用 LobeHub Icons CDN。
-- `settingsPath`: Model Hub 供应商配置保存路径，默认 `data/chatluna-model-hub/config.json`。
+- `settingsPath`: 配置路径基名，默认 `data/chatluna-model-hub/config.json`。新版配置原子保存为该路径加 `.v2`；迁移时保留原文件及 `.pre-v2.bak` 备份，降级不会覆盖新版唯一副本。连接模型目录与资源归属缓存保存为 `.v2.catalog.json`，不包含 API Key。
 - `metadataUrl`: 模型元数据源，默认 `https://models.dev/api.json`。
 - `metadataCachePath`: `models.dev` 元数据本地缓存路径，默认 `data/chatluna-model-hub/models.dev.models.json`。
 - `metadataUpdateHours`: 元数据定时更新间隔，默认 24 小时。

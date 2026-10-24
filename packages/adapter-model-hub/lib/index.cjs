@@ -59,19 +59,19 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 var import_plugin_console = require("@koishijs/plugin-console");
-var import_path4 = require("path");
+var import_path5 = require("path");
 var import_koishi = require("koishi");
 var import_chat = require("koishi-plugin-chatluna/services/chat");
-var import_types12 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types14 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_logger = require("koishi-plugin-chatluna/utils/logger");
 
 // src/client.ts
 var import_client = require("koishi-plugin-chatluna/llm-core/platform/client");
 var import_model = require("koishi-plugin-chatluna/llm-core/platform/model");
 var import_rerank = require("koishi-plugin-chatluna/llm-core/platform/rerank");
-var import_types9 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types10 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_error6 = require("koishi-plugin-chatluna/utils/error");
-var import_v1_shared_adapter11 = require("@chatluna/v1-shared-adapter");
+var import_v1_shared_adapter12 = require("@chatluna/v1-shared-adapter");
 
 // src/requester.ts
 var import_messages7 = require("@langchain/core/messages");
@@ -128,6 +128,36 @@ __name(isThinkingModelName, "isThinkingModelName");
 var IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 var AUDIO_MIMES = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav"];
 function capabilityFileHandling(adapter, capabilities) {
+  if (adapter === "anthropic") {
+    const supportedMimeTypes = /* @__PURE__ */ new Set([
+      ...capabilities.includes(import_types.ModelCapabilities.ImageInput) ? ["image/jpeg", "image/png", "image/gif", "image/webp"] : [],
+      ...capabilities.includes(import_types.ModelCapabilities.FileInput) ? [
+        "text/html",
+        "text/css",
+        "text/plain",
+        "text/markdown",
+        "text/xml",
+        "text/csv",
+        "text/rtf",
+        "text/javascript",
+        "application/json",
+        "application/pdf"
+      ] : []
+    ]);
+    return supportedMimeTypes.size ? {
+      supportedMimeTypes,
+      maxTotalSizeBytes: 32 * 1024 * 1024,
+      maxFileSizeBytes: 32 * 1024 * 1024,
+      maxFileSizeBytesOverrides: Object.fromEntries(
+        [
+          "image/jpeg",
+          "image/png",
+          "image/gif",
+          "image/webp"
+        ].map((mime) => [mime, 5 * 1024 * 1024])
+      )
+    } : void 0;
+  }
   const mimes = /* @__PURE__ */ new Set();
   if (capabilities.includes(import_types.ModelCapabilities.ImageInput))
     IMAGE_MIMES.forEach((mime) => mimes.add(mime));
@@ -742,6 +772,54 @@ __name(targetMatches, "targetMatches");
 function resolveRuntimeProviders(entries) {
   const groups = /* @__PURE__ */ new Map();
   for (const [configIndex, entry] of (entries ?? []).entries()) {
+    if (entry.sources) {
+      if (!entry.enabled) continue;
+      const preset2 = getProviderPreset(entry.provider);
+      const group2 = {
+        provider: preset2,
+        adapter: preset2.adapter,
+        platform: entry.platform,
+        entries: []
+      };
+      for (const source of entry.sources) {
+        if (!source.enabled) continue;
+        const sourcePreset = getProviderPreset(source.provider);
+        for (const credential of source.credentials) {
+          if (!credential.enabled || !credential.apiKey && !sourcePreset.allowEmptyApiKey)
+            continue;
+          group2.entries.push({
+            ...entry,
+            ...source.settings,
+            provider: sourcePreset.id,
+            providerName: source.name,
+            icon: sourcePreset.icon,
+            apiEndpoint: source.apiEndpoint,
+            apiKey: credential.apiKey,
+            platform: entry.platform,
+            configIndex,
+            pullModels: source.pullModels,
+            sourceId: source.id,
+            credentialId: credential.id,
+            credentialGeneration: credential.generation,
+            resourceCredentialId: source.resourceCredentialId,
+            resourceCredentialGeneration: source.resourceCredentialGeneration,
+            sourcePriority: source.priority,
+            sourceWeight: source.weight,
+            quotaGroup: credential.quotaGroup,
+            organization: credential.organization,
+            project: credential.project,
+            credentialConcurrentMaxSize: credential.concurrentMaxSize,
+            credentialHourlyLimit: credential.hourlyLimit
+          });
+        }
+      }
+      if (group2.entries.length) {
+        if (groups.has(group2.platform))
+          throw new Error(`重复平台入口：${group2.platform}`);
+        groups.set(group2.platform, group2);
+      }
+      continue;
+    }
     const preset = getProviderPreset(entry.provider);
     const requestedPlatform = normalizePlatformName(
       entry.platform,
@@ -3520,16 +3598,13 @@ async function enrichDifyAppParameters(requester, config, signal) {
 __name(enrichDifyAppParameters, "enrichDifyAppParameters");
 async function getDifyAppParameters(requester, config, signal) {
   try {
-    const response = await requester.requestContext().plugin.fetch(
-      concatDifyUrl(config.apiEndpoint, "/parameters"),
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`
-        },
-        signal
-      }
-    );
+    const response = await requester.requestContext().plugin.fetch(concatDifyUrl(config.apiEndpoint, "/parameters"), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`
+      },
+      signal
+    });
     if (!response.ok) {
       requester.logger.warn(
         `Dify parameters fetch failed for ${config.modelName}: ${response.status} ${response.statusText}`
@@ -3678,7 +3753,13 @@ function addMimeGroup(target, type) {
       "text/markdown",
       "text/csv"
     ],
-    audio: ["audio/mpeg", "audio/mp4", "audio/wav", "audio/ogg", "audio/webm"],
+    audio: [
+      "audio/mpeg",
+      "audio/mp4",
+      "audio/wav",
+      "audio/ogg",
+      "audio/webm"
+    ],
     video: ["video/mp4", "video/quicktime", "video/webm"],
     custom: []
   };
@@ -3686,8 +3767,8 @@ function addMimeGroup(target, type) {
 }
 __name(addMimeGroup, "addMimeGroup");
 function mbToBytes(value, fallback) {
-  const number = Number(value);
-  const mb = Number.isFinite(number) ? number : fallback;
+  const number2 = Number(value);
+  const mb = Number.isFinite(number2) ? number2 : fallback;
   return Math.max(1, mb) * 1024 * 1024;
 }
 __name(mbToBytes, "mbToBytes");
@@ -3797,8 +3878,8 @@ function usageFromWorkflowData(data) {
 }
 __name(usageFromWorkflowData, "usageFromWorkflowData");
 function numberOrUndefined(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : void 0;
+  const number2 = Number(value);
+  return Number.isFinite(number2) ? number2 : void 0;
 }
 __name(numberOrUndefined, "numberOrUndefined");
 function resolveChatLunaConversationId(params) {
@@ -3866,7 +3947,12 @@ function buildDifyInputs(params, conversationId, lastMessage, config, chatlunaMu
   }
   for (const control of config?.parameters?.inputControls ?? []) {
     if (inputs[control.variable] !== void 0) continue;
-    const resolved = resolveDifyControlValue(control, variables, query, inputs);
+    const resolved = resolveDifyControlValue(
+      control,
+      variables,
+      query,
+      inputs
+    );
     if (resolved !== void 0) inputs[control.variable] = resolved;
   }
   return stripUndefined(inputs);
@@ -4100,7 +4186,8 @@ async function multimodalToDifyFile(requester, candidate, difyUser, config, sign
   }
   const payload = await resolveFilePayload(requester, candidate, signal);
   if (!payload) return null;
-  if (!isDifyPayloadAllowed(requester, payload, candidate, config)) return null;
+  if (!isDifyPayloadAllowed(requester, payload, candidate, config))
+    return null;
   const uploadFileId = await uploadFileToDify(
     requester,
     payload,
@@ -4172,7 +4259,13 @@ async function resolveFilePayload(requester, candidate, signal) {
     const dataUrlPayload = tryParseDataUrl(source, fileName, mimeType);
     if (dataUrlPayload) return dataUrlPayload;
     if (source.startsWith("http://") || source.startsWith("https://")) {
-      return fetchRemoteFile(requester, source, fileName, mimeType, signal);
+      return fetchRemoteFile(
+        requester,
+        source,
+        fileName,
+        mimeType,
+        signal
+      );
     }
     return readLocalFile(requester, source, fileName, mimeType);
   }
@@ -4243,17 +4336,14 @@ async function uploadFileToDify(requester, file2, difyUser, config, signal) {
     file2.fileName
   );
   formData.set("user", difyUser);
-  const response = await requester.requestContext().plugin.fetch(
-    concatDifyUrl(config.apiEndpoint, "/files/upload"),
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`
-      },
-      body: formData,
-      signal
-    }
-  );
+  const response = await requester.requestContext().plugin.fetch(concatDifyUrl(config.apiEndpoint, "/files/upload"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`
+    },
+    body: formData,
+    signal
+  });
   if (!response.ok) {
     requester.logger.warn(
       `Failed to upload file to Dify: ${response.status} ${response.statusText}`
@@ -4265,18 +4355,15 @@ async function uploadFileToDify(requester, file2, difyUser, config, signal) {
 }
 __name(uploadFileToDify, "uploadFileToDify");
 function postDify(requester, config, path2, body, signal) {
-  return requester.requestContext().plugin.fetch(
-    concatDifyUrl(config.apiEndpoint, path2),
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(stripUndefined(body)),
-      signal
-    }
-  );
+  return requester.requestContext().plugin.fetch(concatDifyUrl(config.apiEndpoint, path2), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(stripUndefined(body)),
+    signal
+  });
 }
 __name(postDify, "postDify");
 function concatDifyUrl(endpoint, path2) {
@@ -4317,7 +4404,11 @@ async function disposeDifyConversation(requester, model, id) {
   }
   const key = difyCacheKey(id, config);
   const cached = await requester.koishiContext().chatluna.cache.get("chatluna/keys", key);
-  const difyConversationId = await getDifyConversationId(requester, id, config);
+  const difyConversationId = await getDifyConversationId(
+    requester,
+    id,
+    config
+  );
   if (!difyConversationId) return;
   let user = "chatluna";
   if (cached != null) {
@@ -4327,7 +4418,10 @@ async function disposeDifyConversation(requester, model, id) {
     }
   }
   const response = await requester.requestContext().plugin.fetch(
-    concatDifyUrl(config.apiEndpoint, `/conversations/${difyConversationId}`),
+    concatDifyUrl(
+      config.apiEndpoint,
+      `/conversations/${difyConversationId}`
+    ),
     {
       method: "DELETE",
       headers: {
@@ -4345,7 +4439,7 @@ async function disposeDifyConversation(requester, model, id) {
 }
 __name(disposeDifyConversation, "disposeDifyConversation");
 function difyCacheKey(conversationId, config) {
-  return `dify/${conversationId}/${config.platform}/${config.modelName}`;
+  return `dify/${conversationId}/${config.platform}/${config.modelName}${config.connectionScope ? `/${config.connectionScope}` : ""}`;
 }
 __name(difyCacheKey, "difyCacheKey");
 function safeSerializeMultimodal(lastMessage, candidates = []) {
@@ -5199,9 +5293,9 @@ function createAnthropicCacheControl(requester) {
 }
 __name(createAnthropicCacheControl, "createAnthropicCacheControl");
 function normalizeMaxTokens(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 1) return 4096;
-  return Math.floor(number);
+  const number2 = Number(value);
+  if (!Number.isFinite(number2) || number2 < 1) return 4096;
+  return Math.floor(number2);
 }
 __name(normalizeMaxTokens, "normalizeMaxTokens");
 function normalizeAnthropicImageMime(mimeType) {
@@ -5533,6 +5627,10 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
   _recentModels = /* @__PURE__ */ new Map();
   _cancelUsageRefresh;
   _usageDisposed = false;
+  _difyApps;
+  setDifyApps(apps) {
+    this._difyApps = apps;
+  }
   lastUsedAt(model) {
     return this._recentModels.get(model);
   }
@@ -5644,6 +5742,9 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
     if (preset.adapter !== "gemini" && preset.adapter !== "anthropic" && current.apiKey.length > 0) {
       result.Authorization = `Bearer ${current.apiKey}`;
     }
+    if (current.organization)
+      result["OpenAI-Organization"] = current.organization;
+    if (current.project) result["OpenAI-Project"] = current.project;
     for (const header of current.customHeaders ?? []) {
       const name2 = header.name?.trim();
       if (!name2) continue;
@@ -5731,7 +5832,7 @@ var ModelHubRequester = class extends import_api2.ModelRequester {
     return getProviderPreset(this._config.value.provider);
   }
   currentConfig() {
-    return this._config.value;
+    return this._difyApps ? { ...this._config.value, difyApps: this._difyApps } : this._config.value;
   }
   koishiContext() {
     return this.ctx;
@@ -5929,16 +6030,1205 @@ function hasResponseChunk(chunk) {
 }
 __name(hasResponseChunk, "hasResponseChunk");
 
+// src/router.ts
+var import_crypto3 = require("crypto");
+var import_async_hooks = require("async_hooks");
+var import_types9 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_v1_shared_adapter11 = require("@chatluna/v1-shared-adapter");
+
+// src/connection-catalog.ts
+var import_promises2 = require("fs/promises");
+var import_path2 = require("path");
+var import_crypto2 = require("crypto");
+var ConnectionCatalogStore = class {
+  constructor(path2, onRecovery) {
+    this.path = path2;
+    this.onRecovery = onRecovery;
+  }
+  static {
+    __name(this, "ConnectionCatalogStore");
+  }
+  directories = /* @__PURE__ */ new Map();
+  origins = /* @__PURE__ */ new Map();
+  resourceOwners = /* @__PURE__ */ new Map();
+  writes = Promise.resolve();
+  async load() {
+    if (!this.path) return;
+    try {
+      const raw = await (0, import_promises2.readFile)(this.path, "utf8");
+      if (raw.length > 16 * 1024 * 1024)
+        throw new Error("连接模型缓存过大");
+      const data = JSON.parse(raw);
+      if (data.version !== 1 || !Array.isArray(data.directories) || !Array.isArray(data.origins))
+        throw new Error("连接模型缓存格式无效");
+      const directories = /* @__PURE__ */ new Map();
+      for (const [key, entry] of data.directories) {
+        if (typeof key !== "string" || !entry || !Array.isArray(entry.models) || !Number.isFinite(entry.updatedAt))
+          throw new Error("连接模型缓存条目无效");
+        if (!entry.models.every(
+          (m) => typeof m.name === "string" && [1, 2, 3].includes(m.type) && Array.isArray(m.capabilities) && Number.isFinite(m.maxTokens)
+        ))
+          throw new Error("连接模型缓存能力无效");
+        directories.set(key, entry);
+      }
+      this.directories = directories;
+      this.origins = new Map(
+        data.origins.filter(
+          ([key, value]) => typeof key === "string" && typeof value === "string"
+        )
+      );
+      this.resourceOwners = new Map(
+        (data.resourceOwners ?? []).filter(
+          ([key, value]) => typeof key === "string" && typeof value === "string"
+        ).slice(-1e4)
+      );
+      this.onRecovery?.();
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  get(key) {
+    const value = this.directories.get(key);
+    return value ? structuredClone(value) : void 0;
+  }
+  set(key, models, updatedAt) {
+    this.directories.set(key, {
+      updatedAt,
+      models: models.map((model) => ({
+        name: model.name,
+        type: model.type,
+        maxTokens: model.maxTokens,
+        capabilities: [...model.capabilities],
+        ...model.reasoningVariantOf ? {
+          reasoningVariantOf: model.reasoningVariantOf
+        } : {}
+      }))
+    });
+    if (this.directories.size > 2e3)
+      this.directories.delete(this.directories.keys().next().value);
+  }
+  origin(platform, model) {
+    return this.origins.get(JSON.stringify([platform, model]));
+  }
+  rememberOrigin(platform, model, sourceId) {
+    const key = JSON.stringify([platform, model]);
+    if (!this.origins.has(key)) this.origins.set(key, sourceId);
+  }
+  resourceOwner(key) {
+    return this.resourceOwners.get(key);
+  }
+  rememberResource(key, owner) {
+    this.resourceOwners.set(key, owner);
+    if (this.resourceOwners.size > 1e4)
+      this.resourceOwners.delete(this.resourceOwners.keys().next().value);
+  }
+  flush() {
+    if (!this.path) return Promise.resolve();
+    const write = /* @__PURE__ */ __name(async () => {
+      const text = JSON.stringify({
+        version: 1,
+        directories: [...this.directories],
+        origins: [...this.origins],
+        resourceOwners: [...this.resourceOwners]
+      });
+      await (0, import_promises2.mkdir)((0, import_path2.dirname)(this.path), { recursive: true });
+      const temp = `${this.path}.${(0, import_crypto2.randomUUID)()}.tmp`;
+      try {
+        await (0, import_promises2.writeFile)(temp, text, { mode: 384, flag: "wx" });
+        await (0, import_promises2.rename)(temp, this.path);
+        this.onRecovery?.();
+      } finally {
+        await (0, import_promises2.unlink)(temp).catch(() => {
+        });
+      }
+    }, "write");
+    const task = this.writes.then(write);
+    this.writes = task.catch(() => {
+    });
+    return task;
+  }
+};
+
+// src/router.ts
+var UpstreamFailure = class extends Error {
+  constructor(status, retryAt = 0, kind = status === 401 ? "auth" : status === 429 ? "rate" : status >= 500 ? "source" : "request", param) {
+    super(`上游 HTTP ${status}${param ? `（参数：${param}）` : ""}`);
+    this.status = status;
+    this.retryAt = retryAt;
+    this.kind = kind;
+    this.name = "UpstreamFailure";
+  }
+  static {
+    __name(this, "UpstreamFailure");
+  }
+};
+function retryAfter(value, now = Date.now()) {
+  if (!value) return now + 3e4;
+  const seconds = Number(value);
+  const date = Number.isFinite(seconds) ? now + Math.max(0, seconds) * 1e3 : Date.parse(value);
+  return Number.isFinite(date) ? Math.max(now, date) : now + 3e4;
+}
+__name(retryAfter, "retryAfter");
+var identity = /* @__PURE__ */ __name((c) => `${c.sourceId}/${c.credentialId}/${c.credentialGeneration}`, "identity");
+var hash = /* @__PURE__ */ __name((value) => (0, import_crypto3.createHash)("sha256").update(value).digest("hex"), "hash");
+var clone = /* @__PURE__ */ __name((value) => structuredClone(value), "clone");
+function transportFailure(error) {
+  for (let depth = 0; error && depth < 8; depth++) {
+    if (error instanceof UpstreamFailure) return error;
+    error = error.originError ?? error.cause;
+  }
+}
+__name(transportFailure, "transportFailure");
+function freeze(value) {
+  if (value && typeof value === "object") {
+    Object.freeze(value);
+    for (const child of Object.values(value)) freeze(child);
+  }
+  return value;
+}
+__name(freeze, "freeze");
+var ModelHubRouter = class extends ModelHubRequester {
+  constructor(ctx, config, plugin, runtime, metadata, catalog = new ConnectionCatalogStore()) {
+    super(ctx, plugin.platformConfigPool, config, plugin);
+    this.plugin = plugin;
+    this.metadata = metadata;
+    this.catalog = catalog;
+    this.state = this.prepare(config, runtime);
+    ctx.on?.("dispose", () => {
+      void this.dispose();
+    });
+  }
+  static {
+    __name(this, "ModelHubRouter");
+  }
+  state;
+  roundRobin = /* @__PURE__ */ new Map();
+  counters = /* @__PURE__ */ new Map();
+  sticky = /* @__PURE__ */ new Map();
+  uses = /* @__PURE__ */ new Map();
+  queued = 0;
+  active = 0;
+  retired = /* @__PURE__ */ new Set();
+  refreshTasks = /* @__PURE__ */ new Map();
+  refreshTail = Promise.resolve();
+  sequence = 0;
+  resourceRequests = 0;
+  closed = false;
+  attempt = new import_async_hooks.AsyncLocalStorage();
+  /** Build first; activation is one synchronous pointer replacement. */
+  prepare(config, runtime) {
+    const previous = this.state?.connections ?? [];
+    const connections = runtime.entries.map((entry, index) => {
+      const {
+        sources: _sources,
+        routes: _routes,
+        ...connectionSettings
+      } = entry;
+      const snapshot = clone({
+        ...connectionSettings,
+        sourceId: entry.sourceId ?? `legacy-${index}`,
+        credentialId: entry.credentialId ?? `legacy-${index}`,
+        credentialGeneration: entry.credentialGeneration ?? 1,
+        concurrentMaxSize: entry.chatConcurrentMaxSize,
+        chatLimit: entry.chatTimeLimit,
+        maxRetries: 0,
+        difyApps: void 0
+      });
+      const signature = hash(
+        JSON.stringify([
+          snapshot,
+          config.additionalModels,
+          config.blacklistModels,
+          config.providers.find(
+            (p) => p.platform === runtime.platform
+          )?.routes
+        ])
+      );
+      const old = previous.find((c) => c.signature === signature);
+      if (old) return old;
+      freeze(snapshot);
+      const ref = {
+        value: snapshot,
+        md5: /* @__PURE__ */ __name(() => signature, "md5"),
+        isAvailable: true,
+        failureCount: 0
+      };
+      const pool = {
+        getConfig: /* @__PURE__ */ __name(() => ref, "getConfig"),
+        getConfigs: /* @__PURE__ */ __name(() => [ref], "getConfigs"),
+        findAvailableConfig: /* @__PURE__ */ __name(() => ref, "findAvailableConfig"),
+        markConfigStatus() {
+        }
+      };
+      const boundConfig = freeze({
+        ...clone(config),
+        ...snapshot,
+        maxRetries: 0
+      });
+      let connection;
+      const transport = new Proxy(this.plugin, {
+        get: /* @__PURE__ */ __name((target, prop) => {
+          if (prop !== "fetch")
+            return Reflect.get(target, prop, target);
+          return async (url, init = {}) => {
+            const signal = this.attempt.getStore();
+            if (signal) {
+              signal.throwIfAborted();
+              init = {
+                ...init,
+                signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal
+              };
+            }
+            const proxy = snapshot.proxyMode === "off" ? "null" : snapshot.proxyMode === "on" ? snapshot.proxyAddress : void 0;
+            const boundPlugin = new Proxy(target, {
+              get: /* @__PURE__ */ __name((object, field) => field === "config" ? boundConfig : Reflect.get(object, field, object), "get")
+            });
+            const response = await target.fetch.call(
+              boundPlugin,
+              url,
+              init,
+              proxy
+            );
+            if (!response.ok) {
+              const at = response.status === 429 ? retryAfter(
+                response.headers.get("retry-after")
+              ) : 0;
+              throw await responseFailure(response, at);
+            }
+            return response;
+          };
+        }, "get")
+      });
+      const requester = new ModelHubRequester(
+        this.koishiContext(),
+        pool,
+        boundConfig,
+        transport
+      );
+      if (getProviderPreset(snapshot.provider).adapter === "dify") {
+        const modelName = snapshot.difyModelName?.trim() || snapshot.providerName || snapshot.platform;
+        requester.setDifyApps({
+          [modelName]: {
+            modelName,
+            apiKey: snapshot.apiKey,
+            apiEndpoint: snapshot.apiEndpoint,
+            connectionScope: identity(snapshot),
+            platform: snapshot.platform,
+            providerName: snapshot.providerName,
+            appType: snapshot.difyAppType ?? "chat",
+            workflowId: snapshot.difyWorkflowId,
+            outputVariable: snapshot.difyOutputVariable,
+            contextSize: snapshot.difyContextSize ?? 128e3,
+            enableFileUpload: snapshot.difyEnableFileUpload !== false
+          }
+        });
+      }
+      connection = {
+        key: identity(snapshot),
+        signature,
+        config: snapshot,
+        requester,
+        models: [],
+        discovered: false,
+        retryAt: 0,
+        authFailed: false,
+        denied: /* @__PURE__ */ new Set()
+      };
+      const sameScope = previous.find((c) => c.key === connection.key);
+      if (sameScope) {
+        connection.models = sameScope.models;
+        connection.discovered = sameScope.discovered;
+        connection.updatedAt = sameScope.updatedAt;
+      } else {
+        const cached = this.catalog.get(connection.key);
+        if (cached) {
+          connection.models = cached.models;
+          connection.updatedAt = cached.updatedAt;
+          connection.discovered = true;
+          connection.error = "使用上次成功目录，等待刷新";
+        }
+      }
+      return connection;
+    });
+    const state = {
+      id: ++this.sequence,
+      platform: runtime.platform,
+      providerId: runtime.provider.id,
+      config: freeze(clone(config)),
+      connections,
+      routes: /* @__PURE__ */ new Map()
+    };
+    state.routes = this.buildRoutes(state);
+    return state;
+  }
+  activate(next) {
+    const old = this.state;
+    next.routes = this.buildRoutes(next, true);
+    this.state = next;
+    for (const connection of old.connections)
+      if (!next.connections.includes(connection))
+        this.retired.add(connection);
+    this.collect();
+  }
+  collect() {
+    if (this.active || this.resourceRequests) return;
+    for (const c of this.retired) void c.requester.dispose();
+    this.retired.clear();
+  }
+  lastUsedAt(model) {
+    return this.uses.get(model);
+  }
+  status() {
+    return this.state.connections.map((c) => ({
+      sourceId: c.config.sourceId,
+      credentialId: c.config.credentialId,
+      state: c.authFailed ? "error" : c.retryAt > Date.now() ? "cooldown" : c.error ? c.discovered ? "stale" : "error" : "ready",
+      modelCount: c.models.length,
+      updatedAt: c.updatedAt,
+      retryAt: c.retryAt || void 0,
+      error: c.error
+    }));
+  }
+  modelCandidates(model) {
+    return this.state.routes.get(model)?.candidates.map((c) => ({
+      sourceId: c.connection.config.sourceId,
+      credentialId: c.connection.config.credentialId,
+      upstreamModel: c.upstreamModel,
+      sourceName: c.connection.config.providerName,
+      credentialName: this.state.config.providers.flatMap((p) => p.sources ?? []).find((s) => s.id === c.connection.config.sourceId)?.credentials.find(
+        (key) => key.id === c.connection.config.credentialId
+      )?.name,
+      capabilities: c.connection.models.find(
+        (m) => m.name === c.upstreamModel
+      )?.capabilities,
+      available: !c.connection.authFailed && !c.connection.denied.has(c.upstreamModel) && c.connection.retryAt <= Date.now()
+    })) ?? [];
+  }
+  getModels(config) {
+    return this.refreshCatalog(config);
+  }
+  refreshCatalog(config, sourceId) {
+    if (this.closed) return Promise.reject(new Error("此平台已停止或删除"));
+    const state = this.state;
+    const key = `${state.id}/${sourceId ?? "*"}`;
+    if (this.refreshTasks.has(key)) return this.refreshTasks.get(key);
+    const run = /* @__PURE__ */ __name(async () => {
+      const pending = state.connections.filter(
+        (c) => !sourceId || c.config.sourceId === sourceId
+      );
+      await Promise.all(
+        Array.from(
+          { length: Math.min(4, pending.length) },
+          async () => {
+            for (; ; ) {
+              const c = pending.shift();
+              if (!c) return;
+              try {
+                const raw = c.config.pullModels || getProviderPreset(c.config.provider).adapter === "dify" ? await c.requester.getModels({
+                  ...config,
+                  signal: config?.signal ?? AbortSignal.timeout(
+                    c.config.timeout
+                  )
+                }) : [];
+                const preset = getProviderPreset(
+                  c.config.provider
+                );
+                let models = raw.map(
+                  (model) => this.metadata.enhance(preset.id, model)
+                );
+                if (c.config.expandReasoningVariants)
+                  models = expandReasoningVariantsForProvider(
+                    preset,
+                    models,
+                    c.config
+                  );
+                c.models = models.map((model) => {
+                  const type = model.type ?? ((0, import_v1_shared_adapter11.isRerankerModel)(model.name) ? import_types9.ModelType.reranker : (0, import_v1_shared_adapter11.isEmbeddingModel)(model.name) ? import_types9.ModelType.embeddings : import_types9.ModelType.llm);
+                  const info = {
+                    ...model,
+                    type,
+                    capabilities: type === import_types9.ModelType.llm ? resolveCapabilities(
+                      preset.adapter,
+                      model,
+                      c.config.responseApi
+                    ) : [],
+                    maxTokens: model.maxTokens || this.metadata.getMaxTokens(
+                      preset.id,
+                      model.name
+                    ) || (type === import_types9.ModelType.llm ? (0, import_v1_shared_adapter11.getModelMaxContextSize)(
+                      model
+                    ) || 128e3 : c.config.nonLlmInputTokenLimit)
+                  };
+                  if (type === import_types9.ModelType.llm && !info.capabilities.includes(
+                    import_types9.ModelCapabilities.ImageGeneration
+                  ))
+                    info.capabilities = [
+                      .../* @__PURE__ */ new Set([
+                        import_types9.ModelCapabilities.TextInput,
+                        ...info.capabilities
+                      ])
+                    ];
+                  return info;
+                });
+                c.updatedAt = Date.now();
+                c.discovered = true;
+                c.error = void 0;
+                c.authFailed = false;
+                c.retryAt = 0;
+                c.denied.clear();
+                this.catalog.set(c.key, c.models, c.updatedAt);
+              } catch (error) {
+                if (config?.signal?.aborted) throw error;
+                c.error = error instanceof UpstreamFailure ? error.message : "模型目录刷新失败，请检查连接、权限和代理";
+                if (error instanceof UpstreamFailure)
+                  this.fail(c, "", error, state);
+              }
+            }
+          }
+        )
+      );
+      state.routes = this.buildRoutes(state);
+      await this.catalog.flush();
+      return [...state.routes.values()].map((r) => r.info);
+    }, "run");
+    const refresh = this.refreshTail.then(run);
+    this.refreshTail = refresh.catch(() => {
+    });
+    const task = refresh.then(
+      (models) => state === this.state ? models : this.refreshCatalog(config, sourceId)
+    ).finally(() => {
+      this.refreshTasks.delete(key);
+    });
+    this.refreshTasks.set(key, task);
+    return task;
+  }
+  buildRoutes(state, rememberOrigins = state === this.state) {
+    const result = /* @__PURE__ */ new Map();
+    const manual = getTargetedAdditionalModels(
+      state.config.additionalModels,
+      state.platform,
+      state.providerId
+    );
+    const directories = /* @__PURE__ */ new Map();
+    const primary = state.connections.slice().sort(
+      (a, b) => (a.config.sourcePriority ?? 0) - (b.config.sourcePriority ?? 0)
+    )[0]?.config.sourceId;
+    for (const c of state.connections) {
+      const preset = getProviderPreset(c.config.provider);
+      const additions = c.config.sourceId === primary ? manual.map((m) => ({
+        name: m.model,
+        type: m.modelType.toLowerCase().startsWith("embeddings") ? import_types9.ModelType.embeddings : m.modelType.toLowerCase().startsWith("reranker") ? import_types9.ModelType.reranker : import_types9.ModelType.llm,
+        maxTokens: m.contextSize || 4096,
+        capabilities: protocolCapabilities(
+          preset.adapter,
+          m.modelCapabilities,
+          c.config.responseApi
+        )
+      })) : [];
+      for (const m of additions)
+        if (m.type === import_types9.ModelType.llm && !m.capabilities.includes(import_types9.ModelCapabilities.ImageGeneration))
+          m.capabilities = [
+            .../* @__PURE__ */ new Set([import_types9.ModelCapabilities.TextInput, ...m.capabilities])
+          ];
+      const byName = new Map(
+        [...c.models, ...additions].map((m) => [m.name, m])
+      );
+      const models = [...byName.values()];
+      directories.set(c, models);
+      c.requester.setModelCapabilities(models);
+    }
+    const explicit = state.config.providers.find((p) => p.platform === state.platform)?.routes ?? [];
+    const names = new Set(
+      [...directories.values()].flatMap(
+        (models) => models.map((m) => m.name)
+      )
+    );
+    for (const name2 of names) {
+      const first = state.connections.filter((c) => directories.get(c)?.some((m) => m.name === name2)).sort(
+        (a, b) => (a.config.sourcePriority ?? 0) - (b.config.sourcePriority ?? 0)
+      )[0];
+      const origin = this.catalog.origin(state.platform, name2) ?? first.config.sourceId;
+      if (rememberOrigins)
+        this.catalog.rememberOrigin(state.platform, name2, origin);
+      const candidates = state.connections.filter(
+        (c) => c.config.sourceId === origin && directories.get(c)?.some((m) => m.name === name2)
+      ).map((connection) => ({ connection, upstreamModel: name2 }));
+      this.addRoute(result, name2, candidates, directories, false);
+    }
+    for (const route of explicit) {
+      const candidates = route.candidates.flatMap(
+        (candidate) => state.connections.filter(
+          (c) => c.config.sourceId === candidate.sourceId && (!candidate.credentialIds?.length || candidate.credentialIds.includes(
+            c.config.credentialId
+          ))
+        ).map((connection) => {
+          let info = directories.get(connection).find((m) => m.name === candidate.upstreamModel);
+          if (!info && route.modelType && route.capabilities && route.contextSize) {
+            info = {
+              name: candidate.upstreamModel,
+              type: import_types9.ModelType[route.modelType],
+              maxTokens: route.contextSize,
+              capabilities: protocolCapabilities(
+                getProviderPreset(
+                  connection.config.provider
+                ).adapter,
+                route.capabilities,
+                connection.config.responseApi
+              )
+            };
+            directories.get(connection).push(info);
+            connection.requester.setModelCapabilities(
+              directories.get(connection)
+            );
+          }
+          return {
+            connection,
+            upstreamModel: candidate.upstreamModel,
+            embeddingSpace: candidate.embeddingSpace
+          };
+        })
+      );
+      result.delete(route.model);
+      this.addRoute(
+        result,
+        route.model,
+        candidates,
+        directories,
+        route.allowFallback,
+        route
+      );
+    }
+    const blacklist = getTargetedBlacklist(
+      state.config.blacklistModels,
+      state.platform,
+      state.providerId
+    );
+    for (const name2 of result.keys())
+      if (blacklist.some((word) => name2.toLowerCase().includes(word)))
+        result.delete(name2);
+    return result;
+  }
+  addRoute(out, name2, candidates, dirs, fallback, contract) {
+    const items = candidates.map((c) => ({
+      candidate: c,
+      info: dirs.get(c.connection)?.find((m) => m.name === c.upstreamModel)
+    })).filter((p) => p.info);
+    const first = items[0]?.info;
+    if (!first) return;
+    const type = contract?.modelType ? import_types9.ModelType[contract.modelType] : first.type;
+    const capabilities = contract?.capabilities ?? first.capabilities.filter(
+      (cap) => items.every((i) => i.info.capabilities.includes(cap))
+    );
+    const valid = items.filter(
+      (p) => p.info.type === type && capabilities.every((cap) => p.info.capabilities.includes(cap))
+    );
+    if (!valid.length) return;
+    if (type === import_types9.ModelType.embeddings && new Set(valid.map((p) => p.candidate.connection.config.sourceId)).size > 1 && (!valid[0].candidate.embeddingSpace || valid.some(
+      (p) => p.candidate.embeddingSpace !== valid[0].candidate.embeddingSpace
+    )))
+      return;
+    const maxTokens = Math.min(
+      ...valid.map((p) => p.info.maxTokens || 4096),
+      contract?.contextSize || Infinity
+    );
+    out.set(name2, {
+      info: { ...first, name: name2, type, capabilities, maxTokens },
+      candidates: valid.map((p) => p.candidate),
+      allowFallback: fallback
+    });
+  }
+  limits(state, c) {
+    const cfg = c.config;
+    const platform = cfg.platform;
+    const provider = state.config.providers.find(
+      (p) => p.platform === platform
+    );
+    const limits = [
+      [
+        `p:${platform}`,
+        provider?.chatConcurrentMaxSize ?? 3,
+        provider?.chatTimeLimit ?? 200
+      ],
+      [`s:${cfg.sourceId}`, cfg.chatConcurrentMaxSize, cfg.chatTimeLimit],
+      [
+        `k:${c.key}`,
+        cfg.credentialConcurrentMaxSize ?? 3,
+        cfg.credentialHourlyLimit ?? 200
+      ]
+    ];
+    if (cfg.quotaGroup) {
+      const peers = state.connections.filter(
+        (p) => p.config.quotaGroup === cfg.quotaGroup
+      );
+      limits.push([
+        `q:${platform}:${cfg.quotaGroup}`,
+        Math.min(
+          ...peers.map(
+            (p) => p.config.credentialConcurrentMaxSize ?? 3
+          )
+        ),
+        Math.min(
+          ...peers.map((p) => p.config.credentialHourlyLimit ?? 200)
+        )
+      ]);
+    }
+    return limits;
+  }
+  available(state, c) {
+    if (c.authFailed || c.retryAt > Date.now()) return false;
+    return this.limits(state, c).every(([id, max, hourly]) => {
+      const count = this.counters.get(id);
+      if (!count) return true;
+      count.times = count.times.filter((at) => at > Date.now() - 36e5);
+      return count.active < max && count.times.length < hourly;
+    });
+  }
+  reserve(state, c) {
+    const counters = this.limits(state, c).map(([id]) => {
+      let count = this.counters.get(id);
+      if (!count) {
+        count = { active: 0, times: [] };
+        this.counters.set(id, count);
+      }
+      count.active++;
+      count.times.push(Date.now());
+      return count;
+    });
+    this.active++;
+    return () => {
+      for (const count of counters) count.active--;
+      this.active--;
+      this.collect();
+    };
+  }
+  pick(candidates, state, sticky) {
+    if (sticky) {
+      const match = candidates.find((c) => c.connection.key === sticky);
+      if (match) return match;
+    }
+    const sources = [
+      ...new Set(candidates.map((c) => c.connection.config.sourceId))
+    ];
+    if (!sources.length) return;
+    let source = sources[0];
+    if (sticky)
+      source = candidates.find((c) => c.connection.key === sticky)?.connection.config.sourceId ?? source;
+    else if (state.config.configMode === "balance") {
+      let best = -Infinity;
+      let total = 0;
+      for (const id of sources) {
+        const weight = candidates.find((c) => c.connection.config.sourceId === id).connection.config.sourceWeight || 1;
+        total += weight;
+        const score = (this.roundRobin.get(`weight:${id}`) ?? 0) + weight;
+        this.roundRobin.set(`weight:${id}`, score);
+        if (score > best) {
+          best = score;
+          source = id;
+        }
+      }
+      this.roundRobin.set(
+        `weight:${source}`,
+        this.roundRobin.get(`weight:${source}`) - total
+      );
+    }
+    const keys = candidates.filter(
+      (c) => c.connection.config.sourceId === source
+    );
+    const position = this.roundRobin.get(source) ?? 0;
+    this.roundRobin.set(source, position + 1);
+    return keys[position % keys.length];
+  }
+  fail(c, model, error, state) {
+    c.error = error.message;
+    if (error.kind === "auth") c.authFailed = true;
+    if (error.kind === "permission" && model) c.denied.add(model);
+    if (error.status === 429) {
+      for (const peer of state.connections)
+        if (peer === c || c.config.quotaGroup && peer.config.quotaGroup === c.config.quotaGroup)
+          peer.retryAt = error.retryAt;
+    }
+    if (error.status >= 500) {
+      for (const peer of state.connections)
+        if (peer.config.sourceId === c.config.sourceId)
+          peer.retryAt = Date.now() + 1e4;
+    }
+  }
+  owner(params, candidates) {
+    const bindings = /* @__PURE__ */ new Set();
+    for (const message of params.input) {
+      const binding = message.additional_kwargs?.model_hub_connection;
+      if (typeof binding === "string") bindings.add(binding);
+    }
+    if (bindings.size > 1)
+      throw new Error("消息包含不同连接的远端资源，不能混合请求");
+    const owner = [...bindings][0];
+    if (owner && !candidates.some((c) => c.connection.key === owner))
+      throw new Error(
+        "资源所属源或 Key 代次已不可用，请新建会话或恢复原凭据"
+      );
+    const external = params.overrideRequestParams ?? {};
+    const hasResource = external.previous_response_id || external.cached_content || external.cachedContent || external.previous_interaction_id || params.input.some(
+      (message) => structuredResource(message.content) || structuredResource(message.additional_kwargs)
+    );
+    if (hasResource && !owner)
+      throw new Error(
+        "远端资源缺少连接归属，请使用原会话或明确选择源与 Key"
+      );
+    return owner;
+  }
+  scoped(c) {
+    const cfg = c.connection.config;
+    const adapter = getProviderPreset(cfg.provider).adapter;
+    return adapter === "dify" || adapter === "gemini" && (cfg.geminiApi === "interactions" || cfg.geminiFileUpload || !!cfg.geminiCachedContent) || ["openai", "openai-chat"].includes(adapter) && (!!cfg.responseFileSearchVectorStoreIds?.length || cfg.responseApi || adapter === "openai" && /^gpt-6/i.test(c.upstreamModel));
+  }
+  async *execute(params, operation) {
+    if (this.closed) throw new Error("此平台已停止或删除");
+    const state = this.state;
+    const route = state.routes.get(params.model);
+    if (!route)
+      throw new Error(
+        `模型 ${params.model} 没有可用路由，请刷新目录或配置手动模型`
+      );
+    if (operation === "chat" || operation === "stream") {
+      const required = requiredCapabilities(params);
+      const missing = required.filter(
+        (cap) => !route.info.capabilities.includes(cap)
+      );
+      if (missing.length)
+        throw new Error(
+          `模型路由不支持本次输入能力：${missing.join(", ")}；请配置满足能力的专用路由`
+        );
+    }
+    const signal = AbortSignal.any([
+      ...params.signal ? [params.signal] : [],
+      AbortSignal.timeout(
+        Math.min(
+          params.timeout || state.config.timeout,
+          state.config.timeout
+        )
+      )
+    ]);
+    const owner = operation === "chat" || operation === "stream" ? this.owner(params, route.candidates) : void 0;
+    let candidates = route.candidates.filter(
+      (c) => !owner || c.connection.key === owner
+    );
+    candidates.sort(
+      (a, b) => (a.connection.config.sourcePriority ?? 0) - (b.connection.config.sourcePriority ?? 0)
+    );
+    if (!route.allowFallback && !owner) {
+      const primary = candidates[0]?.connection.config.sourceId;
+      candidates = candidates.filter(
+        (c) => c.connection.config.sourceId === primary
+      );
+    }
+    candidates = candidates.filter(
+      (c) => !c.connection.config.resourceCredentialId || c.connection.config.credentialId === c.connection.config.resourceCredentialId && c.connection.config.credentialGeneration === c.connection.config.resourceCredentialGeneration
+    );
+    if (!candidates.length)
+      throw new Error(
+        "固定资源所属 Key 或代次不可用，请确认资源归属并重新绑定"
+      );
+    const tried = /* @__PURE__ */ new Set();
+    let last;
+    let emitted = false;
+    const maxAttempts = 1 + Math.max(0, state.config.maxRetries ?? 0);
+    if (++this.queued > 100) {
+      this.queued--;
+      throw new Error("Model Hub 请求队列已满");
+    }
+    try {
+      for (let attempt = 0; attempt < maxAttempts; ) {
+        signal.throwIfAborted();
+        const eligible = candidates.filter(
+          (c2) => !tried.has(c2.connection.key) && !c2.connection.denied.has(c2.upstreamModel) && !c2.connection.authFailed
+        );
+        if (!eligible.length)
+          throw last ?? new Error("没有具备模型权限的可用 Key");
+        const ready = eligible.filter(
+          (c2) => this.available(state, c2.connection)
+        );
+        if (!ready.length) {
+          await pause(50, signal);
+          continue;
+        }
+        const stickyKey = params.id ? `${params.id}/${params.model}` : void 0;
+        const candidate = this.pick(
+          ready,
+          state,
+          stickyKey ? this.sticky.get(stickyKey) : void 0
+        );
+        const c = candidate.connection;
+        const release = this.reserve(state, c);
+        tried.add(c.key);
+        attempt++;
+        try {
+          const override = params.overrideRequestParams ? { ...params.overrideRequestParams } : void 0;
+          if (override?.model != null) {
+            const upstreamModel = (0, import_v1_shared_adapter11.parseOpenAIModelNameWithReasoningEffort)(
+              candidate.upstreamModel
+            ).model;
+            if (![
+              params.model,
+              candidate.upstreamModel,
+              upstreamModel
+            ].includes(override.model))
+              throw new Error(
+                "请求 model 覆盖不能绕过模型路由；请显式配置上游模型映射"
+              );
+            override.model = upstreamModel;
+          }
+          const bound = {
+            ...params,
+            model: candidate.upstreamModel,
+            signal,
+            ...override ? { overrideRequestParams: override } : {}
+          };
+          let tagged = false;
+          const tag = /* @__PURE__ */ __name((chunk) => {
+            if (chunk.message && this.scoped(candidate) && !tagged) {
+              chunk.message.additional_kwargs.model_hub_connection = c.key;
+              tagged = true;
+            }
+            return chunk;
+          }, "tag");
+          if (operation === "stream") {
+            const stream = c.requester.completionStream(bound);
+            try {
+              for (; ; ) {
+                const item = await this.attempt.run(
+                  signal,
+                  () => stream.next()
+                );
+                if (item.done) break;
+                emitted = true;
+                yield tag(item.value);
+              }
+            } finally {
+              await this.attempt.run(
+                signal,
+                () => stream.return(void 0)
+              );
+            }
+          } else {
+            const value = await this.attempt.run(
+              signal,
+              () => operation === "chat" ? c.requester.completion(bound) : operation === "embeddings" ? c.requester.embeddings(bound) : c.requester.rerank(bound)
+            );
+            emitted = true;
+            yield tag(value);
+          }
+          if (stickyKey) {
+            this.sticky.set(stickyKey, c.key);
+            if (this.sticky.size > 1e3)
+              this.sticky.delete(this.sticky.keys().next().value);
+          }
+          this.uses.set(params.model, Date.now());
+          if (this.uses.size > 200)
+            this.uses.delete(this.uses.keys().next().value);
+          c.error = void 0;
+          return;
+        } catch (error) {
+          if (signal.aborted) throw signal.reason;
+          const upstream = transportFailure(error);
+          if (upstream)
+            this.fail(c, candidate.upstreamModel, upstream, state);
+          if (emitted || owner || this.scoped(candidate) || !upstream || !["auth", "permission", "rate"].includes(upstream.kind))
+            throw upstream ?? error;
+          last = upstream;
+        } finally {
+          release();
+        }
+      }
+      throw last ?? new Error("Model Hub 已达到总尝试次数上限");
+    } finally {
+      this.queued--;
+    }
+  }
+  async completion(params) {
+    for await (const result of this.execute(params, "chat")) return result;
+  }
+  async *completionStream(params) {
+    yield* this.execute(params, "stream");
+  }
+  async embeddings(params) {
+    for await (const result of this.execute(params, "embeddings"))
+      return result;
+  }
+  async rerank(params) {
+    for await (const result of this.execute(params, "rerank")) return result;
+  }
+  fileHandling(model) {
+    const route = this.state.routes.get(model);
+    if (!route) return void 0;
+    const configs = route.candidates.map((c) => {
+      const adapter = getProviderPreset(
+        c.connection.config.provider
+      ).adapter;
+      if (adapter === "dify") {
+        const limits = c.connection.requester.currentConfig().difyApps?.[c.upstreamModel]?.parameters?.fileHandling;
+        if (limits)
+          return {
+            ...limits,
+            supportedMimeTypes: new Set(
+              limits.supportedMimeTypes
+            )
+          };
+      }
+      const config = capabilityFileHandling(
+        adapter,
+        route.info.capabilities
+      );
+      if (config && adapter === "gemini" && c.connection.config.geminiFileUpload) {
+        const limit = Math.min(
+          c.connection.config.geminiMaxFileSizeMb ?? 64,
+          2048
+        ) * 1024 * 1024;
+        return {
+          ...config,
+          maxTotalSizeBytes: limit,
+          maxFileSizeBytes: limit
+        };
+      }
+      return config;
+    }).filter(Boolean);
+    if (!configs.length) return void 0;
+    const supportedMimeTypes = new Set(
+      [...configs[0].supportedMimeTypes].filter(
+        (mime) => configs.every((c) => c.supportedMimeTypes.has(mime))
+      )
+    );
+    const overrides = Object.fromEntries(
+      [...supportedMimeTypes].map((mime) => [
+        mime,
+        Math.min(
+          ...configs.map(
+            (c) => c.maxFileSizeBytesOverrides?.[mime] ?? c.maxFileSizeBytes
+          )
+        )
+      ])
+    );
+    return {
+      supportedMimeTypes,
+      maxFileSizeBytesOverrides: overrides,
+      maxTotalSizeBytes: Math.min(
+        ...configs.map((c) => c.maxTotalSizeBytes)
+      ),
+      maxFileSizeBytes: Math.min(
+        ...configs.map((c) => c.maxFileSizeBytes)
+      )
+    };
+  }
+  platformFileHandling() {
+    const configs = [...this.state.routes.keys()].map((model) => this.fileHandling(model)).filter(Boolean);
+    if (!configs.length) return null;
+    return {
+      supportedMimeTypes: new Set(
+        configs.flatMap((c) => [...c.supportedMimeTypes])
+      ),
+      maxTotalSizeBytes: Math.max(
+        ...configs.map((c) => c.maxTotalSizeBytes)
+      ),
+      maxFileSizeBytes: Math.max(
+        ...configs.map((c) => c.maxFileSizeBytes)
+      )
+    };
+  }
+  async resource(request) {
+    if (this.closed) throw new Error("此平台已停止或删除");
+    if (!request.sourceId || !request.credentialId)
+      throw new Error("资源操作必须选择具体连接源与 Key");
+    const c = this.state.connections.find(
+      (c2) => c2.config.sourceId === request.sourceId && c2.config.credentialId === request.credentialId
+    );
+    if (!c) throw new Error("所选连接已禁用或删除");
+    if (request.credentialGeneration !== c.config.credentialGeneration)
+      throw new Error(
+        "资源操作的 Key 代次已改变，请重新载入并确认资源归属"
+      );
+    const resourceKey = `${request.sourceId}/${request.credentialId}/${request.name ?? ""}`;
+    const old = this.catalog.resourceOwner(resourceKey);
+    if (old && old !== c.key)
+      throw new Error("资源属于旧凭据代次，请确认资源归属后重新操作");
+    this.resourceRequests++;
+    try {
+      const result = await c.requester.geminiResources().request(request);
+      if (request.name) this.catalog.rememberResource(resourceKey, c.key);
+      for (const item of [
+        ...result.files ?? [],
+        ...result.cachedContents ?? [],
+        ...result.name ? [result] : []
+      ]) {
+        if (item.name)
+          this.catalog.rememberResource(
+            `${request.sourceId}/${request.credentialId}/${item.name}`,
+            c.key
+          );
+      }
+      try {
+        await this.catalog.flush();
+      } catch {
+        throw new Error(
+          "远端操作已完成，但本地资源归属保存失败；请勿重复创建资源，检查缓存目录权限后刷新"
+        );
+      }
+      return result;
+    } finally {
+      this.resourceRequests--;
+      this.collect();
+    }
+  }
+  async dispose(model, id) {
+    if (model || id) {
+      await Promise.all(
+        this.state.connections.map(
+          (c) => c.requester.dispose(model, id)
+        )
+      );
+      if (id) {
+        for (const key of this.sticky.keys())
+          if (key.startsWith(`${id}/`)) this.sticky.delete(key);
+      }
+      return;
+    }
+    if (this.closed) return;
+    this.closed = true;
+    for (const c of this.state.connections) this.retired.add(c);
+    this.collect();
+  }
+};
+function pause(ms, signal) {
+  return new Promise((resolve4, reject) => {
+    signal.throwIfAborted();
+    const done = /* @__PURE__ */ __name(() => {
+      signal.removeEventListener("abort", abort);
+      resolve4();
+    }, "done");
+    const timer = setTimeout(done, ms);
+    const abort = /* @__PURE__ */ __name(() => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason);
+    }, "abort");
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+__name(pause, "pause");
+function requiredCapabilities(params) {
+  const required = /* @__PURE__ */ new Set();
+  if (params.tools?.length) required.add(import_types9.ModelCapabilities.ToolCall);
+  const types = {
+    image_url: import_types9.ModelCapabilities.ImageInput,
+    image: import_types9.ModelCapabilities.ImageInput,
+    input_image: import_types9.ModelCapabilities.ImageInput,
+    audio: import_types9.ModelCapabilities.AudioInput,
+    audio_url: import_types9.ModelCapabilities.AudioInput,
+    input_audio: import_types9.ModelCapabilities.AudioInput,
+    video: import_types9.ModelCapabilities.VideoInput,
+    video_url: import_types9.ModelCapabilities.VideoInput,
+    file: import_types9.ModelCapabilities.FileInput,
+    file_url: import_types9.ModelCapabilities.FileInput,
+    input_file: import_types9.ModelCapabilities.FileInput
+  };
+  for (const message of params.input) {
+    if (message.getType?.() === "tool" || message.additional_kwargs?.tool_calls?.length || message.tool_calls?.length)
+      required.add(import_types9.ModelCapabilities.ToolCall);
+    if (Array.isArray(message.content))
+      for (const part of message.content) {
+        if (types[part.type]) required.add(types[part.type]);
+      }
+  }
+  return [...required];
+}
+__name(requiredCapabilities, "requiredCapabilities");
+function structuredResource(value, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 12) return false;
+  if (Array.isArray(value))
+    return value.some((part) => structuredResource(part, depth + 1));
+  return Object.entries(value).some(([key, child]) => {
+    if ([
+      "file_id",
+      "file_uri",
+      "fileUri",
+      "cachedContent",
+      "cached_content",
+      "previous_response_id",
+      "previous_interaction_id"
+    ].includes(key) && typeof child === "string" && child && !child.startsWith("data:"))
+      return true;
+    return structuredResource(child, depth + 1);
+  });
+}
+__name(structuredResource, "structuredResource");
+async function responseFailure(response, at) {
+  let code = "";
+  let param;
+  const reader = response.body?.getReader();
+  if (reader) {
+    try {
+      const chunks = [];
+      let length = 0;
+      while (length <= 16384) {
+        const item = await reader.read();
+        if (item.done) break;
+        length += item.value.length;
+        if (length <= 16384) chunks.push(item.value);
+      }
+      if (length <= 16384) {
+        const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        code = [data.error?.code, data.error?.type, data.error?.status].filter((c) => typeof c === "string").join(" ").toLowerCase();
+        const field = data.error?.param;
+        if ([
+          "model",
+          "messages",
+          "tools",
+          "tool_choice",
+          "temperature",
+          "reasoning_effort",
+          "reasoning",
+          "max_tokens",
+          "max_completion_tokens",
+          "input",
+          "response_format"
+        ].includes(field))
+          param = field;
+      }
+    } catch {
+    } finally {
+      await reader.cancel().catch(() => {
+      });
+      reader.releaseLock();
+    }
+  }
+  let kind = response.status === 401 ? "auth" : response.status === 429 ? "rate" : response.status >= 500 ? "source" : "request";
+  if ([403, 404].includes(response.status)) {
+    if (/(invalid_api_key|authentication_error|api_key_invalid)/.test(code))
+      kind = "auth";
+    else if (/(model_not_found|model_not_allowed|model_access_denied|permission_denied|permission_error)/.test(
+      code
+    ))
+      kind = "permission";
+  }
+  return new UpstreamFailure(response.status, at, kind, param);
+}
+__name(responseFailure, "responseFailure");
+
 // src/client.ts
 var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndRerankerClient {
-  constructor(ctx, _config, plugin, _runtime, _metadata) {
+  constructor(ctx, _config, plugin, _runtime, _metadata, catalog) {
     super(ctx, plugin.platformConfigPool);
     this._config = _config;
     this.plugin = plugin;
     this._runtime = _runtime;
     this._metadata = _metadata;
     this.platform = _runtime.platform;
-    this._requester = new ModelHubRequester(
+    this._requester = _runtime.entries.some((e) => e.sourceId) ? new ModelHubRouter(
+      ctx,
+      _config,
+      plugin,
+      _runtime,
+      _metadata,
+      catalog
+    ) : new ModelHubRequester(
       ctx,
       plugin.platformConfigPool,
       _config,
@@ -5954,8 +7244,19 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   lastUsedAt(model) {
     return this._requester.lastUsedAt(model);
   }
+  shutdown() {
+    return this._requester.dispose();
+  }
   async refreshModels(config) {
     try {
+      if (this._requester instanceof ModelHubRouter) {
+        const models2 = await this._requester.refreshCatalog(config);
+        this.modelsUpdatedAt = Math.max(
+          0,
+          ...this._requester.status().map((connection) => connection.updatedAt ?? 0)
+        ) || void 0;
+        return models2;
+      }
       const current = this.config;
       const rawModels = current?.pullModels === true || this._runtime.provider.adapter === "dify" ? await this._requester.getModels(config) : [];
       const enhancedModels = rawModels.map(
@@ -5969,7 +7270,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         }
       ) : enhancedModels;
       const apiModels = providerModels.filter(
-        (model) => !(0, import_v1_shared_adapter11.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter11.isImageGenerationModel)(model.name)
+        (model) => !(0, import_v1_shared_adapter12.isNonLLMModel)(model.name) || (0, import_v1_shared_adapter12.isImageGenerationModel)(model.name)
       ).map((model) => this._inferModelInfo(model));
       const additionalModels = getTargetedAdditionalModels(
         this._config.additionalModels,
@@ -6009,12 +7310,44 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     }
   }
   async geminiResource(request) {
+    if (this._requester instanceof ModelHubRouter)
+      return this._requester.resource(request);
     return this._requester.geminiResources().request(request);
+  }
+  connectionStatus() {
+    return this._requester instanceof ModelHubRouter ? this._requester.status() : [];
+  }
+  modelCandidates(model) {
+    return this._requester instanceof ModelHubRouter ? this._requester.modelCandidates(model) : [];
+  }
+  prepareUpdate(config, runtime) {
+    if (!(this._requester instanceof ModelHubRouter))
+      throw new Error("旧平台需要重新加载插件");
+    const router = this._requester;
+    const next = router.prepare(config, runtime);
+    return () => {
+      router.activate(next);
+      this._config = config;
+      this._runtime = runtime;
+      this._modelInfos = {};
+    };
+  }
+  async refreshSource(sourceId) {
+    if (!(this._requester instanceof ModelHubRouter))
+      return this.reloadModels();
+    const models = await this._requester.refreshCatalog(void 0, sourceId);
+    this._modelInfos = Object.fromEntries(
+      models.map((model) => [model.name, model])
+    );
+    this.modelsUpdatedAt = Date.now();
+    return models;
   }
   registerSelf() {
     this.ctx.chatluna.platform.registerClient(this.platform, () => this);
   }
   getFileHandlingConfig() {
+    if (this._requester instanceof ModelHubRouter)
+      return this._requester.platformFileHandling();
     if (this._runtime.provider.adapter === "anthropic") {
       return ANTHROPIC_FILE_HANDLING_CONFIG;
     }
@@ -6067,9 +7400,9 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         new Error(`The model ${model} is not found in ${this.platform}`)
       );
     }
-    if (info.type === import_types9.ModelType.llm) {
-      const current2 = this.config ?? this._config;
-      const modelMaxContextSize = (0, import_v1_shared_adapter11.getModelMaxContextSize)(info);
+    if (info.type === import_types10.ModelType.llm) {
+      const current2 = this._requester instanceof ModelHubRouter ? this._config : this.config ?? this._config;
+      const modelMaxContextSize = (0, import_v1_shared_adapter12.getModelMaxContextSize)(info);
       return new import_model.ChatLunaChatModel({
         usageReporter: report,
         modelInfo: info,
@@ -6083,40 +7416,40 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         presencePenalty: current2.presencePenalty,
         timeout: current2.timeout,
         temperature: current2.temperature,
-        maxRetries: current2.maxRetries,
+        maxRetries: this._requester instanceof ModelHubRouter ? 0 : current2.maxRetries,
         llmType: this._runtime.provider.id,
         fileHandlingConfig: this._fileHandlingConfig(model, info),
         isThinkModel: info.capabilities.includes(
-          import_types9.ModelCapabilities.Thinking
+          import_types10.ModelCapabilities.Thinking
         )
       });
     }
-    if (info.type === import_types9.ModelType.reranker) {
-      const current2 = this.config ?? this._config;
+    if (info.type === import_types10.ModelType.reranker) {
+      const current2 = this._requester instanceof ModelHubRouter ? this._config : this.config ?? this._config;
       return new import_rerank.ChatLunaReranker({
         usageReporter: report,
         client: this._requester,
         model,
-        maxRetries: current2.maxRetries,
+        maxRetries: this._requester instanceof ModelHubRouter ? 0 : current2.maxRetries,
         timeout: current2.timeout
       });
     }
-    const current = this.config ?? this._config;
+    const current = this._requester instanceof ModelHubRouter ? this._config : this.config ?? this._config;
     return new import_model.ChatLunaEmbeddings({
       usageReporter: report,
       client: this._requester,
       model,
-      maxRetries: current.maxRetries
+      maxRetries: this._requester instanceof ModelHubRouter ? 0 : current.maxRetries
     });
   }
   _inferModelInfo(model) {
     const name2 = model.name;
     const lower = name2.toLowerCase();
-    const type = model.type ?? ((0, import_v1_shared_adapter11.isRerankerModel)(lower) ? import_types9.ModelType.reranker : (0, import_v1_shared_adapter11.isEmbeddingModel)(lower) ? import_types9.ModelType.embeddings : import_types9.ModelType.llm);
-    if ((0, import_v1_shared_adapter11.isImageGenerationModel)(lower)) {
+    const type = model.type ?? ((0, import_v1_shared_adapter12.isRerankerModel)(lower) ? import_types10.ModelType.reranker : (0, import_v1_shared_adapter12.isEmbeddingModel)(lower) ? import_types10.ModelType.embeddings : import_types10.ModelType.llm);
+    if ((0, import_v1_shared_adapter12.isImageGenerationModel)(lower)) {
       return {
         name: name2,
-        type: import_types9.ModelType.llm,
+        type: import_types10.ModelType.llm,
         maxTokens: positiveNumber(model.maxTokens) ?? 4096,
         capabilities: resolveCapabilities(
           this._runtime.provider.adapter,
@@ -6124,12 +7457,12 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
             ...model,
             capabilities: [
               ...model.capabilities ?? [],
-              import_types9.ModelCapabilities.ImageGeneration
+              import_types10.ModelCapabilities.ImageGeneration
             ]
           },
           this.config?.responseApi === true
         ).filter(
-          (capability) => capability !== import_types9.ModelCapabilities.ToolCall
+          (capability) => capability !== import_types10.ModelCapabilities.ToolCall
         )
       };
     }
@@ -6140,8 +7473,8 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       name: name2,
       type,
       ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
-      maxTokens: type === import_types9.ModelType.llm ? maxTokens ?? this._fallbackModelMaxContextSize(name2) : maxTokens ?? this._nonLlmInputTokenLimit(),
-      capabilities: type === import_types9.ModelType.llm ? resolveCapabilities(
+      maxTokens: type === import_types10.ModelType.llm ? maxTokens ?? this._fallbackModelMaxContextSize(name2) : maxTokens ?? this._nonLlmInputTokenLimit(),
+      capabilities: type === import_types10.ModelType.llm ? resolveCapabilities(
         this._runtime.provider.adapter,
         model,
         this.config?.responseApi === true
@@ -6150,17 +7483,17 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     return info;
   }
   _additionalModelInfo(model) {
-    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types9.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types9.ModelType.reranker : import_types9.ModelType.llm;
+    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types10.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types10.ModelType.reranker : import_types10.ModelType.llm;
     return {
       name: model.model,
       type,
       maxTokens: positiveNumber(model.contextSize) ?? 4096,
-      capabilities: type === import_types9.ModelType.llm ? protocolCapabilities(
+      capabilities: type === import_types10.ModelType.llm ? protocolCapabilities(
         this._runtime.provider.adapter,
         model.modelCapabilities,
         this.config?.responseApi === true
       ) : model.modelCapabilities.filter(
-        (cap) => cap !== import_types9.ModelCapabilities.ToolCall
+        (cap) => cap !== import_types10.ModelCapabilities.ToolCall
       )
     };
   }
@@ -6173,9 +7506,9 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     return [...result.values()];
   }
   _fallbackModelMaxContextSize(model) {
-    const inferred = (0, import_v1_shared_adapter11.getModelMaxContextSize)({
+    const inferred = (0, import_v1_shared_adapter12.getModelMaxContextSize)({
       name: model,
-      type: import_types9.ModelType.llm,
+      type: import_types10.ModelType.llm,
       maxTokens: void 0,
       capabilities: []
     });
@@ -6185,11 +7518,13 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     return positiveNumber(this.config?.nonLlmInputTokenLimit) ?? 8192;
   }
   _fileHandlingConfig(model, info) {
+    if (this._requester instanceof ModelHubRouter)
+      return this._requester.fileHandling(model);
     if (this._runtime.provider.adapter === "anthropic") {
       const supportedMimeTypes = new Set(
         [...ANTHROPIC_FILE_HANDLING_CONFIG.supportedMimeTypes].filter(
           (mime) => info.capabilities.includes(
-            mime.startsWith("image/") ? import_types9.ModelCapabilities.ImageInput : import_types9.ModelCapabilities.FileInput
+            mime.startsWith("image/") ? import_types10.ModelCapabilities.ImageInput : import_types10.ModelCapabilities.FileInput
           )
         )
       );
@@ -6210,7 +7545,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       }
       return config;
     }
-    if (!info.capabilities.includes(import_types9.ModelCapabilities.FileInput)) {
+    if (!info.capabilities.includes(import_types10.ModelCapabilities.FileInput)) {
       return void 0;
     }
     const difyFileHandling = this._difyFileHandlingConfig(model);
@@ -6284,16 +7619,16 @@ var ANTHROPIC_FILE_HANDLING_CONFIG = {
 };
 
 // src/metadata.ts
-var import_promises2 = require("fs/promises");
-var import_crypto2 = require("crypto");
-var import_path2 = require("path");
-var import_v1_shared_adapter12 = require("@chatluna/v1-shared-adapter");
-var import_types10 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_promises3 = require("fs/promises");
+var import_crypto4 = require("crypto");
+var import_path3 = require("path");
+var import_v1_shared_adapter13 = require("@chatluna/v1-shared-adapter");
+var import_types11 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
     this.ctx = ctx;
     this.options = options;
-    this.path = (0, import_path2.resolve)(
+    this.path = (0, import_path3.resolve)(
       ctx.baseDir,
       options.cachePath || "data/chatluna-model-hub/models.dev.models.json"
     );
@@ -6332,7 +7667,7 @@ var ModelMetadataStore = class {
   }
   async load() {
     try {
-      const raw = await (0, import_promises2.readFile)(this.path, "utf8");
+      const raw = await (0, import_promises3.readFile)(this.path, "utf8");
       this.apply(JSON.parse(raw));
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
@@ -6360,20 +7695,20 @@ var ModelMetadataStore = class {
     );
     validateCatalog(catalog);
     if (this._disposed) return;
-    const temporaryPath = `${this.path}.${(0, import_crypto2.randomUUID)()}.tmp`;
+    const temporaryPath = `${this.path}.${(0, import_crypto4.randomUUID)()}.tmp`;
     try {
-      await (0, import_promises2.mkdir)((0, import_path2.dirname)(this.path), { recursive: true });
-      await (0, import_promises2.writeFile)(
+      await (0, import_promises3.mkdir)((0, import_path3.dirname)(this.path), { recursive: true });
+      await (0, import_promises3.writeFile)(
         temporaryPath,
         `${JSON.stringify(catalog)}
 `,
         "utf8"
       );
       if (this._disposed) return;
-      await (0, import_promises2.rename)(temporaryPath, this.path);
+      await (0, import_promises3.rename)(temporaryPath, this.path);
       this.apply(catalog);
     } finally {
-      await (0, import_promises2.rm)(temporaryPath, { force: true });
+      await (0, import_promises3.rm)(temporaryPath, { force: true });
     }
   }
   enhance(provider, model) {
@@ -6536,7 +7871,7 @@ function normalizeModelId(value) {
 __name(normalizeModelId, "normalizeModelId");
 function metadataLookupCandidates(model) {
   const exact = model.trim();
-  const realModel = (0, import_v1_shared_adapter12.parseOpenAIModelNameWithReasoningEffort)(exact).model.trim();
+  const realModel = (0, import_v1_shared_adapter13.parseOpenAIModelNameWithReasoningEffort)(exact).model.trim();
   return unique([exact, realModel].filter(Boolean));
 }
 __name(metadataLookupCandidates, "metadataLookupCandidates");
@@ -6573,32 +7908,32 @@ function capabilitiesFromMetadata(model) {
   const capabilities = [];
   const input = new Set(model.modalities?.input ?? []);
   const output = new Set(model.modalities?.output ?? []);
-  if (model.tool_call) capabilities.push(import_types10.ModelCapabilities.ToolCall);
-  if (model.reasoning) capabilities.push(import_types10.ModelCapabilities.Thinking);
-  if (input.has("image")) capabilities.push(import_types10.ModelCapabilities.ImageInput);
-  if (input.has("audio")) capabilities.push(import_types10.ModelCapabilities.AudioInput);
-  if (input.has("video")) capabilities.push(import_types10.ModelCapabilities.VideoInput);
-  if (input.has("pdf")) capabilities.push(import_types10.ModelCapabilities.FileInput);
+  if (model.tool_call) capabilities.push(import_types11.ModelCapabilities.ToolCall);
+  if (model.reasoning) capabilities.push(import_types11.ModelCapabilities.Thinking);
+  if (input.has("image")) capabilities.push(import_types11.ModelCapabilities.ImageInput);
+  if (input.has("audio")) capabilities.push(import_types11.ModelCapabilities.AudioInput);
+  if (input.has("video")) capabilities.push(import_types11.ModelCapabilities.VideoInput);
+  if (input.has("pdf")) capabilities.push(import_types11.ModelCapabilities.FileInput);
   if (output.has("image"))
-    capabilities.push(import_types10.ModelCapabilities.ImageGeneration);
+    capabilities.push(import_types11.ModelCapabilities.ImageGeneration);
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
 function capabilityOverridesFromMetadata(model) {
   const result = {};
   if (typeof model.tool_call === "boolean")
-    result[import_types10.ModelCapabilities.ToolCall] = model.tool_call;
+    result[import_types11.ModelCapabilities.ToolCall] = model.tool_call;
   if (typeof model.reasoning === "boolean")
-    result[import_types10.ModelCapabilities.Thinking] = model.reasoning;
+    result[import_types11.ModelCapabilities.Thinking] = model.reasoning;
   if (Array.isArray(model.modalities?.input)) {
     const input = new Set(model.modalities.input);
-    result[import_types10.ModelCapabilities.ImageInput] = input.has("image");
-    result[import_types10.ModelCapabilities.AudioInput] = input.has("audio");
-    result[import_types10.ModelCapabilities.VideoInput] = input.has("video");
-    result[import_types10.ModelCapabilities.FileInput] = input.has("file") || input.has("pdf");
+    result[import_types11.ModelCapabilities.ImageInput] = input.has("image");
+    result[import_types11.ModelCapabilities.AudioInput] = input.has("audio");
+    result[import_types11.ModelCapabilities.VideoInput] = input.has("video");
+    result[import_types11.ModelCapabilities.FileInput] = input.has("file") || input.has("pdf");
   }
   if (Array.isArray(model.modalities?.output)) {
-    result[import_types10.ModelCapabilities.ImageGeneration] = model.modalities.output.includes("image");
+    result[import_types11.ModelCapabilities.ImageGeneration] = model.modalities.output.includes("image");
   }
   return result;
 }
@@ -6629,9 +7964,216 @@ function mergeCapabilities2(preferred, fallback) {
 __name(mergeCapabilities2, "mergeCapabilities");
 
 // src/settings.ts
-var import_promises3 = require("fs/promises");
-var import_path3 = require("path");
-var import_types11 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_promises4 = require("fs/promises");
+var import_crypto6 = require("crypto");
+var import_path4 = require("path");
+var import_types13 = require("koishi-plugin-chatluna/llm-core/platform/types");
+
+// src/source-settings.ts
+var import_crypto5 = require("crypto");
+var import_types12 = require("koishi-plugin-chatluna/llm-core/platform/types");
+function idFor(value, previous, editing, ids) {
+  const input = typeof value === "string" ? value : "";
+  if (input && ids.has(input)) throw new Error("源或凭据 ID 重复");
+  if (input) ids.add(input);
+  const id = previous?.id ?? (!editing && input ? input : (0, import_crypto5.randomUUID)());
+  ids.add(id);
+  return id;
+}
+__name(idFor, "idFor");
+var str = /* @__PURE__ */ __name((value) => typeof value === "string" ? value.trim() : "", "str");
+var number = /* @__PURE__ */ __name((value, fallback, min = 1, max = 1e4) => typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, Math.floor(value))) : fallback, "number");
+function normalizeSources(provider, old, previous, ids, settings) {
+  const sources = provider.sources ?? [
+    {
+      id: "",
+      name: "默认连接",
+      provider: provider.provider,
+      apiEndpoint: provider.apiEndpoint,
+      enabled: true,
+      pullModels: provider.pullModels,
+      priority: 0,
+      weight: 1,
+      settings: {},
+      credentials: [
+        {
+          id: "",
+          name: "Key 1",
+          apiKey: provider.apiKey,
+          enabled: true,
+          generation: 1
+        }
+      ]
+    }
+  ];
+  if (sources.length > 100) throw new Error("每个平台最多 100 个源");
+  return sources.map((raw) => {
+    const prior = old?.sources?.find((source) => source.id === raw.id);
+    if (!prior && previous?.providers.some(
+      (p) => p.sources?.some((s) => s.id === raw.id)
+    ))
+      throw new Error("源不属于此平台");
+    const preset = getProviderPreset(str(raw.provider) || provider.provider);
+    const endpoint = str(raw.apiEndpoint) || preset.defaultEndpoint;
+    const url = new URL(endpoint);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash)
+      throw new Error(
+        "源地址必须是 HTTP(S) 基础地址；认证请使用 Key 或请求头"
+      );
+    if (!Array.isArray(raw.credentials) || raw.credentials.length > 200)
+      throw new Error("凭据列表无效，每个源最多 200 个 Key");
+    const sourceId = idFor(raw.id, prior, !!previous, ids);
+    const nextSettings = settings(
+      { ...raw.settings ?? {}, provider: preset.id },
+      prior?.settings
+    );
+    const authChanged = !!prior && JSON.stringify(
+      nextSettings.customHeaders ?? provider.customHeaders
+    ) !== JSON.stringify(
+      prior.settings.customHeaders ?? old?.customHeaders
+    );
+    const credentials = raw.credentials.map((input) => {
+      const prev = prior?.credentials.find(
+        (credential) => credential.id === input.id
+      );
+      if (!prev && previous?.providers.some(
+        (p) => p.sources?.some(
+          (s) => s.credentials.some((c) => c.id === input.id)
+        )
+      ))
+        throw new Error("凭据不属于此连接源");
+      const action = input.secretAction;
+      if (action && !["keep", "replace", "clear"].includes(action))
+        throw new Error("密钥操作无效");
+      if (action === "replace" && !str(input.apiKey))
+        throw new Error("替换密钥不能为空；清空请使用清除操作");
+      if (action === "keep" && str(input.apiKey))
+        throw new Error("保留密钥时不能同时提交新密钥");
+      const apiKey = action === "clear" ? "" : action === "keep" ? prev?.apiKey ?? "" : str(input.apiKey) || prev?.apiKey || "";
+      const organization = str(input.organization);
+      const project = str(input.project);
+      const changed = prev && (apiKey !== prev.apiKey || organization !== (prev.organization ?? "") || project !== (prev.project ?? "") || endpoint.replace(/\/+$/, "") !== prior?.apiEndpoint || preset.id !== prior?.provider || authChanged);
+      return {
+        id: idFor(input.id, prev, !!previous, ids),
+        name: str(input.name).slice(0, 100) || "Key",
+        apiKey,
+        enabled: input.enabled !== false,
+        generation: prev ? prev.generation + (changed ? 1 : 0) : previous ? 1 : number(input.generation, 1),
+        organization,
+        project,
+        quotaGroup: str(input.quotaGroup).slice(0, 100),
+        concurrentMaxSize: number(input.concurrentMaxSize, 3, 1, 200),
+        hourlyLimit: number(input.hourlyLimit, 200, 1, 1e6)
+      };
+    });
+    const explicit = str(raw.resourceCredentialId);
+    const oldIndex = raw.credentials.findIndex((c) => c.id === explicit);
+    const resourceId = oldIndex >= 0 ? credentials[oldIndex].id : explicit;
+    const staticResource = preset.adapter === "gemini" ? nextSettings.geminiCachedContent ?? provider.geminiCachedContent : ["openai", "openai-chat"].includes(preset.adapter) ? (nextSettings.responseFileSearchVectorStoreIds ?? provider.responseFileSearchVectorStoreIds)?.length : false;
+    const selectedId = resourceId || (staticResource ? prior?.resourceCredentialId || credentials[0]?.id : void 0);
+    const selectedKey = credentials.find((c) => c.id === selectedId);
+    if (selectedId && !selectedKey)
+      throw new Error("固定资源引用的 Key 已删除，请先调整资源绑定");
+    const resourceGeneration = selectedId ? prior?.resourceCredentialId === selectedId ? number(
+      raw.resourceCredentialGeneration,
+      prior.resourceCredentialGeneration ?? selectedKey.generation
+    ) : selectedKey.generation : void 0;
+    if (resourceGeneration > selectedKey?.generation)
+      throw new Error("资源绑定的凭据代次无效");
+    return {
+      id: sourceId,
+      name: str(raw.name).slice(0, 100) || "连接源",
+      provider: preset.id,
+      resourceCredentialId: selectedId,
+      resourceCredentialGeneration: resourceGeneration,
+      apiEndpoint: endpoint.replace(/\/+$/, ""),
+      enabled: raw.enabled !== false,
+      pullModels: raw.pullModels !== false,
+      priority: number(raw.priority, 0, 0),
+      weight: number(raw.weight, 1),
+      settings: nextSettings,
+      credentials
+    };
+  });
+}
+__name(normalizeSources, "normalizeSources");
+function normalizeRoutes(routes, sources) {
+  const names = /* @__PURE__ */ new Set();
+  return (routes ?? []).map((route) => {
+    const model = str(route.model);
+    if (!model || names.has(model))
+      throw new Error("模型路由名称为空或重复");
+    names.add(model);
+    if (!Array.isArray(route.candidates) || !route.candidates.length)
+      throw new Error(`路由 ${model} 缺少候选源`);
+    const candidates = route.candidates.map((candidate) => {
+      const source = sources.find((s) => s.id === candidate.sourceId);
+      if (!source)
+        throw new Error(
+          `路由 ${model} 引用了已删除的源，请先移除路由候选`
+        );
+      const credentialIds = candidate.credentialIds?.filter((id) => {
+        if (!source.credentials.some((c) => c.id === id))
+          throw new Error(`路由 ${model} 的 Key 不属于所选源`);
+        return true;
+      });
+      const upstreamModel = str(candidate.upstreamModel);
+      if (!upstreamModel) throw new Error(`路由 ${model} 缺少上游模型 ID`);
+      return {
+        sourceId: source.id,
+        credentialIds,
+        upstreamModel,
+        embeddingSpace: str(candidate.embeddingSpace) || void 0
+      };
+    });
+    if (route.modelType === "embeddings" && new Set(candidates.map((c) => c.sourceId)).size > 1 && (!candidates[0].embeddingSpace || candidates.some(
+      (c) => c.embeddingSpace !== candidates[0].embeddingSpace
+    )))
+      throw new Error(
+        `Embedding 路由 ${model} 跨源必须声明相同语义空间与版本`
+      );
+    if (route.capabilities && (!Array.isArray(route.capabilities) || route.capabilities.some(
+      (c) => !Object.values(import_types12.ModelCapabilities).includes(c)
+    )))
+      throw new Error(`路由 ${model} 的能力声明无效`);
+    return {
+      model,
+      candidates,
+      allowFallback: route.allowFallback === true,
+      modelType: ["llm", "embeddings", "reranker"].includes(
+        route.modelType
+      ) ? route.modelType : void 0,
+      capabilities: Array.isArray(route.capabilities) ? [
+        ...new Set(
+          route.capabilities.filter(
+            (c) => typeof c === "string"
+          )
+        )
+      ] : void 0,
+      contextSize: route.contextSize ? number(route.contextSize, 0, 1, 1e8) : void 0
+    };
+  });
+}
+__name(normalizeRoutes, "normalizeRoutes");
+function maskSources(sources, preview, maskHeader) {
+  return sources.map((source) => ({
+    ...structuredClone(source),
+    settings: {
+      ...structuredClone(source.settings),
+      customHeaders: source.settings.customHeaders?.map(maskHeader)
+    },
+    credentials: source.credentials.map((c) => ({
+      ...c,
+      apiKey: "",
+      hasApiKey: !!c.apiKey,
+      apiKeyPreview: preview(c.apiKey),
+      secretAction: "keep"
+    }))
+  }));
+}
+__name(maskSources, "maskSources");
+
+// src/settings.ts
 var DEFAULT_SETTINGS_PATH = "data/chatluna-model-hub/config.json";
 var DEFAULT_PROVIDER_ADVANCED_SETTINGS = {
   customHeaders: [],
@@ -6663,17 +8205,34 @@ var ModelHubSettingsStore = class {
     __name(this, "ModelHubSettingsStore");
   }
   path;
+  legacyPath;
   constructor(ctx, settingsPath) {
-    this.path = resolveSettingsPath(ctx, settingsPath);
+    this.legacyPath = resolveSettingsPath(ctx, settingsPath);
+    this.path = `${this.legacyPath}.v2`;
   }
   async load(legacy) {
     try {
-      const raw = await (0, import_promises3.readFile)(this.path, "utf8");
+      const raw = await (0, import_promises4.readFile)(this.path, "utf8");
       return normalizeSettings(JSON.parse(raw));
     } catch (error) {
       if (error.code !== "ENOENT") {
         throw error;
       }
+    }
+    try {
+      const raw = await (0, import_promises4.readFile)(this.legacyPath, "utf8");
+      const settings2 = normalizeSettings(JSON.parse(raw));
+      await (0, import_promises4.copyFile)(
+        this.legacyPath,
+        `${this.legacyPath}.pre-v2.bak`,
+        1
+      ).catch((error) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      await this.save(settings2);
+      return settings2;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
     }
     const migrated = pickLegacySettings(legacy);
     const settings = normalizeSettings(migrated ?? {});
@@ -6681,18 +8240,25 @@ var ModelHubSettingsStore = class {
     return settings;
   }
   async save(settings) {
-    await (0, import_promises3.mkdir)((0, import_path3.dirname)(this.path), { recursive: true });
-    await (0, import_promises3.writeFile)(
-      this.path,
-      `${JSON.stringify(normalizeSettings(settings), null, 2)}
+    await (0, import_promises4.mkdir)((0, import_path4.dirname)(this.path), { recursive: true });
+    const temp = `${this.path}.${(0, import_crypto6.randomUUID)()}.tmp`;
+    try {
+      await (0, import_promises4.writeFile)(
+        temp,
+        `${JSON.stringify(normalizeSettings(settings), null, 2)}
 `,
-      "utf8"
-    );
+        { encoding: "utf8", mode: 384, flag: "wx" }
+      );
+      await (0, import_promises4.rename)(temp, this.path);
+    } finally {
+      await (0, import_promises4.unlink)(temp).catch(() => {
+      });
+    }
   }
 };
 function resolveSettingsPath(ctx, settingsPath) {
   const value = (settingsPath || DEFAULT_SETTINGS_PATH).trim();
-  return (0, import_path3.isAbsolute)(value) ? value : (0, import_path3.resolve)(ctx.baseDir, value);
+  return (0, import_path4.isAbsolute)(value) ? value : (0, import_path4.resolve)(ctx.baseDir, value);
 }
 __name(resolveSettingsPath, "resolveSettingsPath");
 function createResolvedConfig(config, settings, advanced = DEFAULT_PROVIDER_ADVANCED_SETTINGS) {
@@ -6714,6 +8280,11 @@ function toConsoleSettings(settings) {
       clearApiKey: false,
       customHeaders: provider.customHeaders.map(
         (header) => toConsoleHeader(header)
+      ),
+      sources: maskSources(
+        provider.sources ?? [],
+        previewSecret,
+        toConsoleHeader
       )
     }))
   };
@@ -6722,10 +8293,158 @@ __name(toConsoleSettings, "toConsoleSettings");
 function normalizeSettings(input, previous) {
   const value = isRecord2(input) ? input : {};
   const legacyAdvanced = normalizeProviderAdvanced(value);
+  if (Number(value.schemaVersion) > 2)
+    throw new Error("配置版本高于当前插件，请升级插件");
+  let providers = arrayOf2(value.providers).map(
+    (entry) => normalizeProvider(entry, previous, legacyAdvanced)
+  );
+  if (value.schemaVersion !== 2 && providers.every((entry) => !entry.sources)) {
+    const groups = resolveRuntimeProviders(providers);
+    const consumed = /* @__PURE__ */ new Set();
+    const migrated = [];
+    for (const group of groups) {
+      const first = providers[group.entries[0].configIndex];
+      const sources = [
+        {
+          id: (0, import_crypto6.randomUUID)(),
+          name: "默认连接",
+          provider: first.provider,
+          apiEndpoint: first.apiEndpoint,
+          enabled: true,
+          pullModels: first.pullModels,
+          priority: 0,
+          weight: 1,
+          settings: {},
+          credentials: group.entries.map((entry, index) => {
+            consumed.add(entry.configIndex);
+            return {
+              id: (0, import_crypto6.randomUUID)(),
+              name: `Key ${index + 1}`,
+              apiKey: entry.apiKey,
+              enabled: true,
+              generation: 1
+            };
+          })
+        }
+      ];
+      if (group.adapter === "dify") {
+        const names = /* @__PURE__ */ new Map();
+        sources.splice(
+          0,
+          sources.length,
+          ...group.entries.map((entry) => {
+            const base = entry.difyModelName?.trim() || entry.providerName || entry.platform;
+            const n = names.get(base) ?? 0;
+            names.set(base, n + 1);
+            return {
+              id: (0, import_crypto6.randomUUID)(),
+              name: entry.providerName,
+              provider: entry.provider,
+              apiEndpoint: entry.apiEndpoint,
+              enabled: true,
+              pullModels: true,
+              priority: 0,
+              weight: 1,
+              settings: {
+                ...normalizeProviderAdvanced(entry),
+                ...normalizeProviderSpecific(
+                  entry,
+                  void 0,
+                  "dify"
+                ),
+                difyModelName: n === 0 ? base : `${base}-${n + 1}`
+              },
+              credentials: [
+                {
+                  id: (0, import_crypto6.randomUUID)(),
+                  name: "Key 1",
+                  apiKey: entry.apiKey,
+                  enabled: true,
+                  generation: 1
+                }
+              ]
+            };
+          })
+        );
+      }
+      migrated.push({ ...first, platform: group.platform, sources });
+    }
+    providers.forEach((entry, index) => {
+      if (!consumed.has(index)) migrated.push(entry);
+    });
+    providers = migrated;
+  }
+  const platforms = /* @__PURE__ */ new Set();
+  const ids = /* @__PURE__ */ new Set();
+  providers = providers.map((entry) => {
+    if (platforms.has(entry.platform)) {
+      if (value.schemaVersion === 2)
+        throw new Error(`重复平台入口：${entry.platform}`);
+      const base = entry.platform;
+      let n = 2;
+      while (platforms.has(entry.platform))
+        entry.platform = `${base}-${n++}`;
+    }
+    platforms.add(entry.platform);
+    const old = previous?.providers.find((item) => item.id === entry.id);
+    const rawSources = entry.sources;
+    entry.sources = normalizeSources(
+      entry,
+      old,
+      previous,
+      ids,
+      (input2, prior) => {
+        const specific = normalizeProviderSpecific(
+          input2,
+          prior,
+          String(input2.provider ?? entry.provider)
+        );
+        const full = {
+          ...normalizeProviderAdvanced(
+            input2,
+            previous ? {
+              ...prior,
+              customHeaders: prior?.customHeaders ?? entry.customHeaders
+            } : void 0
+          ),
+          ...specific
+        };
+        const keys = input2.provider !== entry.provider ? [...Object.keys(specific), ...Object.keys(input2)] : Object.keys(input2);
+        return Object.fromEntries(
+          [...new Set(keys)].filter((key) => key in full).map((key) => [key, full[key]])
+        );
+      }
+    );
+    entry.routes = normalizeRoutes(
+      entry.routes?.map((route) => ({
+        ...route,
+        candidates: route.candidates.map((candidate) => {
+          const index = rawSources?.findIndex(
+            (source) => source.id === candidate.sourceId
+          ) ?? -1;
+          if (index < 0) return candidate;
+          return {
+            ...candidate,
+            sourceId: entry.sources[index].id,
+            credentialIds: candidate.credentialIds?.map((id) => {
+              const ci = rawSources[index].credentials.findIndex(
+                (c) => c.id === id
+              );
+              return ci < 0 ? id : entry.sources[index].credentials[ci].id;
+            })
+          };
+        })
+      })),
+      entry.sources
+    );
+    entry.apiKey = entry.sources[0]?.credentials[0]?.apiKey ?? "";
+    entry.apiEndpoint = entry.sources[0]?.apiEndpoint ?? entry.apiEndpoint;
+    return entry;
+  });
   return {
-    providers: arrayOf2(value.providers).map(
-      (entry) => normalizeProvider(entry, previous, legacyAdvanced)
-    ),
+    schemaVersion: 2,
+    revision: Math.max(0, Number(value.revision) || 0),
+    providers,
     additionalModels: arrayOf2(value.additionalModels).map(
       normalizeAdditionalModel
     ),
@@ -6784,10 +8503,7 @@ function cloneSettings(settings) {
 }
 __name(cloneSettings, "cloneSettings");
 function cloneProvider(provider) {
-  return {
-    ...provider,
-    customHeaders: provider.customHeaders.map((item) => ({ ...item }))
-  };
+  return structuredClone(provider);
 }
 __name(cloneProvider, "cloneProvider");
 function normalizeProvider(input, previous, legacyAdvanced = DEFAULT_PROVIDER_ADVANCED_SETTINGS) {
@@ -6797,7 +8513,7 @@ function normalizeProvider(input, previous, legacyAdvanced = DEFAULT_PROVIDER_AD
     stringOf(value.platform),
     preset.defaultPlatform
   );
-  const previousEntry = findPreviousProvider(previous, preset.id, platform);
+  const previousEntry = typeof value.id === "string" ? previous?.providers.find((entry) => entry.id === value.id) : previous?.schemaVersion === 2 ? void 0 : findPreviousProvider(previous, preset.id, platform);
   const consoleValue = value;
   const nextKey = stringOf(value.apiKey).trim();
   const providerAdvanced = normalizeProviderAdvanced(
@@ -6813,6 +8529,9 @@ function normalizeProvider(input, previous, legacyAdvanced = DEFAULT_PROVIDER_AD
   return {
     ...providerAdvanced,
     ...normalizeProviderSpecific(value, previousEntry, preset.id),
+    id: previousEntry?.id ?? (previous ? (0, import_crypto6.randomUUID)() : stringOf(value.id).trim() || (0, import_crypto6.randomUUID)()),
+    sources: Array.isArray(value.sources) ? value.sources : void 0,
+    routes: Array.isArray(value.routes) ? value.routes : [],
     provider: preset.id,
     name: stringOf(value.name).trim() || void 0,
     platform,
@@ -6965,14 +8684,14 @@ function normalizeProviderSpecific(input, previous, provider) {
 __name(normalizeProviderSpecific, "normalizeProviderSpecific");
 function normalizeAdditionalModel(input) {
   const value = isRecord2(input) ? input : {};
-  const capabilities = new Set(Object.values(import_types11.ModelCapabilities));
+  const capabilities = new Set(Object.values(import_types13.ModelCapabilities));
   return {
     target: stringOf(value.target, "*"),
     model: stringOf(value.model).trim(),
     modelType: stringOf(value.modelType, "LLM 大语言模型"),
     modelCapabilities: stringArrayOf(value.modelCapabilities, [
-      import_types11.ModelCapabilities.TextInput,
-      import_types11.ModelCapabilities.ToolCall
+      import_types13.ModelCapabilities.TextInput,
+      import_types13.ModelCapabilities.ToolCall
     ]).filter(
       (item) => capabilities.has(item)
     ),
@@ -6992,12 +8711,13 @@ function normalizeHeader(input, previous) {
   const value = isRecord2(input) ? input : {};
   const target = stringOf(value.target, "*");
   const name2 = stringOf(value.name).trim();
-  const previousEntry = previous?.find(
+  const previousEntry = typeof value.id === "string" ? previous?.find((item) => item.id === value.id) : previous?.some((item) => item.id) ? void 0 : previous?.find(
     (item) => normalizeId(item.target, "*") === normalizeId(target, "*") && item.name.toLowerCase() === name2.toLowerCase()
   );
   const consoleValue = value;
   const nextValue = stringOf(value.value);
   return {
+    id: previousEntry?.id ?? (previous ? (0, import_crypto6.randomUUID)() : stringOf(value.id) || (0, import_crypto6.randomUUID)()),
     target,
     name: name2,
     value: consoleValue.clearValue === true ? "" : nextValue || previousEntry?.value || ""
@@ -7124,9 +8844,9 @@ function stringOf(value, fallback = "") {
 }
 __name(stringOf, "stringOf");
 function clampNumber(value, fallback, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.min(max, Math.max(min, number));
+  const number2 = Number(value);
+  if (!Number.isFinite(number2)) return fallback;
+  return Math.min(max, Math.max(min, number2));
 }
 __name(clampNumber, "clampNumber");
 function isRecord2(value) {
@@ -7169,12 +8889,22 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       const runtime = runtimeByConfigIndex.get(index);
       const platform = runtime?.platform ?? this._platformOf(entry);
       const endpoint = entry.apiEndpoint || preset.defaultEndpoint;
-      const readyForLoad = entry.enabled !== false && endpoint.length > 0 && (entry.apiKey.length > 0 || preset.allowEmptyApiKey === true);
-      const error = this._runtime.errors.get(platform);
+      const readyForLoad = entry.enabled !== false && endpoint.length > 0 && (entry.sources ? entry.sources.some(
+        (source) => source.enabled && source.credentials.some(
+          (c) => c.enabled && (c.apiKey || getProviderPreset(source.provider).allowEmptyApiKey)
+        )
+      ) : entry.apiKey.length > 0 || preset.allowEmptyApiKey === true);
+      const fatalError = this._runtime.errors.get(platform);
       const loaded = this._runtime.clients.has(platform);
+      const connections = this._runtime.clients.get(platform)?.connectionStatus() ?? [];
+      const available = connections.filter(
+        (c) => c.state === "ready" || c.state === "stale"
+      ).length;
+      const degraded = connections.some((c) => c.state !== "ready");
+      const error = fatalError ?? connections.find((c) => c.error)?.error;
       const models2 = this.ctx.chatluna.platform.listPlatformModels(
         platform,
-        import_types12.ModelType.all
+        import_types14.ModelType.all
       ).value;
       return {
         id: preset.id,
@@ -7186,10 +8916,11 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         enabled: entry.enabled !== false,
         configured: readyForLoad,
         pullModels: entry.pullModels === true,
-        status: entry.enabled === false ? "disabled" : error ? "error" : loaded ? "loaded" : readyForLoad ? "configured" : "missing-key",
+        status: entry.enabled === false ? "disabled" : fatalError ? "error" : loaded ? degraded ? available ? "partial" : "error" : "loaded" : readyForLoad ? "configured" : "missing-key",
         modelCount: models2.length,
         modelsUpdatedAt: this._runtime.clients.get(platform)?.modelsUpdatedAt,
-        error
+        error,
+        connections
       };
     });
     const models = this._runtime.providers.flatMap(
@@ -7217,7 +8948,9 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       presets,
       totals: {
         configured: providers.filter((item) => item.configured).length,
-        loaded: providers.filter((item) => item.status === "loaded").length,
+        loaded: providers.filter(
+          (item) => item.status === "loaded" || item.status === "partial"
+        ).length,
         models: models.length,
         presets: presets.length
       },
@@ -7229,7 +8962,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     await this.refresh();
     return result;
   }
-  async refreshProvider(platform) {
+  async refreshProvider(platform, sourceId) {
     try {
       await this._options.refreshMetadata();
       this._runtime.errors.delete("__metadata__");
@@ -7242,12 +8975,26 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     for (const [name2, client] of targets) {
       if (!client) continue;
       try {
-        const refreshed = await client.reloadModels();
+        const refreshed = sourceId ? await client.refreshSource(sourceId) : await client.reloadModels();
         this.ctx.chatluna.platform.unregisterClient(name2);
         client.registerSelf();
         await this.ctx.chatluna.platform.createClient(name2);
         this._runtime.errors.delete(name2);
         models += refreshed.length;
+        for (const key of this._runtime.errors.keys())
+          if (key.startsWith(`${name2}/`))
+            this._runtime.errors.delete(key);
+        for (const connection of client.connectionStatus?.() ?? []) {
+          if (connection.error)
+            this._runtime.errors.set(
+              `${name2}/${connection.sourceId}/${connection.credentialId}`,
+              connection.error
+            );
+          else
+            this._runtime.errors.delete(
+              `${name2}/${connection.sourceId}/${connection.credentialId}`
+            );
+        }
       } catch (error) {
         this._runtime.errors.set(name2, errorMessage(error));
         logger.warn(error);
@@ -7273,7 +9020,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
       runtime.platform,
-      import_types12.ModelType.all
+      import_types14.ModelType.all
     ).value;
     const additional = settings.additionalModels.filter(
       (item) => targetMatches(item.target, runtime.platform, runtime.provider.id)
@@ -7285,12 +9032,13 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         provider: runtime.provider.name,
         providerId: runtime.provider.id,
         name: model.name,
-        type: import_types12.ModelType[model.type],
+        type: import_types14.ModelType[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
         source: custom ? "custom" : "api",
         reasoningVariantOf: model.reasoningVariantOf,
-        lastUsedAt: this._runtime.clients.get(runtime.platform)?.lastUsedAt(model.name)
+        lastUsedAt: this._runtime.clients.get(runtime.platform)?.lastUsedAt(model.name),
+        candidates: this._runtime.clients.get(runtime.platform)?.modelCandidates(model.name)
       };
     });
   }
@@ -7305,6 +9053,10 @@ function apply(ctx, config) {
   const settingsStore = new ModelHubSettingsStore(
     ctx,
     koishiConfig.settingsPath
+  );
+  const connectionCatalog = new ConnectionCatalogStore(
+    `${settingsStore.path}.catalog.json`,
+    () => runtime.errors.delete("__catalog__")
   );
   const metadataStore = new ModelMetadataStore(ctx, {
     url: koishiConfig.metadataUrl,
@@ -7340,7 +9092,7 @@ function apply(ctx, config) {
   };
   let settings = normalizeSettings({});
   const reloadRuntime = /* @__PURE__ */ __name(async () => {
-    unregisterRuntime(ctx, runtime);
+    const previousPlatforms = new Set(runtime.plugins.keys());
     runtime.providers = resolveRuntimeProviders(settings.providers);
     for (const provider of runtime.providers) {
       const providerConfig = createResolvedConfig(
@@ -7348,9 +9100,27 @@ function apply(ctx, config) {
         settings,
         provider.entries[0]
       );
+      const existing = runtime.clients.get(provider.platform);
+      if (existing && runtime.plugins.has(provider.platform)) {
+        previousPlatforms.delete(provider.platform);
+        try {
+          existing.prepareUpdate(providerConfig, provider)();
+          await existing.reloadModels();
+          ctx.chatluna.platform.unregisterClient(provider.platform);
+          existing.registerSelf();
+          await ctx.chatluna.platform.createClient(provider.platform);
+          runtime.errors.delete(provider.platform);
+        } catch {
+          runtime.errors.set(
+            provider.platform,
+            "配置已保存，但模型目录更新失败，请刷新此平台"
+          );
+        }
+        continue;
+      }
       const plugin = new import_chat.ChatLunaPlugin(ctx, providerConfig, provider.platform);
       plugin.parseConfig(
-        () => provider.entries.map((entry) => ({
+        () => provider.entries.slice(0, 1).map((entry) => ({
           ...entry,
           apiKey: entry.apiKey,
           apiEndpoint: entry.apiEndpoint,
@@ -7361,7 +9131,7 @@ function apply(ctx, config) {
           pullModels: entry.pullModels,
           chatLimit: entry.chatTimeLimit,
           timeout: entry.timeout,
-          maxRetries: entry.maxRetries,
+          maxRetries: 0,
           concurrentMaxSize: entry.chatConcurrentMaxSize,
           difyApps: provider.provider.adapter === "dify" ? createDifyApps(provider.entries) : void 0
         }))
@@ -7372,7 +9142,8 @@ function apply(ctx, config) {
           providerConfig,
           plugin,
           provider,
-          metadataStore
+          metadataStore,
+          connectionCatalog
         );
         runtime.clients.set(provider.platform, client);
         return client;
@@ -7390,13 +9161,37 @@ function apply(ctx, config) {
         logger.warn(error);
       }
     }
+    for (const platform of previousPlatforms) {
+      await runtime.clients.get(platform)?.shutdown();
+      ctx.chatluna.uninstallPlugin(platform);
+      ctx.chatluna.platform.unregisterClient(platform);
+      runtime.clients.delete(platform);
+      runtime.plugins.delete(platform);
+      runtime.errors.delete(platform);
+      for (const key of runtime.errors.keys())
+        if (key.startsWith(`${platform}/`)) runtime.errors.delete(key);
+    }
     runtime.revision = Date.now();
+    for (const [platform, client] of runtime.clients)
+      for (const connection of client.connectionStatus()) {
+        const key = `${platform}/${connection.sourceId}/${connection.credentialId}`;
+        if (connection.error) runtime.errors.set(key, connection.error);
+        else runtime.errors.delete(key);
+      }
     return {
       success: runtime.errors.size === 0,
       errors: Object.fromEntries(runtime.errors)
     };
   }, "reloadRuntime");
   ctx.on("ready", async () => {
+    try {
+      await connectionCatalog.load();
+    } catch {
+      runtime.errors.set(
+        "__catalog__",
+        "连接模型缓存读取失败，等待重新刷新"
+      );
+    }
     try {
       await metadataStore.start();
     } catch (error) {
@@ -7413,6 +9208,7 @@ function apply(ctx, config) {
     await ctx.get("console.services.chatluna_model_hub")?.refresh();
   });
   if (!koishiConfig.webui) return;
+  let saveQueue = Promise.resolve();
   ctx.inject(["console"], (ctx2) => {
     ctx2.plugin(ModelHubConsoleService, {
       config: koishiConfig,
@@ -7420,11 +9216,41 @@ function apply(ctx, config) {
       runtime,
       getSettings: /* @__PURE__ */ __name(() => settings, "getSettings"),
       refreshMetadata: /* @__PURE__ */ __name(() => metadataStore.refresh(), "refreshMetadata"),
-      saveSettings: /* @__PURE__ */ __name(async (next) => {
-        settings = normalizeSettings(next, settings);
-        await settingsStore.save(settings);
-        runtime.errors.delete("__settings__");
-        return await reloadRuntime();
+      saveSettings: /* @__PURE__ */ __name((next) => {
+        const task = saveQueue.then(async () => {
+          if (next.revision !== settings.revision)
+            throw new Error(
+              "配置已被其他页面修改，请重新载入后保存"
+            );
+          const normalized = normalizeSettings(next, settings);
+          normalized.revision = (settings.revision ?? 0) + 1;
+          const providers = resolveRuntimeProviders(
+            normalized.providers
+          );
+          const activations = providers.flatMap((provider) => {
+            const client = runtime.clients.get(provider.platform);
+            return client ? [
+              client.prepareUpdate(
+                createResolvedConfig(
+                  koishiConfig,
+                  normalized,
+                  provider.entries[0]
+                ),
+                provider
+              )
+            ] : [];
+          });
+          await settingsStore.save(normalized);
+          settings = normalized;
+          for (const activate of activations) activate();
+          for (const key of runtime.errors.keys())
+            if (!key.startsWith("__")) runtime.errors.delete(key);
+          runtime.errors.delete("__settings__");
+          return await reloadRuntime();
+        });
+        saveQueue = task.catch(() => {
+        });
+        return task;
       }, "saveSettings")
     });
     ctx2.console.addListener(
@@ -7438,8 +9264,9 @@ function apply(ctx, config) {
     );
     ctx2.console.addListener(
       "chatluna-model-hub/refresh",
-      async (platform) => ctx2.console.services.chatluna_model_hub.refreshProvider(
-        platform
+      async (platform, sourceId) => ctx2.console.services.chatluna_model_hub.refreshProvider(
+        platform,
+        sourceId
       ),
       { authority: 1 }
     );
@@ -7452,8 +9279,8 @@ function apply(ctx, config) {
       { authority: 4 }
     );
     ctx2.console.addEntry({
-      dev: (0, import_path4.resolve)(__dirname, "../client/index.ts"),
-      prod: (0, import_path4.resolve)(__dirname, "../dist")
+      dev: (0, import_path5.resolve)(__dirname, "../client/index.ts"),
+      prod: (0, import_path5.resolve)(__dirname, "../dist")
     });
   });
 }
@@ -7501,29 +9328,6 @@ function normalizeKoishiConfig(config) {
   };
 }
 __name(normalizeKoishiConfig, "normalizeKoishiConfig");
-function unregisterRuntime(ctx, runtime) {
-  const platforms = /* @__PURE__ */ new Set([
-    ...runtime.plugins.keys(),
-    ...runtime.clients.keys(),
-    ...runtime.providers.map((provider) => provider.platform)
-  ]);
-  for (const platform of platforms) {
-    try {
-      ctx.chatluna.uninstallPlugin(platform);
-      ctx.chatluna.platform.unregisterClient(platform);
-    } catch (error) {
-      logger.warn(error);
-    }
-  }
-  runtime.providers = [];
-  runtime.clients.clear();
-  runtime.plugins.clear();
-  for (const key of runtime.errors.keys()) {
-    if (key !== "__metadata__" && key !== "__settings__")
-      runtime.errors.delete(key);
-  }
-}
-__name(unregisterRuntime, "unregisterRuntime");
 function createDifyApps(entries) {
   const seen = /* @__PURE__ */ new Map();
   return Object.fromEntries(

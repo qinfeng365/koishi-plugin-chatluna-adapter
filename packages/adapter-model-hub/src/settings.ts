@@ -1,4 +1,12 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import {
+    copyFile,
+    mkdir,
+    readFile,
+    rename,
+    unlink,
+    writeFile
+} from 'fs/promises'
+import { randomUUID } from 'crypto'
 import { dirname, isAbsolute, resolve } from 'path'
 import type { Context } from 'koishi'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
@@ -7,6 +15,7 @@ import {
     getProviderPreset,
     normalizeId,
     normalizePlatformName,
+    resolveRuntimeProviders,
     targetMatches
 } from './providers'
 import type {
@@ -25,6 +34,11 @@ import type {
     ProviderAdvancedSettings,
     ProviderEntry
 } from './types'
+import {
+    maskSources,
+    normalizeSources,
+    normalizeRoutes
+} from './source-settings'
 
 export const DEFAULT_SETTINGS_PATH = 'data/chatluna-model-hub/config.json'
 
@@ -63,9 +77,12 @@ export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
 
 export class ModelHubSettingsStore {
     readonly path: string
+    readonly legacyPath: string
 
     constructor(ctx: Context, settingsPath: string | undefined) {
-        this.path = resolveSettingsPath(ctx, settingsPath)
+        this.legacyPath = resolveSettingsPath(ctx, settingsPath)
+        // An older binary must not overwrite the only copy of the new schema.
+        this.path = `${this.legacyPath}.v2`
     }
 
     async load(legacy?: unknown): Promise<ModelHubSettings> {
@@ -78,6 +95,22 @@ export class ModelHubSettingsStore {
             }
         }
 
+        try {
+            const raw = await readFile(this.legacyPath, 'utf8')
+            const settings = normalizeSettings(JSON.parse(raw))
+            await copyFile(
+                this.legacyPath,
+                `${this.legacyPath}.pre-v2.bak`,
+                1
+            ).catch((error) => {
+                if (error.code !== 'EEXIST') throw error
+            })
+            await this.save(settings)
+            return settings
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+
         const migrated = pickLegacySettings(legacy)
         const settings = normalizeSettings(migrated ?? {})
         await this.save(settings)
@@ -86,11 +119,17 @@ export class ModelHubSettingsStore {
 
     async save(settings: ModelHubSettings) {
         await mkdir(dirname(this.path), { recursive: true })
-        await writeFile(
-            this.path,
-            `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`,
-            'utf8'
-        )
+        const temp = `${this.path}.${randomUUID()}.tmp`
+        try {
+            await writeFile(
+                temp,
+                `${JSON.stringify(normalizeSettings(settings), null, 2)}\n`,
+                { encoding: 'utf8', mode: 0o600, flag: 'wx' }
+            )
+            await rename(temp, this.path)
+        } finally {
+            await unlink(temp).catch(() => {})
+        }
     }
 }
 
@@ -127,6 +166,11 @@ export function toConsoleSettings(
             clearApiKey: false,
             customHeaders: provider.customHeaders.map((header) =>
                 toConsoleHeader(header)
+            ),
+            sources: maskSources(
+                provider.sources ?? [],
+                previewSecret,
+                toConsoleHeader
             )
         }))
     }
@@ -138,11 +182,178 @@ export function normalizeSettings(
 ): ModelHubSettings {
     const value = isRecord(input) ? input : {}
     const legacyAdvanced = normalizeProviderAdvanced(value)
-
+    if (Number(value.schemaVersion) > 2)
+        throw new Error('配置版本高于当前插件，请升级插件')
+    let providers = arrayOf(value.providers).map((entry) =>
+        normalizeProvider(entry, previous, legacyAdvanced)
+    )
+    if (
+        value.schemaVersion !== 2 &&
+        providers.every((entry) => !entry.sources)
+    ) {
+        const groups = resolveRuntimeProviders(providers)
+        const consumed = new Set<number>()
+        const migrated: ProviderEntry[] = []
+        for (const group of groups) {
+            const first = providers[group.entries[0].configIndex!]
+            const sources: ProviderEntry['sources'] = [
+                {
+                    id: randomUUID(),
+                    name: '默认连接',
+                    provider: first.provider,
+                    apiEndpoint: first.apiEndpoint,
+                    enabled: true,
+                    pullModels: first.pullModels,
+                    priority: 0,
+                    weight: 1,
+                    settings: {},
+                    credentials: group.entries.map((entry, index) => {
+                        consumed.add(entry.configIndex!)
+                        return {
+                            id: randomUUID(),
+                            name: `Key ${index + 1}`,
+                            apiKey: entry.apiKey,
+                            enabled: true,
+                            generation: 1
+                        }
+                    })
+                }
+            ]
+            if (group.adapter === 'dify') {
+                const names = new Map<string, number>()
+                sources.splice(
+                    0,
+                    sources.length,
+                    ...group.entries.map((entry) => {
+                        const base =
+                            entry.difyModelName?.trim() ||
+                            entry.providerName ||
+                            entry.platform
+                        const n = names.get(base) ?? 0
+                        names.set(base, n + 1)
+                        return {
+                            id: randomUUID(),
+                            name: entry.providerName,
+                            provider: entry.provider,
+                            apiEndpoint: entry.apiEndpoint,
+                            enabled: true,
+                            pullModels: true,
+                            priority: 0,
+                            weight: 1,
+                            settings: {
+                                ...normalizeProviderAdvanced(entry),
+                                ...normalizeProviderSpecific(
+                                    entry as unknown as Record<string, unknown>,
+                                    undefined,
+                                    'dify'
+                                ),
+                                difyModelName:
+                                    n === 0 ? base : `${base}-${n + 1}`
+                            },
+                            credentials: [
+                                {
+                                    id: randomUUID(),
+                                    name: 'Key 1',
+                                    apiKey: entry.apiKey,
+                                    enabled: true,
+                                    generation: 1
+                                }
+                            ]
+                        }
+                    })
+                )
+            }
+            migrated.push({ ...first, platform: group.platform, sources })
+        }
+        providers.forEach((entry, index) => {
+            if (!consumed.has(index)) migrated.push(entry)
+        })
+        providers = migrated
+    }
+    const platforms = new Set<string>()
+    const ids = new Set<string>()
+    providers = providers.map((entry) => {
+        if (platforms.has(entry.platform)) {
+            if (value.schemaVersion === 2)
+                throw new Error(`重复平台入口：${entry.platform}`)
+            const base = entry.platform
+            let n = 2
+            while (platforms.has(entry.platform))
+                entry.platform = `${base}-${n++}`
+        }
+        platforms.add(entry.platform)
+        const old = previous?.providers.find((item) => item.id === entry.id)
+        const rawSources = entry.sources
+        entry.sources = normalizeSources(
+            entry,
+            old,
+            previous,
+            ids,
+            (input, prior) => {
+                const specific = normalizeProviderSpecific(
+                    input,
+                    prior as ProviderEntry,
+                    String(input.provider ?? entry.provider)
+                )
+                const full = {
+                    ...normalizeProviderAdvanced(
+                        input,
+                        previous
+                            ? ({
+                                  ...prior,
+                                  customHeaders:
+                                      prior?.customHeaders ??
+                                      entry.customHeaders
+                              } as ProviderEntry)
+                            : undefined
+                    ),
+                    ...specific
+                }
+                const keys =
+                    input.provider !== entry.provider
+                        ? [...Object.keys(specific), ...Object.keys(input)]
+                        : Object.keys(input)
+                return Object.fromEntries(
+                    [...new Set(keys)]
+                        .filter((key) => key in full)
+                        .map((key) => [key, full[key]])
+                )
+            }
+        )
+        entry.routes = normalizeRoutes(
+            entry.routes?.map((route) => ({
+                ...route,
+                candidates: route.candidates.map((candidate) => {
+                    const index =
+                        rawSources?.findIndex(
+                            (source) => source.id === candidate.sourceId
+                        ) ?? -1
+                    if (index < 0) return candidate
+                    return {
+                        ...candidate,
+                        sourceId: entry.sources[index].id,
+                        credentialIds: candidate.credentialIds?.map((id) => {
+                            const ci = rawSources[index].credentials.findIndex(
+                                (c) => c.id === id
+                            )
+                            return ci < 0
+                                ? id
+                                : entry.sources[index].credentials[ci].id
+                        })
+                    }
+                })
+            })),
+            entry.sources
+        )
+        // Retain legacy fields for API compatibility, with the primary connection as authority.
+        entry.apiKey = entry.sources[0]?.credentials[0]?.apiKey ?? ''
+        entry.apiEndpoint = entry.sources[0]?.apiEndpoint ?? entry.apiEndpoint
+        return entry
+    })
     return {
-        providers: arrayOf(value.providers).map((entry) =>
-            normalizeProvider(entry, previous, legacyAdvanced)
-        ),
+        schemaVersion: 2,
+        revision: Math.max(0, Number(value.revision) || 0),
+        providers,
         additionalModels: arrayOf(value.additionalModels).map(
             normalizeAdditionalModel
         ),
@@ -212,10 +423,7 @@ function cloneSettings(settings: ModelHubSettings): ModelHubSettings {
 }
 
 function cloneProvider(provider: ProviderEntry): ProviderEntry {
-    return {
-        ...provider,
-        customHeaders: provider.customHeaders.map((item) => ({ ...item }))
-    }
+    return structuredClone(provider)
 }
 
 function normalizeProvider(
@@ -229,7 +437,12 @@ function normalizeProvider(
         stringOf(value.platform),
         preset.defaultPlatform
     )
-    const previousEntry = findPreviousProvider(previous, preset.id, platform)
+    const previousEntry =
+        typeof value.id === 'string'
+            ? previous?.providers.find((entry) => entry.id === value.id)
+            : previous?.schemaVersion === 2
+              ? undefined
+              : findPreviousProvider(previous, preset.id, platform)
     const consoleValue = value as Partial<ConsoleProviderEntry>
     const nextKey = stringOf(value.apiKey).trim()
     const providerAdvanced = normalizeProviderAdvanced(
@@ -248,6 +461,17 @@ function normalizeProvider(
     return {
         ...providerAdvanced,
         ...normalizeProviderSpecific(value, previousEntry, preset.id),
+        id:
+            previousEntry?.id ??
+            (previous
+                ? randomUUID()
+                : stringOf(value.id).trim() || randomUUID()),
+        sources: Array.isArray(value.sources)
+            ? (value.sources as ProviderEntry['sources'])
+            : undefined,
+        routes: Array.isArray(value.routes)
+            ? (value.routes as ProviderEntry['routes'])
+            : [],
         provider: preset.id,
         name: stringOf(value.name).trim() || undefined,
         platform,
@@ -496,15 +720,24 @@ function normalizeHeader(
     const value = isRecord(input) ? input : {}
     const target = stringOf(value.target, '*')
     const name = stringOf(value.name).trim()
-    const previousEntry = previous?.find(
-        (item) =>
-            normalizeId(item.target, '*') === normalizeId(target, '*') &&
-            item.name.toLowerCase() === name.toLowerCase()
-    )
+    const previousEntry =
+        typeof value.id === 'string'
+            ? previous?.find((item) => item.id === value.id)
+            : previous?.some((item) => item.id)
+              ? undefined
+              : previous?.find(
+                    (item) =>
+                        normalizeId(item.target, '*') ===
+                            normalizeId(target, '*') &&
+                        item.name.toLowerCase() === name.toLowerCase()
+                )
     const consoleValue = value as Partial<ConsoleHeaderEntry>
     const nextValue = stringOf(value.value)
 
     return {
+        id:
+            previousEntry?.id ??
+            (previous ? randomUUID() : stringOf(value.id) || randomUUID()),
         target,
         name,
         value:

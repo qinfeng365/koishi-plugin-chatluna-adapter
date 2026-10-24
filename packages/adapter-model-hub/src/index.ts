@@ -14,6 +14,7 @@ import {
     targetMatches
 } from './providers'
 import { ModelMetadataStore } from './metadata'
+import { ConnectionCatalogStore } from './connection-catalog'
 import {
     DEFAULT_SETTINGS_PATH,
     ModelHubSettingsStore,
@@ -84,9 +85,29 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             const readyForLoad =
                 entry.enabled !== false &&
                 endpoint.length > 0 &&
-                (entry.apiKey.length > 0 || preset.allowEmptyApiKey === true)
-            const error = this._runtime.errors.get(platform)
+                (entry.sources
+                    ? entry.sources.some(
+                          (source) =>
+                              source.enabled &&
+                              source.credentials.some(
+                                  (c) =>
+                                      c.enabled &&
+                                      (c.apiKey ||
+                                          getProviderPreset(source.provider)
+                                              .allowEmptyApiKey)
+                              )
+                      )
+                    : entry.apiKey.length > 0 ||
+                      preset.allowEmptyApiKey === true)
+            const fatalError = this._runtime.errors.get(platform)
             const loaded = this._runtime.clients.has(platform)
+            const connections =
+                this._runtime.clients.get(platform)?.connectionStatus() ?? []
+            const available = connections.filter(
+                (c) => c.state === 'ready' || c.state === 'stale'
+            ).length
+            const degraded = connections.some((c) => c.state !== 'ready')
+            const error = fatalError ?? connections.find((c) => c.error)?.error
             const models = this.ctx.chatluna.platform.listPlatformModels(
                 platform,
                 ModelType.all
@@ -105,17 +126,22 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
                 status:
                     entry.enabled === false
                         ? 'disabled'
-                        : error
+                        : fatalError
                           ? 'error'
                           : loaded
-                            ? 'loaded'
+                            ? degraded
+                                ? available
+                                    ? 'partial'
+                                    : 'error'
+                                : 'loaded'
                             : readyForLoad
                               ? 'configured'
                               : 'missing-key',
                 modelCount: models.length,
                 modelsUpdatedAt:
                     this._runtime.clients.get(platform)?.modelsUpdatedAt,
-                error
+                error,
+                connections
             } satisfies ModelHubConsoleData['providers'][number]
         })
 
@@ -146,8 +172,10 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
             presets,
             totals: {
                 configured: providers.filter((item) => item.configured).length,
-                loaded: providers.filter((item) => item.status === 'loaded')
-                    .length,
+                loaded: providers.filter(
+                    (item) =>
+                        item.status === 'loaded' || item.status === 'partial'
+                ).length,
                 models: models.length,
                 presets: presets.length
             },
@@ -163,7 +191,10 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
         return result
     }
 
-    async refreshProvider(platform?: string): Promise<ModelHubActionResult> {
+    async refreshProvider(
+        platform?: string,
+        sourceId?: string
+    ): Promise<ModelHubActionResult> {
         // Refresh the catalog first, but keep offline model reload usable.
         try {
             await this._options.refreshMetadata()
@@ -180,12 +211,28 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
         for (const [name, client] of targets) {
             if (!client) continue
             try {
-                const refreshed = await client.reloadModels()
+                const refreshed = sourceId
+                    ? await client.refreshSource(sourceId)
+                    : await client.reloadModels()
                 this.ctx.chatluna.platform.unregisterClient(name)
                 client.registerSelf()
                 await this.ctx.chatluna.platform.createClient(name)
                 this._runtime.errors.delete(name)
                 models += refreshed.length
+                for (const key of this._runtime.errors.keys())
+                    if (key.startsWith(`${name}/`))
+                        this._runtime.errors.delete(key)
+                for (const connection of client.connectionStatus?.() ?? []) {
+                    if (connection.error)
+                        this._runtime.errors.set(
+                            `${name}/${connection.sourceId}/${connection.credentialId}`,
+                            connection.error
+                        )
+                    else
+                        this._runtime.errors.delete(
+                            `${name}/${connection.sourceId}/${connection.credentialId}`
+                        )
+                }
             } catch (error) {
                 this._runtime.errors.set(name, errorMessage(error))
                 logger.warn(error)
@@ -237,7 +284,10 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
                 ).reasoningVariantOf,
                 lastUsedAt: this._runtime.clients
                     .get(runtime.platform)
-                    ?.lastUsedAt(model.name)
+                    ?.lastUsedAt(model.name),
+                candidates: this._runtime.clients
+                    .get(runtime.platform)
+                    ?.modelCandidates(model.name)
             }
         })
     }
@@ -255,6 +305,10 @@ export function apply(ctx: Context, config: Config) {
     const settingsStore = new ModelHubSettingsStore(
         ctx,
         koishiConfig.settingsPath
+    )
+    const connectionCatalog = new ConnectionCatalogStore(
+        `${settingsStore.path}.catalog.json`,
+        () => runtime.errors.delete('__catalog__')
     )
     const metadataStore = new ModelMetadataStore(ctx, {
         url: koishiConfig.metadataUrl,
@@ -293,7 +347,8 @@ export function apply(ctx: Context, config: Config) {
     let settings = normalizeSettings({})
 
     const reloadRuntime = async (): Promise<ModelHubActionResult> => {
-        unregisterRuntime(ctx, runtime)
+        // Existing facades keep their identity. In-flight requests retain their captured state.
+        const previousPlatforms = new Set(runtime.plugins.keys())
         runtime.providers = resolveRuntimeProviders(settings.providers)
 
         for (const provider of runtime.providers) {
@@ -302,13 +357,31 @@ export function apply(ctx: Context, config: Config) {
                 settings,
                 provider.entries[0]
             )
+            const existing = runtime.clients.get(provider.platform)
+            if (existing && runtime.plugins.has(provider.platform)) {
+                previousPlatforms.delete(provider.platform)
+                try {
+                    existing.prepareUpdate(providerConfig, provider)()
+                    await existing.reloadModels()
+                    ctx.chatluna.platform.unregisterClient(provider.platform)
+                    existing.registerSelf()
+                    await ctx.chatluna.platform.createClient(provider.platform)
+                    runtime.errors.delete(provider.platform)
+                } catch {
+                    runtime.errors.set(
+                        provider.platform,
+                        '配置已保存，但模型目录更新失败，请刷新此平台'
+                    )
+                }
+                continue
+            }
             const plugin = new ChatLunaPlugin<
                 ModelHubClientConfig,
                 ModelHubResolvedConfig
             >(ctx, providerConfig, provider.platform)
 
             plugin.parseConfig(() =>
-                provider.entries.map((entry) => ({
+                provider.entries.slice(0, 1).map((entry) => ({
                     ...entry,
                     apiKey: entry.apiKey,
                     apiEndpoint: entry.apiEndpoint,
@@ -319,7 +392,7 @@ export function apply(ctx: Context, config: Config) {
                     pullModels: entry.pullModels,
                     chatLimit: entry.chatTimeLimit,
                     timeout: entry.timeout,
-                    maxRetries: entry.maxRetries,
+                    maxRetries: 0,
                     concurrentMaxSize: entry.chatConcurrentMaxSize,
                     difyApps:
                         provider.provider.adapter === 'dify'
@@ -334,7 +407,8 @@ export function apply(ctx: Context, config: Config) {
                     providerConfig,
                     plugin,
                     provider,
-                    metadataStore
+                    metadataStore,
+                    connectionCatalog
                 )
                 runtime.clients.set(provider.platform, client)
                 return client
@@ -354,7 +428,24 @@ export function apply(ctx: Context, config: Config) {
             }
         }
 
+        for (const platform of previousPlatforms) {
+            await runtime.clients.get(platform)?.shutdown()
+            ctx.chatluna.uninstallPlugin(platform)
+            ctx.chatluna.platform.unregisterClient(platform)
+            runtime.clients.delete(platform)
+            runtime.plugins.delete(platform)
+            runtime.errors.delete(platform)
+            for (const key of runtime.errors.keys())
+                if (key.startsWith(`${platform}/`)) runtime.errors.delete(key)
+        }
+
         runtime.revision = Date.now()
+        for (const [platform, client] of runtime.clients)
+            for (const connection of client.connectionStatus()) {
+                const key = `${platform}/${connection.sourceId}/${connection.credentialId}`
+                if (connection.error) runtime.errors.set(key, connection.error)
+                else runtime.errors.delete(key)
+            }
         return {
             success: runtime.errors.size === 0,
             errors: Object.fromEntries(runtime.errors)
@@ -362,6 +453,14 @@ export function apply(ctx: Context, config: Config) {
     }
 
     ctx.on('ready', async () => {
+        try {
+            await connectionCatalog.load()
+        } catch {
+            runtime.errors.set(
+                '__catalog__',
+                '连接模型缓存读取失败，等待重新刷新'
+            )
+        }
         try {
             await metadataStore.start()
         } catch (error) {
@@ -382,6 +481,7 @@ export function apply(ctx: Context, config: Config) {
 
     if (!koishiConfig.webui) return
 
+    let saveQueue: Promise<unknown> = Promise.resolve()
     ctx.inject(['console'], (ctx) => {
         ctx.plugin(ModelHubConsoleService, {
             config: koishiConfig,
@@ -389,11 +489,43 @@ export function apply(ctx: Context, config: Config) {
             runtime,
             getSettings: () => settings,
             refreshMetadata: () => metadataStore.refresh(),
-            saveSettings: async (next) => {
-                settings = normalizeSettings(next, settings)
-                await settingsStore.save(settings)
-                runtime.errors.delete('__settings__')
-                return await reloadRuntime()
+            saveSettings: (next) => {
+                const task = saveQueue.then(async () => {
+                    if (next.revision !== settings.revision)
+                        throw new Error(
+                            '配置已被其他页面修改，请重新载入后保存'
+                        )
+                    const normalized = normalizeSettings(next, settings)
+                    normalized.revision = (settings.revision ?? 0) + 1
+                    // Validate every platform and build all connection snapshots before committing.
+                    const providers = resolveRuntimeProviders(
+                        normalized.providers
+                    )
+                    const activations = providers.flatMap((provider) => {
+                        const client = runtime.clients.get(provider.platform)
+                        return client
+                            ? [
+                                  client.prepareUpdate(
+                                      createResolvedConfig(
+                                          koishiConfig,
+                                          normalized,
+                                          provider.entries[0]
+                                      ),
+                                      provider
+                                  )
+                              ]
+                            : []
+                    })
+                    await settingsStore.save(normalized)
+                    settings = normalized
+                    for (const activate of activations) activate()
+                    for (const key of runtime.errors.keys())
+                        if (!key.startsWith('__')) runtime.errors.delete(key)
+                    runtime.errors.delete('__settings__')
+                    return await reloadRuntime()
+                })
+                saveQueue = task.catch(() => {})
+                return task
             }
         })
 
@@ -410,9 +542,10 @@ export function apply(ctx: Context, config: Config) {
 
         ctx.console.addListener(
             'chatluna-model-hub/refresh',
-            async (platform?: string) =>
+            async (platform?: string, sourceId?: string) =>
                 ctx.console.services.chatluna_model_hub.refreshProvider(
-                    platform
+                    platform,
+                    sourceId
                 ),
             { authority: 1 }
         )
@@ -575,7 +708,8 @@ declare module '@koishijs/plugin-console' {
             settings: ModelHubConsoleSettings
         ) => Promise<ModelHubActionResult>
         'chatluna-model-hub/refresh': (
-            platform?: string
+            platform?: string,
+            sourceId?: string
         ) => Promise<ModelHubActionResult>
     }
 }
