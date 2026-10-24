@@ -136,13 +136,13 @@ client/
 
 ## 发布
 
-版本号：`1.2.3`
+版本号：`1.3.0`
 
 GitHub Actions 会在推送 tag 时发布：
 
 ```bash
-git tag adapter-model-hub-v1.2.3
-git push origin adapter-model-hub-v1.2.3
+git tag adapter-model-hub-v1.3.0
+git push origin adapter-model-hub-v1.3.0
 ```
 
 手动发布：

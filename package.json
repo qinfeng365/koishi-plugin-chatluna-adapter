@@ -1,6 +1,6 @@
 {
     "name": "@local/chatluna-adapter-workspace",
-    "version": "1.2.6",
+    "version": "1.3.0",
     "private": true,
     "type": "module",
     "packageManager": "yarn@4.14.1",
