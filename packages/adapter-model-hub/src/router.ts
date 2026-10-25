@@ -21,6 +21,11 @@ import {
     parseOpenAIModelNameWithReasoningEffort
 } from '@chatluna/v1-shared-adapter'
 import { ModelHubRequester } from './requester'
+import { modelNameForInference } from './model-identity'
+import {
+    applyManualModelCapabilities,
+    manualModelCapabilities
+} from './model-capability-overrides'
 import {
     capabilityFileHandling,
     protocolCapabilities,
@@ -61,6 +66,8 @@ interface Candidate {
     connection: Connection
     upstreamModel: string
     embeddingSpace?: string
+    capabilities?: Cap[]
+    reasoningVariantOf?: string
 }
 interface Route {
     info: ModelInfo
@@ -189,6 +196,7 @@ export class ModelHubRouter extends ModelHubRequester {
                     snapshot,
                     config.additionalModels,
                     config.blacklistModels,
+                    config.modelCapabilityOverrides,
                     config.providers.find(
                         (p) => p.platform === runtime.platform
                     )?.routes
@@ -376,6 +384,7 @@ export class ModelHubRouter extends ModelHubRequester {
         return (
             this.state.routes.get(model)?.candidates.map((c) => ({
                 sourceId: c.connection.config.sourceId,
+                sourceProviderId: c.connection.config.provider,
                 credentialId: c.connection.config.credentialId,
                 upstreamModel: c.upstreamModel,
                 sourceName: c.connection.config.providerName,
@@ -385,9 +394,15 @@ export class ModelHubRouter extends ModelHubRequester {
                     ?.credentials.find(
                         (key) => key.id === c.connection.config.credentialId
                     )?.name,
-                capabilities: c.connection.models.find(
-                    (m) => m.name === c.upstreamModel
-                )?.capabilities,
+                capabilities: c.capabilities,
+                capabilityOverrides: this.capabilityOverrides(
+                    this.state,
+                    c.connection,
+                    {
+                        name: c.upstreamModel,
+                        reasoningVariantOf: c.reasoningVariantOf
+                    }
+                ),
                 available:
                     !c.connection.authFailed &&
                     !c.connection.denied.has(c.upstreamModel) &&
@@ -568,7 +583,8 @@ export class ModelHubRouter extends ModelHubRequester {
                           capabilities: protocolCapabilities(
                               preset.adapter,
                               m.modelCapabilities,
-                              c.config.responseApi
+                              c.config.responseApi,
+                              m.model
                           )
                       }))
                     : []
@@ -583,7 +599,23 @@ export class ModelHubRouter extends ModelHubRequester {
             const byName = new Map(
                 [...c.models, ...additions].map((m) => [m.name, m])
             )
-            const models = [...byName.values()]
+            let models = [...byName.values()].map((model) =>
+                this.effectiveModel(state, c, model)
+            )
+            if (c.config.expandReasoningVariants)
+                models = (
+                    expandReasoningVariantsForProvider(
+                        preset,
+                        models,
+                        c.config
+                    ) as ModelInfo[]
+                ).map((model) => this.effectiveModel(state, c, model))
+            models = models.filter(
+                (model) =>
+                    !(model as typeof model & { reasoningVariantOf?: string })
+                        .reasoningVariantOf ||
+                    model.capabilityOverrides?.[Cap.Thinking] !== false
+            )
             directories.set(c, models)
             c.requester.setModelCapabilities(models)
         }
@@ -640,7 +672,7 @@ export class ModelHubRouter extends ModelHubRequester {
                             route.capabilities &&
                             route.contextSize
                         ) {
-                            info = {
+                            info = this.effectiveModel(state, connection, {
                                 name: candidate.upstreamModel,
                                 type: ModelType[route.modelType],
                                 maxTokens: route.contextSize,
@@ -649,9 +681,10 @@ export class ModelHubRouter extends ModelHubRequester {
                                         connection.config.provider
                                     ).adapter,
                                     route.capabilities,
-                                    connection.config.responseApi
+                                    connection.config.responseApi,
+                                    candidate.upstreamModel
                                 )
-                            }
+                            })
                             directories.get(connection).push(info)
                             connection.requester.setModelCapabilities(
                                 directories.get(connection)
@@ -735,9 +768,53 @@ export class ModelHubRouter extends ModelHubRequester {
         )
         out.set(name, {
             info: { ...first, name, type, capabilities, maxTokens },
-            candidates: valid.map((p) => p.candidate),
+            candidates: valid.map((p) => ({
+                ...p.candidate,
+                capabilities: p.info.capabilities,
+                reasoningVariantOf: (
+                    p.info as ModelInfo & { reasoningVariantOf?: string }
+                ).reasoningVariantOf
+            })),
             allowFallback: fallback
         })
+    }
+
+    private effectiveModel(
+        state: State,
+        connection: Connection,
+        model: ModelInfo
+    ) {
+        const enhanced = applyManualModelCapabilities(
+            model,
+            this.capabilityOverrides(state, connection, model)
+        )
+        return {
+            ...enhanced,
+            capabilities: protocolCapabilities(
+                getProviderPreset(connection.config.provider).adapter,
+                enhanced.capabilities,
+                connection.config.responseApi,
+                model.name
+            )
+        }
+    }
+
+    private capabilityOverrides(
+        state: State,
+        connection: Connection,
+        model: { name: string; reasoningVariantOf?: string }
+    ) {
+        return manualModelCapabilities(
+            state.config,
+            {
+                providerId: state.providerId,
+                platform: state.platform,
+                sourceId: connection.config.sourceId,
+                sourceProviderId: connection.config.provider,
+                credentialId: connection.config.credentialId
+            },
+            model
+        )
     }
 
     private limits(state: State, c: Connection): [string, number, number][] {
@@ -918,7 +995,10 @@ export class ModelHubRouter extends ModelHubRequester {
             (['openai', 'openai-chat'].includes(adapter) &&
                 (!!cfg.responseFileSearchVectorStoreIds?.length ||
                     cfg.responseApi ||
-                    (adapter === 'openai' && /^gpt-6/i.test(c.upstreamModel))))
+                    (adapter === 'openai' &&
+                        /^gpt-6/i.test(
+                            modelNameForInference(c.upstreamModel)
+                        ))))
         )
     }
 

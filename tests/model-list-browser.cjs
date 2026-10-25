@@ -63,7 +63,39 @@ async function main() {
                             contents:
                                 name === 'types'
                                     ? `export const ModelCapabilities={TextInput:'text_input',ToolCall:'tool_call',ImageInput:'image_input',Thinking:'thinking',ImageGeneration:'image_generation',AudioInput:'audio_input',VideoInput:'video_input',FileInput:'file_input'};`
-                                    : `import {reactive,ref,watch} from 'vue'; export const store=reactive(window.fixture);window.qaStore=store;window.qaCalls=[]; export async function send(event,...args){window.qaCalls.push({event,args});if(event.endsWith('/getData'))return store.chatluna_model_hub;if(event.endsWith('/saveSettings')){const next=JSON.parse(JSON.stringify(args[0]));next.revision=(next.revision||0)+1;for(const p of next.providers)for(const s of p.sources||[])for(const c of s.credentials){if(c.apiKey){c.apiKey='';c.hasApiKey=true;c.apiKeyPreview='已保存';c.secretAction='keep'}}store.chatluna_model_hub.settings=next;store.chatluna_model_hub.revision++;}return {success:true}}; export function useStorage(key,version,fallback){const k='koishi.console.'+key;const state=ref(JSON.parse(localStorage.getItem(k)||'null')||fallback());watch(state,v=>localStorage.setItem(k,JSON.stringify(v)),{deep:true});return state;}`,
+                                    : `import {reactive,ref,watch} from 'vue';
+export const store=reactive(window.fixture);window.qaStore=store;window.qaCalls=[];
+export async function send(event,...args){
+    window.qaCalls.push({event,args});
+    if(event.endsWith('/getData'))return store.chatluna_model_hub;
+    if(event.endsWith('/updateModelCapabilities')){
+        if(window.qaCapabilityError)throw new Error(window.qaCapabilityError);
+        if(window.qaCapabilityDelay)await new Promise(r=>setTimeout(r,window.qaCapabilityDelay));
+        const request=args[0],data=store.chatluna_model_hub;
+        if(request.revision!==data.settings.revision)throw new Error('配置已被修改');
+        for(const m of data.models){
+            if(m.platform!==request.platform||m.providerId!==request.providerId)continue;
+            for(const c of m.candidates||[]){
+                const update=request.updates.find(u=>u.sourceId===c.sourceId&&u.credentialId===c.credentialId&&u.upstreamModel===c.upstreamModel);
+                if(!update)continue;
+                c.capabilityOverrides={...update.overrides};
+                const caps=new Set(['text_input']);
+                for(const [cap,on] of Object.entries(update.overrides))on?caps.add(cap):caps.delete(cap);
+                c.capabilities=[...caps];
+            }
+            if(m.candidates?.length)m.capabilities=m.candidates[0].capabilities.filter(cap=>m.candidates.every(c=>c.capabilities.includes(cap)));
+        }
+        data.settings={...data.settings,revision:data.settings.revision+1};data.revision++;
+        return {success:true,revision:data.settings.revision};
+    }
+    if(event.endsWith('/saveSettings')){
+        const next=JSON.parse(JSON.stringify(args[0]));next.revision=(next.revision||0)+1;
+        for(const p of next.providers)for(const s of p.sources||[])for(const c of s.credentials){if(c.apiKey){c.apiKey='';c.hasApiKey=true;c.apiKeyPreview='已保存';c.secretAction='keep'}}
+        store.chatluna_model_hub.settings=next;store.chatluna_model_hub.revision++;
+    }
+    return {success:true};
+}
+export function useStorage(key,version,fallback){const k='koishi.console.'+key;const state=ref(JSON.parse(localStorage.getItem(k)||'null')||fallback());watch(state,v=>localStorage.setItem(k,JSON.stringify(v)),{deep:true});return state;}`,
                             resolveDir: root,
                             loader: 'js'
                         })
@@ -111,10 +143,24 @@ async function main() {
         maxTokens: 4096,
         ...extra
     })
+    const editableCandidates = ['key-one', 'key-two'].map(
+        (credentialId, i) => ({
+            sourceId: 'source-one',
+            sourceProviderId: 'alpha',
+            sourceName: 'Primary source',
+            credentialId,
+            credentialName: `Key ${i + 1}`,
+            upstreamModel: 'same',
+            capabilities: ['text_input'],
+            capabilityOverrides: {},
+            available: true
+        })
+    )
     const fixture = {
         chatluna_model_hub: {
             revision: 1,
             settings: {
+                revision: 0,
                 providers: [],
                 additionalModels: [],
                 blacklistModels: []
@@ -132,9 +178,10 @@ async function main() {
                 { id: 'beta', name: 'Beta primary', platform: 'hub-b' }
             ],
             models: [
-                model('same'),
+                model('same', { candidates: editableCandidates }),
                 model('same-high-thinking', {
                     reasoningVariantOf: 'same',
+                    candidates: editableCandidates,
                     capabilities: ['thinking', 'image_input'],
                     lastUsedAt: 1
                 }),
@@ -249,6 +296,144 @@ async function main() {
         assert.equal(await largeGroup.locator('.model-family').count(), 61)
         await page.reload()
         await page.getByRole('tab', { name: '模型', exact: true }).click()
+        // Exercise tri-state capability editing with the real dialog component.
+        const editCapabilities = page.getByRole('button', {
+            name: '编辑 hub-a/same 能力',
+            exact: true
+        })
+        const dialog = page.locator('.model-hub-capability-dialog:visible')
+        const updates = () =>
+            page.evaluate(() =>
+                window.qaCalls.filter((c) =>
+                    c.event.endsWith('/updateModelCapabilities')
+                )
+            )
+        await editCapabilities.click()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'auto'
+        )
+        await dialog
+            .getByLabel('图片输入能力', { exact: true })
+            .selectOption('on')
+        await dialog.getByRole('button', { name: '取消', exact: true }).click()
+        assert.equal((await updates()).length, 0)
+        await page.locator('.model-variant-count').click()
+        await page
+            .getByRole('button', {
+                name: '编辑 hub-a/same-high-thinking 能力',
+                exact: true
+            })
+            .click()
+        assert.equal(
+            await dialog.locator('.editor-identity strong').textContent(),
+            'same'
+        )
+        await dialog.getByRole('button', { name: '取消', exact: true }).click()
+        await editCapabilities.click()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'auto'
+        )
+        await dialog
+            .getByLabel('图片输入能力', { exact: true })
+            .selectOption('on')
+        await dialog
+            .getByLabel('工具调用能力', { exact: true })
+            .selectOption('off')
+        await dialog
+            .getByLabel('编辑能力的连接', { exact: true })
+            .selectOption('1')
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'auto'
+        )
+        await dialog
+            .getByLabel('图片输入能力', { exact: true })
+            .selectOption('off')
+        await page.evaluate(() => {
+            window.qaCapabilityError = 'fixture conflict'
+        })
+        await dialog
+            .getByRole('button', { name: '保存能力', exact: true })
+            .click()
+        await dialog
+            .getByRole('alert')
+            .filter({ hasText: 'fixture conflict' })
+            .waitFor()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'off'
+        )
+        await page.evaluate(() => {
+            window.qaCapabilityError = ''
+            window.qaCapabilityDelay = 250
+        })
+        await dialog
+            .getByRole('button', { name: '保存能力', exact: true })
+            .click()
+        assert.equal(
+            await dialog
+                .getByRole('button', { name: '取消', exact: true })
+                .isDisabled(),
+            true
+        )
+        await dialog.waitFor({ state: 'hidden' })
+        const saved = (await updates()).at(-1).args[0]
+        assert.equal(saved.revision, 0)
+        assert.equal(saved.providerId, 'alpha')
+        assert.equal(saved.platform, 'hub-a')
+        assert.equal(saved.model, 'same')
+        assert.deepEqual(saved.updates, [
+            {
+                sourceId: 'source-one',
+                sourceProviderId: 'alpha',
+                credentialId: 'key-one',
+                upstreamModel: 'same',
+                overrides: { image_input: true, tool_call: false }
+            },
+            {
+                sourceId: 'source-one',
+                sourceProviderId: 'alpha',
+                credentialId: 'key-two',
+                upstreamModel: 'same',
+                overrides: { image_input: false }
+            }
+        ])
+        await editCapabilities.click()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'on'
+        )
+        await dialog
+            .getByRole('button', { name: '当前连接恢复自动', exact: true })
+            .click()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .inputValue(),
+            'auto'
+        )
+        await dialog
+            .getByRole('button', { name: '保存能力', exact: true })
+            .click()
+        await dialog.waitFor({ state: 'hidden' })
+        assert.deepEqual(
+            (await updates()).at(-1).args[0].updates[0].overrides,
+            {}
+        )
+        await page.reload()
+        await page.getByRole('tab', { name: '模型', exact: true }).click()
         for (const width of [1280, 768, 375]) {
             await page.setViewportSize({ width, height: 900 })
             for (const theme of ['light', 'dark', 'black']) {
@@ -330,6 +515,53 @@ async function main() {
                     false,
                     `${width}/${theme} horizontal overflow`
                 )
+                await editCapabilities.click()
+                await dialog.waitFor({ state: 'visible' })
+                const layout = await dialog.evaluate((el) => ({
+                    width: el.scrollWidth,
+                    clientWidth: el.clientWidth,
+                    right: el.getBoundingClientRect().right,
+                    footerBottom: el
+                        .querySelector('.editor-actions')
+                        .getBoundingClientRect().bottom,
+                    surfaces: [
+                        el,
+                        ...el.querySelectorAll(
+                            'select, .el-button:not(.el-button--primary)'
+                        )
+                    ].map((e) => getComputedStyle(e).backgroundColor)
+                }))
+                assert.ok(
+                    layout.width <= layout.clientWidth + 1,
+                    `dialog ${width}/${theme} internal overflow`
+                )
+                assert.ok(
+                    layout.right <= width && layout.footerBottom <= 900,
+                    `dialog ${width}/${theme} unreachable actions`
+                )
+                if (theme !== 'light')
+                    for (const color of layout.surfaces) {
+                        const channels = color
+                            .match(/[\d.]+/g)
+                            .slice(0, 3)
+                            .map(Number)
+                        if (color.startsWith('color(srgb'))
+                            for (let i = 0; i < 3; i++) channels[i] *= 255
+                        assert.ok(
+                            Math.max(...channels) < 100,
+                            `dialog ${width}/${theme} bright surface: ${color}`
+                        )
+                    }
+                await page.screenshot({
+                    path: path.join(
+                        artifacts,
+                        `capabilities-${width}-${theme}.png`
+                    ),
+                    animations: 'disabled'
+                })
+                await dialog
+                    .getByRole('button', { name: '取消', exact: true })
+                    .click()
             }
         }
         // Exercise the actual source/key forms, with only the console transport mocked.
@@ -528,6 +760,26 @@ async function main() {
                 .isDisabled(),
             false
         )
+        await page.getByRole('tab', { name: '模型', exact: true }).click()
+        await editCapabilities.click()
+        await dialog
+            .getByRole('alert')
+            .filter({ hasText: '未保存的修改' })
+            .waitFor()
+        assert.equal(
+            await dialog
+                .getByLabel('图片输入能力', { exact: true })
+                .isDisabled(),
+            true
+        )
+        assert.equal(
+            await dialog
+                .getByRole('button', { name: '保存能力', exact: true })
+                .isDisabled(),
+            true
+        )
+        await dialog.getByRole('button', { name: '取消', exact: true }).click()
+        await page.getByRole('tab', { name: '服务商', exact: true }).click()
         for (const width of [1280, 768, 375]) {
             await page.setViewportSize({ width, height: 1000 })
             for (const theme of ['light', 'dark', 'black']) {
@@ -656,6 +908,10 @@ async function main() {
                     'favorite persistence',
                     'recent scope',
                     'capability filter',
+                    'tri-state capability editing, cancel and restore auto',
+                    'per-key capability payload and error-preserved drafts',
+                    'variant capability editing resolves to base and unsaved settings block writes',
+                    'themed capability dialogs and reachable mobile actions',
                     'large-list incremental rendering',
                     'dark surfaces and dropdown brightness',
                     'light/dark/black',

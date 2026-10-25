@@ -5,6 +5,8 @@ export declare class ModelMetadataStore {
     private options;
     private _models;
     private _aliases;
+    private _normalizedModels;
+    private _normalizedAliases;
     private _timer?;
     private _refreshing?;
     private _disposed;

@@ -193,6 +193,498 @@ const route = (allowFallback = false) => [
     }
 ]
 
+function capabilityOverride(overrides, extra = {}) {
+    return {
+        providerId: 'openai-compatible',
+        platform: 'hub-test',
+        sourceId: 'a',
+        sourceProviderId: 'openai-compatible',
+        credentialId: 'a-key-0',
+        model: 'shared',
+        overrides,
+        ...extra
+    }
+}
+
+test('manual capabilities persist false values, restore auto and reject invalid or transplanted scopes', async (t) => {
+    const initial = settings([source('a')])
+    initial.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: false, [Cap.Thinking]: true })
+    ]
+    const next = normalizeSettings(toConsoleSettings(initial), initial)
+    assert.deepEqual(
+        next.modelCapabilityOverrides,
+        initial.modelCapabilityOverrides
+    )
+    const snapshot = toConsoleSettings(next)
+    snapshot.modelCapabilityOverrides[0].overrides[Cap.ImageInput] = true
+    assert.equal(
+        next.modelCapabilityOverrides[0].overrides[Cap.ImageInput],
+        false
+    )
+    for (const overrides of [{ unknown: true }, { [Cap.ImageInput]: 'false' }])
+        assert.throws(
+            () =>
+                normalizeSettings({
+                    ...initial,
+                    modelCapabilityOverrides: [capabilityOverride(overrides)]
+                }),
+            /未知能力|布尔值/
+        )
+    assert.deepEqual(
+        normalizeSettings({
+            ...initial,
+            modelCapabilityOverrides: [capabilityOverride({})]
+        }).modelCapabilityOverrides,
+        []
+    )
+    for (const scope of [
+        { sourceId: 'other' },
+        { credentialId: 'other' },
+        { sourceProviderId: 'openai' },
+        { platform: 'other' }
+    ])
+        assert.deepEqual(
+            normalizeSettings({
+                ...initial,
+                modelCapabilityOverrides: [
+                    capabilityOverride({ [Cap.ImageInput]: true }, scope)
+                ]
+            }).modelCapabilityOverrides,
+            []
+        )
+    const dir = await mkdtemp(join(tmpdir(), 'hub-capabilities-'))
+    t.after(() => rm(dir, { recursive: true, force: true }))
+    const store = new ModelHubSettingsStore({ baseDir: dir }, 'config.json')
+    await store.save(next)
+    assert.deepEqual(
+        (await store.load()).modelCapabilityOverrides,
+        next.modelCapabilityOverrides
+    )
+    next.modelCapabilityOverrides = []
+    await store.save(next)
+    assert.deepEqual((await store.load()).modelCapabilityOverrides, [])
+})
+
+test('manual image overrides affect real requests without contaminating automatic catalogs', async () => {
+    let offline = false
+    const f = fixture([source('a')], [], (r) => {
+        if (r.url.endsWith('/models')) {
+            if (offline) throw new Error('offline fixture')
+            return Response.json({ data: [model('shared', false)] })
+        }
+    })
+    await f.router.refreshCatalog()
+    const input = [
+        new HumanMessage({
+            content: [
+                { type: 'text', text: 'describe' },
+                {
+                    type: 'image_url',
+                    image_url: { url: 'data:image/png;base64,aGVsbG8=' }
+                }
+            ]
+        })
+    ]
+    await assert.rejects(f.router.completion(chat({ input })), /image_input/)
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: true })
+    ]
+    f.update(next)
+    await f.router.completion(chat({ input }))
+    assert.equal(
+        f.requests.filter((r) => r.body).at(-1).body.messages[0].content[1]
+            .image_url.url,
+        'data:image/png;base64,aGVsbG8='
+    )
+    assert.equal(
+        f.router.modelCandidates('shared')[0].capabilityOverrides[
+            Cap.ImageInput
+        ],
+        true
+    )
+    assert.ok(
+        !f.router.state.connections[0].models[0].capabilities.includes(
+            Cap.ImageInput
+        )
+    )
+    offline = true
+    await f.router.refreshCatalog()
+    assert.ok(
+        f.router.state.routes
+            .get('shared')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    next.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: false })
+    ]
+    f.update(next)
+    await assert.rejects(f.router.completion(chat({ input })), /image_input/)
+    next.modelCapabilityOverrides = []
+    f.update(next)
+    assert.ok(
+        !f.router.state.routes
+            .get('shared')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+})
+
+test('manual capabilities are isolated by source and key and public routes retain intersection semantics', async () => {
+    const f = fixture([source('a', ['one', 'two']), source('b')], route(true))
+    await f.router.refreshCatalog()
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: false })
+    ]
+    f.update(next)
+    const candidates = f.router.modelCandidates('public')
+    assert.equal(candidates.length, 3)
+    assert.equal(
+        candidates
+            .find((c) => c.credentialId === 'a-key-0')
+            .capabilities.includes(Cap.ImageInput),
+        false
+    )
+    assert.equal(
+        candidates
+            .find((c) => c.credentialId === 'a-key-1')
+            .capabilities.includes(Cap.ImageInput),
+        true
+    )
+    assert.equal(
+        candidates
+            .find((c) => c.sourceId === 'b')
+            .capabilities.includes(Cap.ImageInput),
+        true
+    )
+    assert.ok(
+        !f.router.state.routes
+            .get('public')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    assert.equal(f.router.state.routes.get('public').allowFallback, true)
+    next.modelCapabilityOverrides = []
+    f.update(next)
+    assert.ok(
+        f.router.state.routes
+            .get('public')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+})
+
+test('thinking corrections hide generated variants and restore them from the original catalog', async () => {
+    const f = fixture(
+        [source('a', ['one'], { settings: { expandReasoningVariants: true } })],
+        [],
+        (r) =>
+            r.url.endsWith('/models')
+                ? Response.json({ data: [model('gpt-6-sol')] })
+                : undefined
+    )
+    await f.router.refreshCatalog()
+    assert.ok(f.router.state.routes.has('gpt-6-sol-high-thinking'))
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride(
+            { [Cap.Thinking]: false, [Cap.ImageInput]: false },
+            { model: 'gpt-6-sol' }
+        )
+    ]
+    f.update(next)
+    assert.ok(!f.router.state.routes.has('gpt-6-sol-high-thinking'))
+    assert.ok(
+        !f.router.state.routes
+            .get('gpt-6-sol')
+            .info.capabilities.includes(Cap.Thinking)
+    )
+    next.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: false }, { model: 'gpt-6-sol' })
+    ]
+    f.update(next)
+    assert.ok(f.router.state.routes.has('gpt-6-sol-high-thinking'))
+    assert.ok(
+        !f.router.state.routes
+            .get('gpt-6-sol-high-thinking')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    next.modelCapabilityOverrides = []
+    f.update(next)
+    assert.ok(
+        f.router.state.routes
+            .get('gpt-6-sol-high-thinking')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+})
+
+test('manual capabilities cannot bypass the automatically selected GPT-6 Responses protocol', async () => {
+    const f = fixture(
+        [source('a', ['one'], { provider: 'openai' })],
+        [],
+        (r) =>
+            r.url.endsWith('/models')
+                ? Response.json({ data: [model('gpt_6_sol')] })
+                : undefined
+    )
+    await f.router.refreshCatalog()
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride(
+            {
+                [Cap.AudioInput]: true,
+                [Cap.VideoInput]: true,
+                [Cap.ImageInput]: true
+            },
+            { sourceProviderId: 'openai', model: 'gpt_6_sol' }
+        )
+    ]
+    f.update(next)
+    const caps = f.router.state.routes.get('gpt_6_sol').info.capabilities
+    assert.ok(caps.includes(Cap.ImageInput))
+    assert.ok(!caps.includes(Cap.AudioInput))
+    assert.ok(!caps.includes(Cap.VideoInput))
+})
+
+test('newly enabled reasoning variants expose inherited corrections and honor exact variant overrides', async () => {
+    const f = fixture(
+        [source('a', ['one'], { settings: { expandReasoningVariants: true } })],
+        [],
+        (r) =>
+            r.url.endsWith('/models')
+                ? Response.json({
+                      data: [{ ...model('gpt-6-sol'), reasoning: false }]
+                  })
+                : undefined
+    )
+    await f.router.refreshCatalog()
+    assert.ok(!f.router.state.routes.has('gpt-6-sol-high-thinking'))
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride(
+            { [Cap.Thinking]: true, [Cap.ImageInput]: false },
+            { model: 'gpt-6-sol' }
+        ),
+        capabilityOverride(
+            { [Cap.ImageInput]: true },
+            { model: 'gpt-6-sol-high-thinking' }
+        ),
+        capabilityOverride(
+            { [Cap.Thinking]: false },
+            { model: 'gpt-6-sol-low-thinking' }
+        )
+    ]
+    f.update(next)
+    assert.ok(!f.router.state.routes.has('gpt-6-sol-low-thinking'))
+    assert.ok(
+        f.router.state.routes
+            .get('gpt-6-sol-high-thinking')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    assert.ok(
+        !f.router.state.routes
+            .get('gpt-6-sol-max-thinking')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    assert.deepEqual(
+        f.router.modelCandidates('gpt-6-sol-max-thinking')[0]
+            .capabilityOverrides,
+        { [Cap.Thinking]: true, [Cap.ImageInput]: false }
+    )
+})
+
+test('manual corrections survive restart independently of the last-good automatic catalog', async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hub-capabilities-cache-'))
+    t.after(() => rm(dir, { recursive: true, force: true }))
+    const path = join(dir, 'catalog.json')
+    const catalog = new ConnectionCatalogStore(path)
+    const f = fixture([source('a')], [], undefined, catalog)
+    await f.router.refreshCatalog()
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride({ [Cap.ImageInput]: false })
+    ]
+    f.update(next)
+    await f.router.refreshCatalog()
+    const store = new ModelHubSettingsStore({ baseDir: dir }, 'config.json')
+    await store.save(next)
+    const recovered = new ConnectionCatalogStore(path)
+    await recovered.load()
+    const offline = fixture(
+        [source('a')],
+        [],
+        () => {
+            throw new Error('offline')
+        },
+        recovered
+    )
+    offline.update(await store.load())
+    assert.ok(
+        !offline.router.state.routes
+            .get('shared')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+    assert.ok(
+        offline.router.state.connections[0].models
+            .find((m) => m.name === 'shared')
+            .capabilities.includes(Cap.ImageInput)
+    )
+    const automatic = await store.load()
+    automatic.modelCapabilityOverrides = []
+    offline.update(automatic)
+    assert.ok(
+        offline.router.state.routes
+            .get('shared')
+            .info.capabilities.includes(Cap.ImageInput)
+    )
+})
+
+test('manual-route-only candidates also receive capability corrections without rewriting the route contract', async () => {
+    const f = fixture(
+        [source('a')],
+        [
+            {
+                model: 'manual-only',
+                modelType: 'llm',
+                capabilities: [Cap.TextInput],
+                contextSize: 8192,
+                candidates: [
+                    { sourceId: 'a', upstreamModel: 'unknown-upstream' }
+                ]
+            }
+        ],
+        (r) =>
+            r.url.endsWith('/models') ? Response.json({ data: [] }) : undefined
+    )
+    await f.router.refreshCatalog()
+    const next = structuredClone(f.config)
+    next.modelCapabilityOverrides = [
+        capabilityOverride(
+            { [Cap.ImageInput]: true },
+            { model: 'unknown-upstream' }
+        )
+    ]
+    f.update(next)
+    assert.ok(
+        f.router
+            .modelCandidates('manual-only')[0]
+            .capabilities.includes(Cap.ImageInput)
+    )
+    assert.deepEqual(
+        f.router.state.routes.get('manual-only').info.capabilities,
+        [Cap.TextInput]
+    )
+    assert.deepEqual(next.providers[0].routes, f.config.providers[0].routes)
+})
+
+test('console capability edits validate revision and candidate scope and save only the narrow mutation', async () => {
+    const f = fixture([source('a', ['one', 'two']), source('b')], route(true))
+    await f.router.refreshCatalog()
+    let current = structuredClone(f.config)
+    let writes = 0
+    const service = Object.create(ModelHubConsoleService.prototype)
+    service._options = {
+        getSettings: () => current,
+        runtime: {
+            providers: resolveRuntimeProviders(current.providers),
+            clients: new Map([
+                [
+                    'hub-test',
+                    {
+                        modelCandidates: (name) =>
+                            f.router.modelCandidates(name),
+                        lastUsedAt() {}
+                    }
+                ]
+            ])
+        },
+        async saveSettings(payload) {
+            assert.equal(payload.revision, current.revision)
+            current = normalizeSettings(payload, current)
+            current.revision++
+            writes++
+            f.update(current)
+            return { success: true }
+        }
+    }
+    service.ctx = {
+        chatluna: {
+            platform: {
+                listPlatformModels: () => ({
+                    value: [...f.router.state.routes.values()].map(
+                        (r) => r.info
+                    )
+                })
+            }
+        }
+    }
+    service.refresh = async () => {}
+    const request = {
+        revision: current.revision,
+        providerId: 'openai-compatible',
+        platform: 'hub-test',
+        model: 'public',
+        updates: [
+            {
+                sourceId: 'a',
+                sourceProviderId: 'openai-compatible',
+                credentialId: 'a-key-0',
+                upstreamModel: 'shared',
+                overrides: { [Cap.ImageInput]: false }
+            }
+        ]
+    }
+    for (const invalid of [
+        { ...request, revision: -1 },
+        { ...request, providerId: 'openai' },
+        {
+            ...request,
+            updates: [{ ...request.updates[0], credentialId: 'b-key-0' }]
+        },
+        {
+            ...request,
+            updates: [{ ...request.updates[0], sourceProviderId: 'openai' }]
+        },
+        {
+            ...request,
+            updates: [{ ...request.updates[0], upstreamModel: 'other' }]
+        },
+        {
+            ...request,
+            updates: [{ ...request.updates[0], overrides: { invalid: true } }]
+        },
+        {
+            ...request,
+            updates: [
+                {
+                    ...request.updates[0],
+                    overrides: { [Cap.ImageInput]: 'false' }
+                }
+            ]
+        },
+        { ...request, updates: [request.updates[0], request.updates[0]] }
+    ])
+        await assert.rejects(service.updateModelCapabilities(invalid))
+    assert.equal(writes, 0)
+    const before = normalizeSettings(
+        toConsoleSettings(current),
+        current
+    ).providers
+    const result = await service.updateModelCapabilities(request)
+    assert.equal(result.revision, 1)
+    assert.deepEqual(current.providers, before)
+    assert.deepEqual(current.modelCapabilityOverrides, [
+        capabilityOverride({ [Cap.ImageInput]: false })
+    ])
+    await assert.rejects(service.updateModelCapabilities(request), /已被修改/)
+    await service.updateModelCapabilities({
+        ...request,
+        revision: 1,
+        updates: [{ ...request.updates[0], overrides: {} }]
+    })
+    assert.deepEqual(current.modelCapabilityOverrides, [])
+    assert.equal(writes, 2)
+})
+
 test('legacy same-signature keys migrate without losing references; differing endpoints retain old split platforms', () => {
     const base = {
         provider: 'openai-compatible',

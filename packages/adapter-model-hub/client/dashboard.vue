@@ -1506,6 +1506,11 @@
                                             toggleModelFavorite(family.primary)
                                         "
                                         @copy="copyModel(family.primary)"
+                                        @edit="
+                                            openModelCapabilities(
+                                                family.primary
+                                            )
+                                        "
                                     />
                                     <span class="model-variant-count"
                                         >{{ family.variants.length }} 个推理变体
@@ -1527,6 +1532,7 @@
                                         "
                                         @favorite="toggleModelFavorite(variant)"
                                         @copy="copyModel(variant)"
+                                        @edit="openModelCapabilities(variant)"
                                     />
                                 </div>
                             </details>
@@ -1538,6 +1544,7 @@
                                 "
                                 @favorite="toggleModelFavorite(family.primary)"
                                 @copy="copyModel(family.primary)"
+                                @edit="openModelCapabilities(family.primary)"
                             />
                         </div>
                     </div>
@@ -1576,6 +1583,14 @@
                     >
                 </div>
             </section>
+
+            <ModelCapabilityEditor
+                :model="editingModelCapabilities"
+                :revision="data?.settings?.revision ?? 0"
+                :blocked="dirty || saving"
+                @close="editingModelCapabilities = undefined"
+                @saved="onModelCapabilitiesSaved"
+            />
 
             <el-dialog
                 v-model="showAddDialog"
@@ -1732,6 +1747,7 @@
 import { computed, ref, watch } from 'vue'
 import { send, store, useStorage } from '@koishijs/client'
 import ModelRow from './model-row.vue'
+import ModelCapabilityEditor from './model-capability-editor.vue'
 import SourceEditor from './source-editor.vue'
 import RouteEditor from './route-editor.vue'
 import { withoutProviderSecrets } from './connection-form'
@@ -1804,6 +1820,7 @@ const newProvider = ref<ConsoleProviderEntry>()
 const providerSearch = ref('')
 const providerKind = ref<(typeof kindOptions)[number]['value']>('all')
 const modelKeyword = ref('')
+const editingModelCapabilities = ref<ModelHubConsoleModel>()
 const modelProvider = ref('')
 const modelType = ref('')
 const modelCapabilities = ref<string[]>([])
@@ -1984,6 +2001,27 @@ function toggleModelFavorite(model: ModelHubConsoleModel) {
             modelKey(model)
         )
     }
+}
+
+function openModelCapabilities(model: ModelHubConsoleModel) {
+    const base = model.reasoningVariantOf
+        ? data.value.models.find(
+              (item) =>
+                  item.platform === model.platform &&
+                  item.providerId === model.providerId &&
+                  item.name === model.reasoningVariantOf
+          )
+        : undefined
+    editingModelCapabilities.value = clone(base ?? model)
+}
+
+function onModelCapabilitiesSaved(result: ModelHubActionResult) {
+    showMessage(
+        result.success
+            ? '模型能力已保存并生效'
+            : '能力已保存，部分连接目录刷新失败，请检查状态',
+        result.success ? 'success' : 'danger'
+    )
 }
 
 function formatModelTime(time: number) {

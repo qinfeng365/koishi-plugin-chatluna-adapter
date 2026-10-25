@@ -1,4 +1,5 @@
 import type { OpenAICompatibleReasoningProtocol } from '../types'
+import { modelNameForInference } from '../model-identity'
 
 type ReasoningEffort =
     | 'none'
@@ -251,7 +252,7 @@ export function anthropicEffortForModel(model: string, effort: unknown) {
 export function nativeReasoningEfforts(
     model: string
 ): ReasoningEffort[] | undefined {
-    const lower = model.toLowerCase()
+    const lower = modelNameForInference(model)
     if (/^gpt-6-sol(?:-|$)/.test(lower))
         return ['none', 'low', 'medium', 'high', 'xhigh', 'max']
     if (lower.startsWith('gpt-6'))

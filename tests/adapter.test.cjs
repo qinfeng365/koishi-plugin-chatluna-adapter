@@ -33,7 +33,10 @@ const { normalizeSettings, createResolvedConfig, toConsoleSettings } =
 const { createGeminiRequest, createGeminiToolNameMapper, parseGeminiResponse } =
     load('adapters/gemini.ts')
 
-const image = { type: 'image_url', image_url: 'data:image/png;base64,aGVsbG8=' }
+const image = {
+    type: 'image_url',
+    image_url: 'data:image/png;base64,aGVsbG8='
+}
 const media = (type, mime) => ({
     type,
     [type]: { url: `data:${mime};base64,aGVsbG8=`, mimeType: mime }
@@ -194,6 +197,82 @@ test('explicit thinking=false disables reasoning-name inference and reasoning va
             [entry]
         ).length,
         1
+    )
+})
+
+test('model capability guesses tolerate separators and namespaces without erasing versions', () => {
+    for (const name of [
+        'deepseek-v4.1-flash',
+        'deepseek-v4-1-flash',
+        'DeepSeek V4.1 Flash',
+        'deepseek_v4_1_flash',
+        'DeepSeek.V4.1.Flash',
+        'deepseek-ai/DeepSeek-V4.1-Flash-1017',
+        'gpt_5.4',
+        'gpt.5.4',
+        'vendor/GPT 5.4'
+    ]) {
+        const caps = resolveCapabilities('openai-chat', { name })
+        assert(caps.includes(Cap.ImageInput), `${name}: image`)
+        assert(caps.includes(Cap.Thinking), `${name}: thinking`)
+    }
+    for (const name of [
+        'deepseek-v4-flash',
+        'deepseek_v4_flash',
+        'deepseek-v4.10-flash',
+        'deepseek-v41-flash',
+        'deepseek-v4.1-pro'
+    ]) {
+        assert(
+            !resolveCapabilities('openai-chat', { name }).includes(
+                Cap.ImageInput
+            ),
+            name
+        )
+    }
+    const [entry] = parseOpenAIModels({
+        data: [
+            {
+                id: 'deepseek_v4_1_flash',
+                supports_image_in: false,
+                supports_reasoning: false
+            }
+        ]
+    })
+    const caps = resolveCapabilities('openai-chat', entry)
+    assert(!caps.includes(Cap.ImageInput))
+    assert(!caps.includes(Cap.Thinking))
+})
+
+for (const streaming of [false, true]) {
+    test(`inferred DeepSeek alias retains original request ID and image (${streaming})`, async () => {
+        const name = 'deepseek-ai/DeepSeek_V4_1_Flash'
+        const capabilities = resolveCapabilities('openai-chat', { name })
+        const { requester, requests } = requesterFor(capabilities, streaming)
+        requester.setModelCapabilities([
+            { name, type: ModelType.llm, capabilities }
+        ])
+        const params = { model: name, input: [human()], timeout: 1000 }
+        if (streaming) {
+            for await (const _ of requester.completionStream(params)) {
+            }
+        } else await requester.completion(params)
+        assert.equal(requests[0].body.model, name)
+        assert.equal(requests[0].body.messages[0].content[1]?.type, 'image_url')
+    })
+}
+
+test('reasoning variants recognize separator aliases without changing the base ID', () => {
+    const name = 'DeepSeek_V4_1_Flash'
+    const variants = expandReasoningVariantsForProvider(
+        { id: 'deepseek', reasoningEffort: 'passthrough' },
+        [{ name }]
+    )
+    assert(variants.some((model) => model.name === `${name}-max-thinking`))
+    assert(
+        variants
+            .filter((model) => model.reasoningVariantOf)
+            .every((model) => model.reasoningVariantOf === name)
     )
 })
 
@@ -946,6 +1025,76 @@ test('provider-qualified metadata does not leak capabilities between ambiguous m
     assert.equal(store.getMaxTokens('first', 'shared'), 100)
     assert.equal(store.getMaxTokens('second', 'shared'), 200)
     assert.equal(store.getMaxTokens('unknown', 'shared'), undefined)
+})
+
+test('metadata separator fallback is provider-scoped and keeps exact matches ahead of aliases', async (t) => {
+    const data = {
+        first: {
+            models: {
+                'opaque-v4.1-flash': {
+                    reasoning: true,
+                    modalities: { input: ['text', 'image'] },
+                    limit: { context: 100 }
+                },
+                'opaque-v4-flash': { reasoning: false, limit: { context: 90 } }
+            }
+        },
+        second: {
+            models: {
+                'opaque-v4.1-flash': {
+                    reasoning: false,
+                    modalities: { input: ['text'] },
+                    limit: { context: 200 }
+                }
+            }
+        }
+    }
+    const { store } = await fixture(t, async () => ({ data }))
+    await store.refresh()
+    const name = 'Opaque_V4_1_Flash'
+    const first = store.enhance('first', { name })
+    assert.equal(first.name, name)
+    assert.equal(first.maxTokens, 100)
+    assert(resolveCapabilities('openai-chat', first).includes(Cap.ImageInput))
+    const second = store.enhance('second', { name })
+    assert.equal(second.maxTokens, 200)
+    assert(!resolveCapabilities('openai-chat', second).includes(Cap.ImageInput))
+    assert.equal(store.getMaxTokens('unknown', name), undefined)
+    assert.equal(store.getMaxTokens('unknown', `first/${name}`), 100)
+    assert.equal(store.getMaxTokens('first', 'opaque-v4-flash'), 90)
+    assert.equal(store.getMaxTokens('first', 'opaque-v41-flash'), undefined)
+    assert.equal(store.getMaxTokens('first', 'opaque-v4.10-flash'), undefined)
+    const [api] = parseOpenAIModels({
+        data: [{ id: name, supports_image_in: false }]
+    })
+    assert(
+        !resolveCapabilities(
+            'openai-chat',
+            store.enhance('first', api)
+        ).includes(Cap.ImageInput)
+    )
+})
+
+test('metadata rejects ambiguous normalized IDs but still resolves each exact ID', async (t) => {
+    const data = {
+        first: {
+            models: {
+                'opaque-v4.1-flash': {
+                    reasoning: true,
+                    limit: { context: 100 }
+                },
+                'opaque-v4-1-flash': {
+                    reasoning: false,
+                    limit: { context: 200 }
+                }
+            }
+        }
+    }
+    const { store } = await fixture(t, async () => ({ data }))
+    await store.refresh()
+    assert.equal(store.getMaxTokens('first', 'opaque-v4.1-flash'), 100)
+    assert.equal(store.getMaxTokens('first', 'opaque-v4-1-flash'), 200)
+    assert.equal(store.getMaxTokens('first', 'opaque_v4_1_flash'), undefined)
 })
 
 test('console refresh updates metadata before models, and clears recovered metadata errors', async () => {

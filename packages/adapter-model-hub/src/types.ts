@@ -182,6 +182,7 @@ export interface ModelHubSettings {
     schemaVersion?: number
     revision?: number
     providers: ProviderEntry[]
+    modelCapabilityOverrides?: ModelCapabilityOverrideEntry[]
     additionalModels: AdditionalModelEntry[]
     blacklistModels: ModelFilterEntry[]
 }
@@ -288,6 +289,33 @@ export interface ModelRoute {
     capabilities?: ModelCapabilities[]
     modelType?: 'llm' | 'embeddings' | 'reranker'
     contextSize?: number
+}
+
+/** Per-model capability correction scoped to one platform, source and credential. */
+export interface ModelCapabilityOverrideEntry {
+    providerId: string
+    sourceProviderId: string
+    platform: string
+    sourceId: string
+    credentialId: string
+    model: string
+    overrides: Partial<Record<ModelCapabilities, boolean>>
+}
+
+export interface ModelCapabilityOverrideUpdate {
+    sourceId: string
+    sourceProviderId: string
+    credentialId: string
+    upstreamModel: string
+    overrides: Partial<Record<ModelCapabilities, boolean>>
+}
+
+export interface ModelCapabilityOverrideRequest {
+    revision: number
+    providerId: string
+    platform: string
+    model: string
+    updates: ModelCapabilityOverrideUpdate[]
 }
 
 export interface ConsoleHeaderEntry extends Omit<HeaderEntry, 'value'> {
@@ -468,11 +496,13 @@ export interface ModelHubConsoleModel {
     lastUsedAt?: number
     candidates?: {
         sourceId: string
+        sourceProviderId?: string
         credentialId: string
         upstreamModel: string
         sourceName?: string
         credentialName?: string
         capabilities?: ModelCapabilities[]
+        capabilityOverrides?: Partial<Record<ModelCapabilities, boolean>>
         available?: boolean
     }[]
 }
@@ -511,5 +541,6 @@ export interface ModelHubActionResult {
     success: boolean
     message?: string
     models?: number
+    revision?: number
     errors?: Record<string, string>
 }

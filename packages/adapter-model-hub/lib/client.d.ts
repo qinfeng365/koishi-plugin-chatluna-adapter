@@ -27,11 +27,13 @@ export declare class ModelHubClient extends PlatformModelEmbeddingsAndRerankerCl
     connectionStatus(): import("./types").ConnectionStatus[];
     modelCandidates(model: string): {
         sourceId: string;
+        sourceProviderId: string;
         credentialId: string;
         upstreamModel: string;
         sourceName: string;
         credentialName: string;
         capabilities: ModelCapabilities[];
+        capabilityOverrides: Partial<Record<ModelCapabilities, boolean>>;
         available: boolean;
     }[];
     prepareUpdate(config: ModelHubResolvedConfig, runtime: RuntimeProvider): () => void;

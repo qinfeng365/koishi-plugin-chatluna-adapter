@@ -7,7 +7,13 @@ const { parse, compileScript } = require('vue/compiler-sfc')
 const root = path.resolve(__dirname, '..')
 const client = path.join(root, 'packages/adapter-model-hub/client')
 const virtualScripts = new Map(
-    ['dashboard', 'model-row', 'source-editor', 'route-editor'].map((name) => {
+    [
+        'dashboard',
+        'model-row',
+        'model-capability-editor',
+        'source-editor',
+        'route-editor'
+    ].map((name) => {
         const component = path.join(client, `${name}.vue`)
         const script = compileScript(
             parse(fs.readFileSync(component, 'utf8'), { filename: component })

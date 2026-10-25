@@ -51,18 +51,32 @@
                 </div>
             </details>
         </div>
-        <span class="model-capabilities">{{
-            capabilities || '未声明能力'
-        }}</span>
-        <button
-            type="button"
-            class="model-copy"
-            :aria-label="`复制 ${model.platform}/${model.name}`"
-            title="复制平台/模型标识"
-            @click.stop.prevent="$emit('copy')"
-        >
-            复制
-        </button>
+        <span class="model-capabilities">
+            {{ capabilities || '未声明能力' }}
+            <small v-if="hasOverrides" class="model-overridden">已覆盖</small>
+        </span>
+        <div class="model-actions">
+            <button
+                v-if="model.type.toLowerCase() === 'llm'"
+                type="button"
+                class="model-edit"
+                :disabled="!model.candidates?.length"
+                :aria-label="`编辑 ${model.platform}/${model.name} 能力`"
+                title="按连接编辑模型能力"
+                @click.stop.prevent="$emit('edit')"
+            >
+                能力
+            </button>
+            <button
+                type="button"
+                class="model-copy"
+                :aria-label="`复制 ${model.platform}/${model.name}`"
+                title="复制平台/模型标识"
+                @click.stop.prevent="$emit('copy')"
+            >
+                复制
+            </button>
+        </div>
     </div>
 </template>
 
@@ -74,7 +88,7 @@ const props = defineProps<{
     model: ModelHubConsoleModel
     favorite: boolean
 }>()
-defineEmits<{ favorite: []; copy: [] }>()
+defineEmits<{ favorite: []; copy: []; edit: [] }>()
 
 const labels: Record<string, string> = {
     text_input: '文本',
@@ -95,6 +109,12 @@ const usedAt = computed(() =>
     props.model.lastUsedAt
         ? new Date(props.model.lastUsedAt).toLocaleString()
         : ''
+)
+const hasOverrides = computed(() =>
+    props.model.candidates?.some(
+        (candidate) =>
+            Object.keys(candidate.capabilityOverrides ?? {}).length > 0
+    )
 )
 </script>
 
@@ -122,6 +142,16 @@ const usedAt = computed(() =>
     font-size: 0.8rem;
     overflow-wrap: anywhere;
 }
+.model-overridden {
+    display: inline-block;
+    margin-left: 0.4rem;
+    color: var(--k-color-primary);
+    font-size: 0.7rem;
+}
+.model-actions {
+    display: flex;
+    gap: 0.35rem;
+}
 .model-connections {
     font-size: 0.75rem;
     color: var(--k-text-light);
@@ -134,6 +164,7 @@ const usedAt = computed(() =>
     overflow-wrap: anywhere;
 }
 .model-favorite,
+.model-edit,
 .model-copy {
     min-height: 2rem;
     padding: 0.25rem 0.4rem;
@@ -142,6 +173,10 @@ const usedAt = computed(() =>
     background: transparent;
     color: var(--k-text-light);
     cursor: pointer;
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
     &:focus-visible {
         outline: 2px solid var(--k-color-primary);
         outline-offset: 2px;
@@ -164,9 +199,10 @@ const usedAt = computed(() =>
     .model-capabilities {
         grid-column: 2 / 3;
     }
-    .model-copy {
+    .model-actions {
         grid-column: 3;
         grid-row: 1;
+        flex-direction: column;
     }
 }
 </style>

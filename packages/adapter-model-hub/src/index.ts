@@ -2,7 +2,10 @@ import { DataService } from '@koishijs/plugin-console'
 import { resolve } from 'path'
 import { Context, Logger, Schema } from 'koishi'
 import { ChatLunaPlugin } from 'koishi-plugin-chatluna/services/chat'
-import { ModelType } from 'koishi-plugin-chatluna/llm-core/platform/types'
+import {
+    ModelCapabilities,
+    ModelType
+} from 'koishi-plugin-chatluna/llm-core/platform/types'
 import { createLogger } from 'koishi-plugin-chatluna/utils/logger'
 import { ModelHubClient } from './client'
 import type { GeminiResourceRequest } from './adapters/gemini-resources'
@@ -32,6 +35,7 @@ import type {
     ModelHubResolvedConfig,
     ModelHubRuntimeState,
     ModelHubSettings,
+    ModelCapabilityOverrideRequest,
     ProviderEntry,
     RuntimeProvider
 } from './types'
@@ -189,6 +193,99 @@ export class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
         const result = await this._options.saveSettings(settings)
         await this.refresh()
         return result
+    }
+
+    async updateModelCapabilities(
+        request: ModelCapabilityOverrideRequest
+    ): Promise<ModelHubActionResult> {
+        if (
+            !request ||
+            request.revision !== this._settings.revision ||
+            !Array.isArray(request.updates) ||
+            !request.updates.length ||
+            request.updates.length > 200
+        )
+            throw new Error('模型能力配置无效或已被修改，请重新载入后保存')
+        const runtime = this._runtime.providers.find(
+            (provider) =>
+                provider.platform === request.platform &&
+                provider.provider.id === request.providerId
+        )
+        const model = runtime
+            ? this._modelsFor(runtime).find((m) => m.name === request.model)
+            : undefined
+        if (!model || model.type.toLowerCase() !== 'llm')
+            throw new Error('模型已不可用，请刷新列表后重新编辑')
+        const capabilities = new Set(Object.values(ModelCapabilities))
+        const seen = new Set<string>()
+        for (const update of request.updates) {
+            if (
+                !update ||
+                !model.candidates?.some(
+                    (candidate) =>
+                        candidate.sourceId === update.sourceId &&
+                        candidate.sourceProviderId ===
+                            update.sourceProviderId &&
+                        candidate.credentialId === update.credentialId &&
+                        candidate.upstreamModel === update.upstreamModel
+                )
+            )
+                throw new Error('连接已变化，不能将能力覆盖写入其他源或 Key')
+            const key = JSON.stringify([
+                update.sourceId,
+                update.credentialId,
+                update.upstreamModel
+            ])
+            if (seen.has(key)) throw new Error('模型能力覆盖范围重复')
+            seen.add(key)
+            if (
+                !update.overrides ||
+                typeof update.overrides !== 'object' ||
+                Array.isArray(update.overrides)
+            )
+                throw new Error('模型能力覆盖必须是布尔值映射')
+            for (const [capability, supported] of Object.entries(
+                update.overrides
+            ))
+                if (
+                    !capabilities.has(capability as ModelCapabilities) ||
+                    typeof supported !== 'boolean'
+                )
+                    throw new Error('模型能力覆盖含未知能力或非布尔值')
+        }
+        // A narrow mutation, using the same revision-checked atomic save queue.
+        // Never accept a whole unsaved provider/credential form from this dialog.
+        const next = toConsoleSettings(this._settings)
+        next.modelCapabilityOverrides = (
+            next.modelCapabilityOverrides ?? []
+        ).filter(
+            (entry) =>
+                !(
+                    entry.providerId === request.providerId &&
+                    entry.platform === request.platform &&
+                    request.updates.some(
+                        (update) =>
+                            entry.sourceId === update.sourceId &&
+                            entry.sourceProviderId ===
+                                update.sourceProviderId &&
+                            entry.credentialId === update.credentialId &&
+                            entry.model === update.upstreamModel
+                    )
+                )
+        )
+        for (const update of request.updates)
+            if (Object.keys(update.overrides).length)
+                next.modelCapabilityOverrides.push({
+                    providerId: request.providerId,
+                    platform: request.platform,
+                    sourceId: update.sourceId,
+                    sourceProviderId: update.sourceProviderId,
+                    credentialId: update.credentialId,
+                    model: update.upstreamModel,
+                    overrides: { ...update.overrides }
+                })
+        const result = await this.saveSettings(next)
+        return { ...result, revision: this._settings.revision }
     }
 
     async refreshProvider(
@@ -541,6 +638,15 @@ export function apply(ctx: Context, config: Config) {
         )
 
         ctx.console.addListener(
+            'chatluna-model-hub/updateModelCapabilities',
+            async (request: ModelCapabilityOverrideRequest) =>
+                ctx.console.services.chatluna_model_hub.updateModelCapabilities(
+                    request
+                ),
+            { authority: 1 }
+        )
+
+        ctx.console.addListener(
             'chatluna-model-hub/refresh',
             async (platform?: string, sourceId?: string) =>
                 ctx.console.services.chatluna_model_hub.refreshProvider(
@@ -706,6 +812,9 @@ declare module '@koishijs/plugin-console' {
         'chatluna-model-hub/getData': () => Promise<ModelHubConsoleData>
         'chatluna-model-hub/saveSettings': (
             settings: ModelHubConsoleSettings
+        ) => Promise<ModelHubActionResult>
+        'chatluna-model-hub/updateModelCapabilities': (
+            request: ModelCapabilityOverrideRequest
         ) => Promise<ModelHubActionResult>
         'chatluna-model-hub/refresh': (
             platform?: string,

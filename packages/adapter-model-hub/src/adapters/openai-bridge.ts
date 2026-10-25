@@ -9,6 +9,7 @@ import {
     type ModelRequestParams
 } from 'koishi-plugin-chatluna/llm-core/platform/api'
 import type { ModelHubRequester } from '../requester'
+import { modelNameForInference } from '../model-identity'
 
 type Json = Record<string, any>
 
@@ -16,9 +17,9 @@ export function usesResponses(
     requester: ModelHubRequester,
     params: ModelRequestParams
 ) {
-    const model = String(
-        params.overrideRequestParams?.model ?? params.model ?? ''
-    ).toLowerCase()
+    const model = modelNameForInference(
+        String(params.overrideRequestParams?.model ?? params.model ?? '')
+    )
     return (
         requester.currentConfig().responseApi === true ||
         (requester.currentProviderPreset().id === 'openai' &&

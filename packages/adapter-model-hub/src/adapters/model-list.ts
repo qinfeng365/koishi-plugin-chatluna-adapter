@@ -14,6 +14,7 @@ import type {
     ProviderPreset,
     ReasoningEffortLevel
 } from '../types'
+import { modelNameForInference } from '../model-identity'
 import {
     anthropicSupportedEfforts,
     nativeReasoningEfforts
@@ -204,7 +205,7 @@ function isChatModel(model: ProviderModelEntry) {
 }
 
 function modelSupportsReasoning(provider: string, model: ProviderModelEntry) {
-    const id = model.name.toLowerCase()
+    const id = modelNameForInference(model.name)
     if (provider === 'openai') {
         return (
             id.startsWith('o1') ||
@@ -284,7 +285,7 @@ function reasoningVariantSuffixes(
     model: ProviderModelEntry,
     reasoningProtocol?: OpenAICompatibleReasoningProtocol
 ) {
-    const id = model.name.toLowerCase()
+    const id = modelNameForInference(model.name)
     const protocol = resolveReasoningProtocol(reasoningProtocol, id)
     if (protocol === 'deepseek') {
         return DEEPSEEK_REASONING_SUFFIXES

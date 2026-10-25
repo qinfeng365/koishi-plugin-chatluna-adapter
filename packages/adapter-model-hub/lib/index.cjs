@@ -62,14 +62,14 @@ var import_plugin_console = require("@koishijs/plugin-console");
 var import_path5 = require("path");
 var import_koishi = require("koishi");
 var import_chat = require("koishi-plugin-chatluna/services/chat");
-var import_types14 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types15 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_logger = require("koishi-plugin-chatluna/utils/logger");
 
 // src/client.ts
 var import_client = require("koishi-plugin-chatluna/llm-core/platform/client");
 var import_model = require("koishi-plugin-chatluna/llm-core/platform/model");
 var import_rerank = require("koishi-plugin-chatluna/llm-core/platform/rerank");
-var import_types10 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types11 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_error6 = require("koishi-plugin-chatluna/utils/error");
 var import_v1_shared_adapter12 = require("@chatluna/v1-shared-adapter");
 
@@ -83,16 +83,29 @@ var import_v1_shared_adapter10 = require("@chatluna/v1-shared-adapter");
 // src/capabilities.ts
 var import_v1_shared_adapter = require("@chatluna/v1-shared-adapter");
 var import_types = require("koishi-plugin-chatluna/llm-core/platform/types");
+
+// src/model-identity.ts
+function modelIdentityKey(model) {
+  return model.trim().toLowerCase().replace(/[\s_.-]+/g, "-");
+}
+__name(modelIdentityKey, "modelIdentityKey");
+function modelNameForInference(model) {
+  const name2 = model.slice(model.lastIndexOf("/") + 1);
+  return name2.trim().toLowerCase().replace(/[\s_.-]+/g, "-").replace(/(\d)-(\d{1,2})(?=-|$)/, "$1.$2");
+}
+__name(modelNameForInference, "modelNameForInference");
+
+// src/capabilities.ts
 function resolveCapabilities(adapter, model, responseApi = false) {
-  responseApi ||= adapter === "openai" && /^gpt-6/i.test(model.name);
+  const name2 = modelNameForInference(model.name);
   const result = new Set(model.capabilities ?? []);
   if (adapter !== "dify") {
     result.add(import_types.ModelCapabilities.ToolCall);
-    if ((0, import_v1_shared_adapter.supportImageInput)(model.name) || /^(gpt-6|kimi-k3)/i.test(model.name))
+    if ((0, import_v1_shared_adapter.supportImageInput)(name2) || /^(gpt-6|kimi-k3)/i.test(name2) || /^deepseek-v4\.1-flash(?:-|$)/.test(name2))
       result.add(import_types.ModelCapabilities.ImageInput);
-    if (/^kimi-k3/i.test(model.name)) result.add(import_types.ModelCapabilities.VideoInput);
-    if ((0, import_v1_shared_adapter.supportAudioInput)(model.name)) result.add(import_types.ModelCapabilities.AudioInput);
-    if (isThinkingModelName(model.name)) result.add(import_types.ModelCapabilities.Thinking);
+    if (/^kimi-k3/i.test(name2)) result.add(import_types.ModelCapabilities.VideoInput);
+    if ((0, import_v1_shared_adapter.supportAudioInput)(name2)) result.add(import_types.ModelCapabilities.AudioInput);
+    if (isThinkingModelName(name2)) result.add(import_types.ModelCapabilities.Thinking);
   }
   for (const [capability, supported] of Object.entries(
     model.capabilityOverrides ?? {}
@@ -100,10 +113,11 @@ function resolveCapabilities(adapter, model, responseApi = false) {
     if (supported) result.add(capability);
     else result.delete(capability);
   }
-  return protocolCapabilities(adapter, [...result], responseApi);
+  return protocolCapabilities(adapter, [...result], responseApi, model.name);
 }
 __name(resolveCapabilities, "resolveCapabilities");
-function protocolCapabilities(adapter, capabilities, responseApi = false) {
+function protocolCapabilities(adapter, capabilities, responseApi = false, model = "") {
+  responseApi ||= adapter === "openai" && /^gpt-6/i.test(modelNameForInference(model));
   return adapter === "openai" && responseApi ? capabilities.filter(
     (capability) => capability !== import_types.ModelCapabilities.AudioInput && capability !== import_types.ModelCapabilities.VideoInput
   ) : capabilities;
@@ -113,7 +127,7 @@ function isThinkingModelName(model) {
   const lower = model.toLowerCase();
   return ["reasoner", "thinking", "reasoning", "r1"].some(
     (name2) => lower.includes(name2)
-  ) || [
+  ) || /^deepseek-(?:v4(?:[.-]|$)|flash(?:-|$))/.test(lower) || [
     "o1",
     "o3",
     "o4",
@@ -1151,7 +1165,7 @@ function anthropicEffortForModel(model, effort) {
 }
 __name(anthropicEffortForModel, "anthropicEffortForModel");
 function nativeReasoningEfforts(model) {
-  const lower = model.toLowerCase();
+  const lower = modelNameForInference(model);
   if (/^gpt-6-sol(?:-|$)/.test(lower))
     return ["none", "low", "medium", "high", "xhigh", "max"];
   if (lower.startsWith("gpt-6"))
@@ -1304,7 +1318,7 @@ function isChatModel(model) {
 }
 __name(isChatModel, "isChatModel");
 function modelSupportsReasoning(provider, model) {
-  const id = model.name.toLowerCase();
+  const id = modelNameForInference(model.name);
   if (provider === "openai") {
     return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4") || id.startsWith("gpt-5") || id.startsWith("gpt-6");
   }
@@ -1366,7 +1380,7 @@ var REASONING_EFFORT_ORDER = [
   "max"
 ];
 function reasoningVariantSuffixes(provider, model, reasoningProtocol) {
-  const id = model.name.toLowerCase();
+  const id = modelNameForInference(model.name);
   const protocol = resolveReasoningProtocol2(reasoningProtocol, id);
   if (protocol === "deepseek") {
     return DEEPSEEK_REASONING_SUFFIXES;
@@ -1716,9 +1730,9 @@ var import_messages = require("@langchain/core/messages");
 var import_outputs = require("@langchain/core/outputs");
 var import_api = require("koishi-plugin-chatluna/llm-core/platform/api");
 function usesResponses(requester, params) {
-  const model = String(
-    params.overrideRequestParams?.model ?? params.model ?? ""
-  ).toLowerCase();
+  const model = modelNameForInference(
+    String(params.overrideRequestParams?.model ?? params.model ?? "")
+  );
   return requester.currentConfig().responseApi === true || requester.currentProviderPreset().id === "openai" && model.startsWith("gpt-6");
 }
 __name(usesResponses, "usesResponses");
@@ -6033,8 +6047,118 @@ __name(hasResponseChunk, "hasResponseChunk");
 // src/router.ts
 var import_crypto3 = require("crypto");
 var import_async_hooks = require("async_hooks");
-var import_types9 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types10 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var import_v1_shared_adapter11 = require("@chatluna/v1-shared-adapter");
+
+// src/model-capability-overrides.ts
+var import_types9 = require("koishi-plugin-chatluna/llm-core/platform/types");
+function normalizeModelCapabilityOverrides(input, providers) {
+  if (input == null) return [];
+  if (!Array.isArray(input) || input.length > 5e3)
+    throw new Error("模型能力覆盖无效，最多保存 5000 条");
+  const scopes = new Set(
+    providers.flatMap(
+      (p) => (p.sources ?? []).flatMap(
+        (s) => s.credentials.map(
+          (c) => JSON.stringify([
+            p.provider,
+            p.platform,
+            s.id,
+            s.provider,
+            c.id
+          ])
+        )
+      )
+    )
+  );
+  const capabilities = new Set(Object.values(import_types9.ModelCapabilities));
+  const result = /* @__PURE__ */ new Map();
+  for (const entry of input) {
+    if (!entry || typeof entry !== "object")
+      throw new Error("模型能力覆盖条目无效");
+    const {
+      providerId,
+      platform,
+      sourceId,
+      sourceProviderId,
+      credentialId,
+      model
+    } = entry;
+    if (![
+      providerId,
+      platform,
+      sourceId,
+      sourceProviderId,
+      credentialId,
+      model
+    ].every((s) => typeof s === "string" && s.trim().length > 0) || model.length > 512)
+      throw new Error("模型能力覆盖缺少有效范围或模型 ID");
+    if (!scopes.has(
+      JSON.stringify([
+        providerId,
+        platform,
+        sourceId,
+        sourceProviderId,
+        credentialId
+      ])
+    ))
+      continue;
+    if (!entry.overrides || typeof entry.overrides !== "object" || Array.isArray(entry.overrides))
+      throw new Error("模型能力覆盖必须是布尔值映射");
+    const overrides = {};
+    for (const [capability, supported] of Object.entries(entry.overrides)) {
+      if (!capabilities.has(capability) || typeof supported !== "boolean")
+        throw new Error("模型能力覆盖含未知能力或非布尔值");
+      overrides[capability] = supported;
+    }
+    if (!Object.keys(overrides).length) continue;
+    const scope = {
+      providerId,
+      platform,
+      sourceId,
+      sourceProviderId,
+      credentialId,
+      model,
+      overrides
+    };
+    result.set(
+      JSON.stringify([
+        providerId,
+        platform,
+        sourceId,
+        sourceProviderId,
+        credentialId,
+        model
+      ]),
+      scope
+    );
+  }
+  return [...result.values()];
+}
+__name(normalizeModelCapabilityOverrides, "normalizeModelCapabilityOverrides");
+function manualModelCapabilities(settings, scope, model) {
+  const matches = (settings.modelCapabilityOverrides ?? []).filter(
+    (entry) => entry.providerId === scope.providerId && entry.platform === scope.platform && entry.sourceId === scope.sourceId && entry.sourceProviderId === scope.sourceProviderId && entry.credentialId === scope.credentialId
+  );
+  return {
+    ...matches.find((e) => e.model === model.reasoningVariantOf)?.overrides,
+    ...matches.find((e) => e.model === model.name)?.overrides
+  };
+}
+__name(manualModelCapabilities, "manualModelCapabilities");
+function applyManualModelCapabilities(model, overrides) {
+  const capabilities = new Set(model.capabilities ?? []);
+  for (const [capability, supported] of Object.entries(overrides)) {
+    if (supported) capabilities.add(capability);
+    else capabilities.delete(capability);
+  }
+  return {
+    ...model,
+    capabilities: [...capabilities],
+    capabilityOverrides: { ...model.capabilityOverrides, ...overrides }
+  };
+}
+__name(applyManualModelCapabilities, "applyManualModelCapabilities");
 
 // src/connection-catalog.ts
 var import_promises2 = require("fs/promises");
@@ -6239,6 +6363,7 @@ var ModelHubRouter = class extends ModelHubRequester {
           snapshot,
           config.additionalModels,
           config.blacklistModels,
+          config.modelCapabilityOverrides,
           config.providers.find(
             (p) => p.platform === runtime.platform
           )?.routes
@@ -6392,15 +6517,22 @@ var ModelHubRouter = class extends ModelHubRequester {
   modelCandidates(model) {
     return this.state.routes.get(model)?.candidates.map((c) => ({
       sourceId: c.connection.config.sourceId,
+      sourceProviderId: c.connection.config.provider,
       credentialId: c.connection.config.credentialId,
       upstreamModel: c.upstreamModel,
       sourceName: c.connection.config.providerName,
       credentialName: this.state.config.providers.flatMap((p) => p.sources ?? []).find((s) => s.id === c.connection.config.sourceId)?.credentials.find(
         (key) => key.id === c.connection.config.credentialId
       )?.name,
-      capabilities: c.connection.models.find(
-        (m) => m.name === c.upstreamModel
-      )?.capabilities,
+      capabilities: c.capabilities,
+      capabilityOverrides: this.capabilityOverrides(
+        this.state,
+        c.connection,
+        {
+          name: c.upstreamModel,
+          reasoningVariantOf: c.reasoningVariantOf
+        }
+      ),
       available: !c.connection.authFailed && !c.connection.denied.has(c.upstreamModel) && c.connection.retryAt <= Date.now()
     })) ?? [];
   }
@@ -6443,11 +6575,11 @@ var ModelHubRouter = class extends ModelHubRequester {
                     c.config
                   );
                 c.models = models.map((model) => {
-                  const type = model.type ?? ((0, import_v1_shared_adapter11.isRerankerModel)(model.name) ? import_types9.ModelType.reranker : (0, import_v1_shared_adapter11.isEmbeddingModel)(model.name) ? import_types9.ModelType.embeddings : import_types9.ModelType.llm);
+                  const type = model.type ?? ((0, import_v1_shared_adapter11.isRerankerModel)(model.name) ? import_types10.ModelType.reranker : (0, import_v1_shared_adapter11.isEmbeddingModel)(model.name) ? import_types10.ModelType.embeddings : import_types10.ModelType.llm);
                   const info = {
                     ...model,
                     type,
-                    capabilities: type === import_types9.ModelType.llm ? resolveCapabilities(
+                    capabilities: type === import_types10.ModelType.llm ? resolveCapabilities(
                       preset.adapter,
                       model,
                       c.config.responseApi
@@ -6455,16 +6587,16 @@ var ModelHubRouter = class extends ModelHubRequester {
                     maxTokens: model.maxTokens || this.metadata.getMaxTokens(
                       preset.id,
                       model.name
-                    ) || (type === import_types9.ModelType.llm ? (0, import_v1_shared_adapter11.getModelMaxContextSize)(
+                    ) || (type === import_types10.ModelType.llm ? (0, import_v1_shared_adapter11.getModelMaxContextSize)(
                       model
                     ) || 128e3 : c.config.nonLlmInputTokenLimit)
                   };
-                  if (type === import_types9.ModelType.llm && !info.capabilities.includes(
-                    import_types9.ModelCapabilities.ImageGeneration
+                  if (type === import_types10.ModelType.llm && !info.capabilities.includes(
+                    import_types10.ModelCapabilities.ImageGeneration
                   ))
                     info.capabilities = [
                       .../* @__PURE__ */ new Set([
-                        import_types9.ModelCapabilities.TextInput,
+                        import_types10.ModelCapabilities.TextInput,
                         ...info.capabilities
                       ])
                     ];
@@ -6517,23 +6649,35 @@ var ModelHubRouter = class extends ModelHubRequester {
       const preset = getProviderPreset(c.config.provider);
       const additions = c.config.sourceId === primary ? manual.map((m) => ({
         name: m.model,
-        type: m.modelType.toLowerCase().startsWith("embeddings") ? import_types9.ModelType.embeddings : m.modelType.toLowerCase().startsWith("reranker") ? import_types9.ModelType.reranker : import_types9.ModelType.llm,
+        type: m.modelType.toLowerCase().startsWith("embeddings") ? import_types10.ModelType.embeddings : m.modelType.toLowerCase().startsWith("reranker") ? import_types10.ModelType.reranker : import_types10.ModelType.llm,
         maxTokens: m.contextSize || 4096,
         capabilities: protocolCapabilities(
           preset.adapter,
           m.modelCapabilities,
-          c.config.responseApi
+          c.config.responseApi,
+          m.model
         )
       })) : [];
       for (const m of additions)
-        if (m.type === import_types9.ModelType.llm && !m.capabilities.includes(import_types9.ModelCapabilities.ImageGeneration))
+        if (m.type === import_types10.ModelType.llm && !m.capabilities.includes(import_types10.ModelCapabilities.ImageGeneration))
           m.capabilities = [
-            .../* @__PURE__ */ new Set([import_types9.ModelCapabilities.TextInput, ...m.capabilities])
+            .../* @__PURE__ */ new Set([import_types10.ModelCapabilities.TextInput, ...m.capabilities])
           ];
       const byName = new Map(
         [...c.models, ...additions].map((m) => [m.name, m])
       );
-      const models = [...byName.values()];
+      let models = [...byName.values()].map(
+        (model) => this.effectiveModel(state, c, model)
+      );
+      if (c.config.expandReasoningVariants)
+        models = expandReasoningVariantsForProvider(
+          preset,
+          models,
+          c.config
+        ).map((model) => this.effectiveModel(state, c, model));
+      models = models.filter(
+        (model) => !model.reasoningVariantOf || model.capabilityOverrides?.[import_types10.ModelCapabilities.Thinking] !== false
+      );
       directories.set(c, models);
       c.requester.setModelCapabilities(models);
     }
@@ -6564,18 +6708,19 @@ var ModelHubRouter = class extends ModelHubRequester {
         ).map((connection) => {
           let info = directories.get(connection).find((m) => m.name === candidate.upstreamModel);
           if (!info && route.modelType && route.capabilities && route.contextSize) {
-            info = {
+            info = this.effectiveModel(state, connection, {
               name: candidate.upstreamModel,
-              type: import_types9.ModelType[route.modelType],
+              type: import_types10.ModelType[route.modelType],
               maxTokens: route.contextSize,
               capabilities: protocolCapabilities(
                 getProviderPreset(
                   connection.config.provider
                 ).adapter,
                 route.capabilities,
-                connection.config.responseApi
+                connection.config.responseApi,
+                candidate.upstreamModel
               )
-            };
+            });
             directories.get(connection).push(info);
             connection.requester.setModelCapabilities(
               directories.get(connection)
@@ -6615,7 +6760,7 @@ var ModelHubRouter = class extends ModelHubRequester {
     })).filter((p) => p.info);
     const first = items[0]?.info;
     if (!first) return;
-    const type = contract?.modelType ? import_types9.ModelType[contract.modelType] : first.type;
+    const type = contract?.modelType ? import_types10.ModelType[contract.modelType] : first.type;
     const capabilities = contract?.capabilities ?? first.capabilities.filter(
       (cap) => items.every((i) => i.info.capabilities.includes(cap))
     );
@@ -6623,7 +6768,7 @@ var ModelHubRouter = class extends ModelHubRequester {
       (p) => p.info.type === type && capabilities.every((cap) => p.info.capabilities.includes(cap))
     );
     if (!valid.length) return;
-    if (type === import_types9.ModelType.embeddings && new Set(valid.map((p) => p.candidate.connection.config.sourceId)).size > 1 && (!valid[0].candidate.embeddingSpace || valid.some(
+    if (type === import_types10.ModelType.embeddings && new Set(valid.map((p) => p.candidate.connection.config.sourceId)).size > 1 && (!valid[0].candidate.embeddingSpace || valid.some(
       (p) => p.candidate.embeddingSpace !== valid[0].candidate.embeddingSpace
     )))
       return;
@@ -6633,9 +6778,41 @@ var ModelHubRouter = class extends ModelHubRequester {
     );
     out.set(name2, {
       info: { ...first, name: name2, type, capabilities, maxTokens },
-      candidates: valid.map((p) => p.candidate),
+      candidates: valid.map((p) => ({
+        ...p.candidate,
+        capabilities: p.info.capabilities,
+        reasoningVariantOf: p.info.reasoningVariantOf
+      })),
       allowFallback: fallback
     });
+  }
+  effectiveModel(state, connection, model) {
+    const enhanced = applyManualModelCapabilities(
+      model,
+      this.capabilityOverrides(state, connection, model)
+    );
+    return {
+      ...enhanced,
+      capabilities: protocolCapabilities(
+        getProviderPreset(connection.config.provider).adapter,
+        enhanced.capabilities,
+        connection.config.responseApi,
+        model.name
+      )
+    };
+  }
+  capabilityOverrides(state, connection, model) {
+    return manualModelCapabilities(
+      state.config,
+      {
+        providerId: state.providerId,
+        platform: state.platform,
+        sourceId: connection.config.sourceId,
+        sourceProviderId: connection.config.provider,
+        credentialId: connection.config.credentialId
+      },
+      model
+    );
   }
   limits(state, c) {
     const cfg = c.config;
@@ -6779,7 +6956,9 @@ var ModelHubRouter = class extends ModelHubRequester {
   scoped(c) {
     const cfg = c.connection.config;
     const adapter = getProviderPreset(cfg.provider).adapter;
-    return adapter === "dify" || adapter === "gemini" && (cfg.geminiApi === "interactions" || cfg.geminiFileUpload || !!cfg.geminiCachedContent) || ["openai", "openai-chat"].includes(adapter) && (!!cfg.responseFileSearchVectorStoreIds?.length || cfg.responseApi || adapter === "openai" && /^gpt-6/i.test(c.upstreamModel));
+    return adapter === "dify" || adapter === "gemini" && (cfg.geminiApi === "interactions" || cfg.geminiFileUpload || !!cfg.geminiCachedContent) || ["openai", "openai-chat"].includes(adapter) && (!!cfg.responseFileSearchVectorStoreIds?.length || cfg.responseApi || adapter === "openai" && /^gpt-6/i.test(
+      modelNameForInference(c.upstreamModel)
+    ));
   }
   async *execute(params, operation) {
     if (this.closed) throw new Error("此平台已停止或删除");
@@ -7115,23 +7294,23 @@ function pause(ms, signal) {
 __name(pause, "pause");
 function requiredCapabilities(params) {
   const required = /* @__PURE__ */ new Set();
-  if (params.tools?.length) required.add(import_types9.ModelCapabilities.ToolCall);
+  if (params.tools?.length) required.add(import_types10.ModelCapabilities.ToolCall);
   const types = {
-    image_url: import_types9.ModelCapabilities.ImageInput,
-    image: import_types9.ModelCapabilities.ImageInput,
-    input_image: import_types9.ModelCapabilities.ImageInput,
-    audio: import_types9.ModelCapabilities.AudioInput,
-    audio_url: import_types9.ModelCapabilities.AudioInput,
-    input_audio: import_types9.ModelCapabilities.AudioInput,
-    video: import_types9.ModelCapabilities.VideoInput,
-    video_url: import_types9.ModelCapabilities.VideoInput,
-    file: import_types9.ModelCapabilities.FileInput,
-    file_url: import_types9.ModelCapabilities.FileInput,
-    input_file: import_types9.ModelCapabilities.FileInput
+    image_url: import_types10.ModelCapabilities.ImageInput,
+    image: import_types10.ModelCapabilities.ImageInput,
+    input_image: import_types10.ModelCapabilities.ImageInput,
+    audio: import_types10.ModelCapabilities.AudioInput,
+    audio_url: import_types10.ModelCapabilities.AudioInput,
+    input_audio: import_types10.ModelCapabilities.AudioInput,
+    video: import_types10.ModelCapabilities.VideoInput,
+    video_url: import_types10.ModelCapabilities.VideoInput,
+    file: import_types10.ModelCapabilities.FileInput,
+    file_url: import_types10.ModelCapabilities.FileInput,
+    input_file: import_types10.ModelCapabilities.FileInput
   };
   for (const message of params.input) {
     if (message.getType?.() === "tool" || message.additional_kwargs?.tool_calls?.length || message.tool_calls?.length)
-      required.add(import_types9.ModelCapabilities.ToolCall);
+      required.add(import_types10.ModelCapabilities.ToolCall);
     if (Array.isArray(message.content))
       for (const part of message.content) {
         if (types[part.type]) required.add(types[part.type]);
@@ -7400,7 +7579,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         new Error(`The model ${model} is not found in ${this.platform}`)
       );
     }
-    if (info.type === import_types10.ModelType.llm) {
+    if (info.type === import_types11.ModelType.llm) {
       const current2 = this._requester instanceof ModelHubRouter ? this._config : this.config ?? this._config;
       const modelMaxContextSize = (0, import_v1_shared_adapter12.getModelMaxContextSize)(info);
       return new import_model.ChatLunaChatModel({
@@ -7420,11 +7599,11 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
         llmType: this._runtime.provider.id,
         fileHandlingConfig: this._fileHandlingConfig(model, info),
         isThinkModel: info.capabilities.includes(
-          import_types10.ModelCapabilities.Thinking
+          import_types11.ModelCapabilities.Thinking
         )
       });
     }
-    if (info.type === import_types10.ModelType.reranker) {
+    if (info.type === import_types11.ModelType.reranker) {
       const current2 = this._requester instanceof ModelHubRouter ? this._config : this.config ?? this._config;
       return new import_rerank.ChatLunaReranker({
         usageReporter: report,
@@ -7445,11 +7624,11 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   _inferModelInfo(model) {
     const name2 = model.name;
     const lower = name2.toLowerCase();
-    const type = model.type ?? ((0, import_v1_shared_adapter12.isRerankerModel)(lower) ? import_types10.ModelType.reranker : (0, import_v1_shared_adapter12.isEmbeddingModel)(lower) ? import_types10.ModelType.embeddings : import_types10.ModelType.llm);
+    const type = model.type ?? ((0, import_v1_shared_adapter12.isRerankerModel)(lower) ? import_types11.ModelType.reranker : (0, import_v1_shared_adapter12.isEmbeddingModel)(lower) ? import_types11.ModelType.embeddings : import_types11.ModelType.llm);
     if ((0, import_v1_shared_adapter12.isImageGenerationModel)(lower)) {
       return {
         name: name2,
-        type: import_types10.ModelType.llm,
+        type: import_types11.ModelType.llm,
         maxTokens: positiveNumber(model.maxTokens) ?? 4096,
         capabilities: resolveCapabilities(
           this._runtime.provider.adapter,
@@ -7457,12 +7636,12 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
             ...model,
             capabilities: [
               ...model.capabilities ?? [],
-              import_types10.ModelCapabilities.ImageGeneration
+              import_types11.ModelCapabilities.ImageGeneration
             ]
           },
           this.config?.responseApi === true
         ).filter(
-          (capability) => capability !== import_types10.ModelCapabilities.ToolCall
+          (capability) => capability !== import_types11.ModelCapabilities.ToolCall
         )
       };
     }
@@ -7473,8 +7652,8 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       name: name2,
       type,
       ...model.reasoningVariantOf ? { reasoningVariantOf: model.reasoningVariantOf } : {},
-      maxTokens: type === import_types10.ModelType.llm ? maxTokens ?? this._fallbackModelMaxContextSize(name2) : maxTokens ?? this._nonLlmInputTokenLimit(),
-      capabilities: type === import_types10.ModelType.llm ? resolveCapabilities(
+      maxTokens: type === import_types11.ModelType.llm ? maxTokens ?? this._fallbackModelMaxContextSize(name2) : maxTokens ?? this._nonLlmInputTokenLimit(),
+      capabilities: type === import_types11.ModelType.llm ? resolveCapabilities(
         this._runtime.provider.adapter,
         model,
         this.config?.responseApi === true
@@ -7483,17 +7662,17 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
     return info;
   }
   _additionalModelInfo(model) {
-    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types10.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types10.ModelType.reranker : import_types10.ModelType.llm;
+    const type = model.modelType === "embeddings" || model.modelType === "Embeddings 嵌入模型" ? import_types11.ModelType.embeddings : model.modelType === "reranker" || model.modelType === "Reranker 重排序模型" ? import_types11.ModelType.reranker : import_types11.ModelType.llm;
     return {
       name: model.model,
       type,
       maxTokens: positiveNumber(model.contextSize) ?? 4096,
-      capabilities: type === import_types10.ModelType.llm ? protocolCapabilities(
+      capabilities: type === import_types11.ModelType.llm ? protocolCapabilities(
         this._runtime.provider.adapter,
         model.modelCapabilities,
         this.config?.responseApi === true
       ) : model.modelCapabilities.filter(
-        (cap) => cap !== import_types10.ModelCapabilities.ToolCall
+        (cap) => cap !== import_types11.ModelCapabilities.ToolCall
       )
     };
   }
@@ -7508,7 +7687,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
   _fallbackModelMaxContextSize(model) {
     const inferred = (0, import_v1_shared_adapter12.getModelMaxContextSize)({
       name: model,
-      type: import_types10.ModelType.llm,
+      type: import_types11.ModelType.llm,
       maxTokens: void 0,
       capabilities: []
     });
@@ -7524,7 +7703,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       const supportedMimeTypes = new Set(
         [...ANTHROPIC_FILE_HANDLING_CONFIG.supportedMimeTypes].filter(
           (mime) => info.capabilities.includes(
-            mime.startsWith("image/") ? import_types10.ModelCapabilities.ImageInput : import_types10.ModelCapabilities.FileInput
+            mime.startsWith("image/") ? import_types11.ModelCapabilities.ImageInput : import_types11.ModelCapabilities.FileInput
           )
         )
       );
@@ -7545,7 +7724,7 @@ var ModelHubClient = class extends import_client.PlatformModelEmbeddingsAndReran
       }
       return config;
     }
-    if (!info.capabilities.includes(import_types10.ModelCapabilities.FileInput)) {
+    if (!info.capabilities.includes(import_types11.ModelCapabilities.FileInput)) {
       return void 0;
     }
     const difyFileHandling = this._difyFileHandlingConfig(model);
@@ -7623,7 +7802,7 @@ var import_promises3 = require("fs/promises");
 var import_crypto4 = require("crypto");
 var import_path3 = require("path");
 var import_v1_shared_adapter13 = require("@chatluna/v1-shared-adapter");
-var import_types11 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types12 = require("koishi-plugin-chatluna/llm-core/platform/types");
 var ModelMetadataStore = class {
   constructor(ctx, options = {}) {
     this.ctx = ctx;
@@ -7638,6 +7817,8 @@ var ModelMetadataStore = class {
   }
   _models = /* @__PURE__ */ new Map();
   _aliases = /* @__PURE__ */ new Map();
+  _normalizedModels = /* @__PURE__ */ new Map();
+  _normalizedAliases = /* @__PURE__ */ new Map();
   _timer;
   _refreshing;
   _disposed = false;
@@ -7725,7 +7906,7 @@ var ModelMetadataStore = class {
         ...capabilityOverridesFromMetadata(metadata),
         ...model.capabilityOverrides
       },
-      reasoningEfforts: model.reasoningEfforts ?? (model.name.toLowerCase().startsWith("gpt-6") ? nativeReasoningEfforts(model.name) : void 0) ?? reasoningEffortsFromMetadata(provider, metadata)
+      reasoningEfforts: model.reasoningEfforts ?? (modelNameForInference(model.name).startsWith("gpt-6") ? nativeReasoningEfforts(model.name) : void 0) ?? reasoningEffortsFromMetadata(provider, metadata)
     };
   }
   getMaxTokens(provider, model) {
@@ -7736,6 +7917,8 @@ var ModelMetadataStore = class {
     validateCatalog(catalog);
     this._models.clear();
     this._aliases.clear();
+    this._normalizedModels.clear();
+    this._normalizedAliases.clear();
     for (const [id, model] of Object.entries(modelsFromCatalog(catalog))) {
       const keys = /* @__PURE__ */ new Set([
         id,
@@ -7744,8 +7927,20 @@ var ModelMetadataStore = class {
       for (const key of keys) {
         const normalized = normalizeModelId(key);
         this._models.set(normalized, model);
+        setUnambiguous(
+          this._normalizedModels,
+          modelIdentityKey(key),
+          model
+        );
         const alias = modelAlias(normalized);
-        if (alias !== normalized) this.setAlias(alias, model);
+        if (alias !== normalized) {
+          this.setAlias(alias, model);
+          setUnambiguous(
+            this._normalizedAliases,
+            modelIdentityKey(alias),
+            model
+          );
+        }
       }
     }
   }
@@ -7753,21 +7948,29 @@ var ModelMetadataStore = class {
     return this.find(provider, model.name) ?? (model.reasoningVariantOf ? this.find(provider, model.reasoningVariantOf) : void 0);
   }
   find(provider, model) {
-    for (const candidate of metadataLookupCandidates(model)) {
-      const metadata = this.findCandidate(provider, candidate);
-      if (metadata) return metadata;
+    const candidates = metadataLookupCandidates(model);
+    for (const normalized of [false, true]) {
+      for (const candidate of candidates) {
+        const metadata = this.findCandidate(
+          provider,
+          candidate,
+          normalized
+        );
+        if (metadata) return metadata;
+      }
     }
   }
-  findCandidate(provider, model) {
+  findCandidate(provider, model, normalized = false) {
+    const models = normalized ? this._normalizedModels : this._models;
+    const aliases = normalized ? this._normalizedAliases : this._aliases;
+    const key = normalized ? modelIdentityKey : normalizeModelId;
     for (const prefix of providerPrefixes(provider)) {
-      const prefixed = this._models.get(
-        normalizeModelId(`${prefix}/${model}`)
-      );
+      const prefixed = models.get(key(`${prefix}/${model}`));
       if (prefixed) return prefixed;
     }
-    const exact = this._models.get(normalizeModelId(model));
+    const exact = models.get(key(model));
     if (exact) return exact;
-    const alias = this._aliases.get(normalizeModelId(model));
+    const alias = aliases.get(key(model));
     if (alias) return alias;
   }
   setAlias(alias, model) {
@@ -7869,6 +8072,11 @@ function normalizeModelId(value) {
   return value.trim().toLowerCase();
 }
 __name(normalizeModelId, "normalizeModelId");
+function setUnambiguous(index, key, model) {
+  if (!index.has(key)) index.set(key, model);
+  else if (index.get(key) !== model) index.set(key, void 0);
+}
+__name(setUnambiguous, "setUnambiguous");
 function metadataLookupCandidates(model) {
   const exact = model.trim();
   const realModel = (0, import_v1_shared_adapter13.parseOpenAIModelNameWithReasoningEffort)(exact).model.trim();
@@ -7908,32 +8116,32 @@ function capabilitiesFromMetadata(model) {
   const capabilities = [];
   const input = new Set(model.modalities?.input ?? []);
   const output = new Set(model.modalities?.output ?? []);
-  if (model.tool_call) capabilities.push(import_types11.ModelCapabilities.ToolCall);
-  if (model.reasoning) capabilities.push(import_types11.ModelCapabilities.Thinking);
-  if (input.has("image")) capabilities.push(import_types11.ModelCapabilities.ImageInput);
-  if (input.has("audio")) capabilities.push(import_types11.ModelCapabilities.AudioInput);
-  if (input.has("video")) capabilities.push(import_types11.ModelCapabilities.VideoInput);
-  if (input.has("pdf")) capabilities.push(import_types11.ModelCapabilities.FileInput);
+  if (model.tool_call) capabilities.push(import_types12.ModelCapabilities.ToolCall);
+  if (model.reasoning) capabilities.push(import_types12.ModelCapabilities.Thinking);
+  if (input.has("image")) capabilities.push(import_types12.ModelCapabilities.ImageInput);
+  if (input.has("audio")) capabilities.push(import_types12.ModelCapabilities.AudioInput);
+  if (input.has("video")) capabilities.push(import_types12.ModelCapabilities.VideoInput);
+  if (input.has("pdf")) capabilities.push(import_types12.ModelCapabilities.FileInput);
   if (output.has("image"))
-    capabilities.push(import_types11.ModelCapabilities.ImageGeneration);
+    capabilities.push(import_types12.ModelCapabilities.ImageGeneration);
   return capabilities;
 }
 __name(capabilitiesFromMetadata, "capabilitiesFromMetadata");
 function capabilityOverridesFromMetadata(model) {
   const result = {};
   if (typeof model.tool_call === "boolean")
-    result[import_types11.ModelCapabilities.ToolCall] = model.tool_call;
+    result[import_types12.ModelCapabilities.ToolCall] = model.tool_call;
   if (typeof model.reasoning === "boolean")
-    result[import_types11.ModelCapabilities.Thinking] = model.reasoning;
+    result[import_types12.ModelCapabilities.Thinking] = model.reasoning;
   if (Array.isArray(model.modalities?.input)) {
     const input = new Set(model.modalities.input);
-    result[import_types11.ModelCapabilities.ImageInput] = input.has("image");
-    result[import_types11.ModelCapabilities.AudioInput] = input.has("audio");
-    result[import_types11.ModelCapabilities.VideoInput] = input.has("video");
-    result[import_types11.ModelCapabilities.FileInput] = input.has("file") || input.has("pdf");
+    result[import_types12.ModelCapabilities.ImageInput] = input.has("image");
+    result[import_types12.ModelCapabilities.AudioInput] = input.has("audio");
+    result[import_types12.ModelCapabilities.VideoInput] = input.has("video");
+    result[import_types12.ModelCapabilities.FileInput] = input.has("file") || input.has("pdf");
   }
   if (Array.isArray(model.modalities?.output)) {
-    result[import_types11.ModelCapabilities.ImageGeneration] = model.modalities.output.includes("image");
+    result[import_types12.ModelCapabilities.ImageGeneration] = model.modalities.output.includes("image");
   }
   return result;
 }
@@ -7967,11 +8175,11 @@ __name(mergeCapabilities2, "mergeCapabilities");
 var import_promises4 = require("fs/promises");
 var import_crypto6 = require("crypto");
 var import_path4 = require("path");
-var import_types13 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types14 = require("koishi-plugin-chatluna/llm-core/platform/types");
 
 // src/source-settings.ts
 var import_crypto5 = require("crypto");
-var import_types12 = require("koishi-plugin-chatluna/llm-core/platform/types");
+var import_types13 = require("koishi-plugin-chatluna/llm-core/platform/types");
 function idFor(value, previous, editing, ids) {
   const input = typeof value === "string" ? value : "";
   if (input && ids.has(input)) throw new Error("源或凭据 ID 重复");
@@ -8133,7 +8341,7 @@ function normalizeRoutes(routes, sources) {
         `Embedding 路由 ${model} 跨源必须声明相同语义空间与版本`
       );
     if (route.capabilities && (!Array.isArray(route.capabilities) || route.capabilities.some(
-      (c) => !Object.values(import_types12.ModelCapabilities).includes(c)
+      (c) => !Object.values(import_types13.ModelCapabilities).includes(c)
     )))
       throw new Error(`路由 ${model} 的能力声明无效`);
     return {
@@ -8445,6 +8653,10 @@ function normalizeSettings(input, previous) {
     schemaVersion: 2,
     revision: Math.max(0, Number(value.revision) || 0),
     providers,
+    modelCapabilityOverrides: normalizeModelCapabilityOverrides(
+      value.modelCapabilityOverrides,
+      providers
+    ),
     additionalModels: arrayOf2(value.additionalModels).map(
       normalizeAdditionalModel
     ),
@@ -8494,6 +8706,9 @@ function cloneSettings(settings) {
   return {
     ...settings,
     providers: settings.providers.map((item) => cloneProvider(item)),
+    modelCapabilityOverrides: (settings.modelCapabilityOverrides ?? []).map(
+      (item) => ({ ...item, overrides: { ...item.overrides } })
+    ),
     additionalModels: settings.additionalModels.map((item) => ({
       ...item,
       modelCapabilities: [...item.modelCapabilities]
@@ -8684,14 +8899,14 @@ function normalizeProviderSpecific(input, previous, provider) {
 __name(normalizeProviderSpecific, "normalizeProviderSpecific");
 function normalizeAdditionalModel(input) {
   const value = isRecord2(input) ? input : {};
-  const capabilities = new Set(Object.values(import_types13.ModelCapabilities));
+  const capabilities = new Set(Object.values(import_types14.ModelCapabilities));
   return {
     target: stringOf(value.target, "*"),
     model: stringOf(value.model).trim(),
     modelType: stringOf(value.modelType, "LLM 大语言模型"),
     modelCapabilities: stringArrayOf(value.modelCapabilities, [
-      import_types13.ModelCapabilities.TextInput,
-      import_types13.ModelCapabilities.ToolCall
+      import_types14.ModelCapabilities.TextInput,
+      import_types14.ModelCapabilities.ToolCall
     ]).filter(
       (item) => capabilities.has(item)
     ),
@@ -8904,7 +9119,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
       const error = fatalError ?? connections.find((c) => c.error)?.error;
       const models2 = this.ctx.chatluna.platform.listPlatformModels(
         platform,
-        import_types14.ModelType.all
+        import_types15.ModelType.all
       ).value;
       return {
         id: preset.id,
@@ -8961,6 +9176,57 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     const result = await this._options.saveSettings(settings);
     await this.refresh();
     return result;
+  }
+  async updateModelCapabilities(request) {
+    if (!request || request.revision !== this._settings.revision || !Array.isArray(request.updates) || !request.updates.length || request.updates.length > 200)
+      throw new Error("模型能力配置无效或已被修改，请重新载入后保存");
+    const runtime = this._runtime.providers.find(
+      (provider) => provider.platform === request.platform && provider.provider.id === request.providerId
+    );
+    const model = runtime ? this._modelsFor(runtime).find((m) => m.name === request.model) : void 0;
+    if (!model || model.type.toLowerCase() !== "llm")
+      throw new Error("模型已不可用，请刷新列表后重新编辑");
+    const capabilities = new Set(Object.values(import_types15.ModelCapabilities));
+    const seen = /* @__PURE__ */ new Set();
+    for (const update of request.updates) {
+      if (!update || !model.candidates?.some(
+        (candidate) => candidate.sourceId === update.sourceId && candidate.sourceProviderId === update.sourceProviderId && candidate.credentialId === update.credentialId && candidate.upstreamModel === update.upstreamModel
+      ))
+        throw new Error("连接已变化，不能将能力覆盖写入其他源或 Key");
+      const key = JSON.stringify([
+        update.sourceId,
+        update.credentialId,
+        update.upstreamModel
+      ]);
+      if (seen.has(key)) throw new Error("模型能力覆盖范围重复");
+      seen.add(key);
+      if (!update.overrides || typeof update.overrides !== "object" || Array.isArray(update.overrides))
+        throw new Error("模型能力覆盖必须是布尔值映射");
+      for (const [capability, supported] of Object.entries(
+        update.overrides
+      ))
+        if (!capabilities.has(capability) || typeof supported !== "boolean")
+          throw new Error("模型能力覆盖含未知能力或非布尔值");
+    }
+    const next = toConsoleSettings(this._settings);
+    next.modelCapabilityOverrides = (next.modelCapabilityOverrides ?? []).filter(
+      (entry) => !(entry.providerId === request.providerId && entry.platform === request.platform && request.updates.some(
+        (update) => entry.sourceId === update.sourceId && entry.sourceProviderId === update.sourceProviderId && entry.credentialId === update.credentialId && entry.model === update.upstreamModel
+      ))
+    );
+    for (const update of request.updates)
+      if (Object.keys(update.overrides).length)
+        next.modelCapabilityOverrides.push({
+          providerId: request.providerId,
+          platform: request.platform,
+          sourceId: update.sourceId,
+          sourceProviderId: update.sourceProviderId,
+          credentialId: update.credentialId,
+          model: update.upstreamModel,
+          overrides: { ...update.overrides }
+        });
+    const result = await this.saveSettings(next);
+    return { ...result, revision: this._settings.revision };
   }
   async refreshProvider(platform, sourceId) {
     try {
@@ -9020,7 +9286,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
     const settings = this._settings;
     const platformModels = this.ctx.chatluna.platform.listPlatformModels(
       runtime.platform,
-      import_types14.ModelType.all
+      import_types15.ModelType.all
     ).value;
     const additional = settings.additionalModels.filter(
       (item) => targetMatches(item.target, runtime.platform, runtime.provider.id)
@@ -9032,7 +9298,7 @@ var ModelHubConsoleService = class extends import_plugin_console.DataService {
         provider: runtime.provider.name,
         providerId: runtime.provider.id,
         name: model.name,
-        type: import_types14.ModelType[model.type],
+        type: import_types15.ModelType[model.type],
         maxTokens: model.maxTokens,
         capabilities: model.capabilities,
         source: custom ? "custom" : "api",
@@ -9260,6 +9526,13 @@ function apply(ctx, config) {
     ctx2.console.addListener(
       "chatluna-model-hub/saveSettings",
       async (settings2) => ctx2.console.services.chatluna_model_hub.saveSettings(settings2),
+      { authority: 1 }
+    );
+    ctx2.console.addListener(
+      "chatluna-model-hub/updateModelCapabilities",
+      async (request) => ctx2.console.services.chatluna_model_hub.updateModelCapabilities(
+        request
+      ),
       { authority: 1 }
     );
     ctx2.console.addListener(

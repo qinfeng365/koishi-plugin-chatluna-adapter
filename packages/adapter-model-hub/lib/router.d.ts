@@ -25,6 +25,8 @@ interface Candidate {
     connection: Connection;
     upstreamModel: string;
     embeddingSpace?: string;
+    capabilities?: Cap[];
+    reasoningVariantOf?: string;
 }
 interface Route {
     info: ModelInfo;
@@ -75,17 +77,21 @@ export declare class ModelHubRouter extends ModelHubRequester {
     status(): ConnectionStatus[];
     modelCandidates(model: string): {
         sourceId: string;
+        sourceProviderId: string;
         credentialId: string;
         upstreamModel: string;
         sourceName: string;
         credentialName: string;
         capabilities: Cap[];
+        capabilityOverrides: Partial<Record<Cap, boolean>>;
         available: boolean;
     }[];
     getModels(config?: RunnableConfig): Promise<ModelInfo[]>;
     refreshCatalog(config?: RunnableConfig, sourceId?: string): Promise<ModelInfo[]>;
     private buildRoutes;
     private addRoute;
+    private effectiveModel;
+    private capabilityOverrides;
     private limits;
     private available;
     private reserve;

@@ -9,24 +9,26 @@ import {
 } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ModelRequestParams } from 'koishi-plugin-chatluna/llm-core/platform/api'
 import type { ProviderAdapterId, ProviderModelEntry } from './types'
+import { modelNameForInference } from './model-identity'
 
 export function resolveCapabilities(
     adapter: ProviderAdapterId,
     model: ProviderModelEntry,
     responseApi = false
 ) {
-    responseApi ||= adapter === 'openai' && /^gpt-6/i.test(model.name)
+    const name = modelNameForInference(model.name)
     const result = new Set(model.capabilities ?? [])
     if (adapter !== 'dify') {
         result.add(Cap.ToolCall)
         if (
-            supportImageInput(model.name) ||
-            /^(gpt-6|kimi-k3)/i.test(model.name)
+            supportImageInput(name) ||
+            /^(gpt-6|kimi-k3)/i.test(name) ||
+            /^deepseek-v4\.1-flash(?:-|$)/.test(name)
         )
             result.add(Cap.ImageInput)
-        if (/^kimi-k3/i.test(model.name)) result.add(Cap.VideoInput)
-        if (supportAudioInput(model.name)) result.add(Cap.AudioInput)
-        if (isThinkingModelName(model.name)) result.add(Cap.Thinking)
+        if (/^kimi-k3/i.test(name)) result.add(Cap.VideoInput)
+        if (supportAudioInput(name)) result.add(Cap.AudioInput)
+        if (isThinkingModelName(name)) result.add(Cap.Thinking)
     }
     for (const [capability, supported] of Object.entries(
         model.capabilityOverrides ?? {}
@@ -34,14 +36,17 @@ export function resolveCapabilities(
         if (supported) result.add(capability as Cap)
         else result.delete(capability as Cap)
     }
-    return protocolCapabilities(adapter, [...result], responseApi)
+    return protocolCapabilities(adapter, [...result], responseApi, model.name)
 }
 
 export function protocolCapabilities(
     adapter: ProviderAdapterId,
     capabilities: Cap[],
-    responseApi = false
+    responseApi = false,
+    model = ''
 ) {
+    responseApi ||=
+        adapter === 'openai' && /^gpt-6/i.test(modelNameForInference(model))
     // The official Responses input serializer supports images/files, not audio/video.
     return adapter === 'openai' && responseApi
         ? capabilities.filter(
@@ -57,6 +62,7 @@ function isThinkingModelName(model: string) {
         ['reasoner', 'thinking', 'reasoning', 'r1'].some((name) =>
             lower.includes(name)
         ) ||
+        /^deepseek-(?:v4(?:[.-]|$)|flash(?:-|$))/.test(lower) ||
         [
             'o1',
             'o3',

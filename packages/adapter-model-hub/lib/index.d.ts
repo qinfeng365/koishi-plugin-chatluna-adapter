@@ -2,7 +2,7 @@ import { DataService } from '@koishijs/plugin-console';
 import { Context, Logger, Schema } from 'koishi';
 import type { GeminiResourceRequest } from './adapters/gemini-resources';
 import { PROVIDER_PRESETS } from './providers';
-import type { ModelHubActionResult, ModelHubConsoleData, ModelHubConsoleModel, ModelHubConsoleSettings, ModelHubKoishiConfig, ModelHubRuntimeState, ModelHubSettings } from './types';
+import type { ModelHubActionResult, ModelHubConsoleData, ModelHubConsoleModel, ModelHubConsoleSettings, ModelHubKoishiConfig, ModelHubRuntimeState, ModelHubSettings, ModelCapabilityOverrideRequest } from './types';
 export declare let logger: Logger;
 export declare class ModelHubConsoleService extends DataService<ModelHubConsoleData> {
     private _options;
@@ -31,7 +31,7 @@ export declare class ModelHubConsoleService extends DataService<ModelHubConsoleD
             enabled: boolean;
             configured: boolean;
             pullModels: boolean;
-            status: "disabled" | "error" | "partial" | "loaded" | "configured" | "missing-key";
+            status: "error" | "disabled" | "partial" | "loaded" | "configured" | "missing-key";
             modelCount: number;
             modelsUpdatedAt: number;
             error: string;
@@ -59,6 +59,7 @@ export declare class ModelHubConsoleService extends DataService<ModelHubConsoleD
         frontendMode: "performance" | "polished";
     }>;
     saveSettings(settings: ModelHubConsoleSettings): Promise<ModelHubActionResult>;
+    updateModelCapabilities(request: ModelCapabilityOverrideRequest): Promise<ModelHubActionResult>;
     refreshProvider(platform?: string, sourceId?: string): Promise<ModelHubActionResult>;
     geminiResource(platform: string, request: GeminiResourceRequest): Promise<any>;
     private _modelsFor;
@@ -87,6 +88,7 @@ declare module '@koishijs/plugin-console' {
         'chatluna-model-hub/geminiResource': (platform: string, request: GeminiResourceRequest) => Promise<Record<string, unknown>>;
         'chatluna-model-hub/getData': () => Promise<ModelHubConsoleData>;
         'chatluna-model-hub/saveSettings': (settings: ModelHubConsoleSettings) => Promise<ModelHubActionResult>;
+        'chatluna-model-hub/updateModelCapabilities': (request: ModelCapabilityOverrideRequest) => Promise<ModelHubActionResult>;
         'chatluna-model-hub/refresh': (platform?: string, sourceId?: string) => Promise<ModelHubActionResult>;
     }
 }

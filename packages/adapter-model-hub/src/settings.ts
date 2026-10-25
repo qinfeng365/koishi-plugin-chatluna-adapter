@@ -39,6 +39,7 @@ import {
     normalizeSources,
     normalizeRoutes
 } from './source-settings'
+import { normalizeModelCapabilityOverrides } from './model-capability-overrides'
 
 export const DEFAULT_SETTINGS_PATH = 'data/chatluna-model-hub/config.json'
 
@@ -71,6 +72,7 @@ const DEFAULT_RESPONSE_BUILTIN_TOOL_SUPPORT_MODELS = [
 
 export const DEFAULT_MODEL_HUB_SETTINGS: ModelHubSettings = {
     providers: [],
+    modelCapabilityOverrides: [],
     additionalModels: [],
     blacklistModels: []
 }
@@ -354,6 +356,10 @@ export function normalizeSettings(
         schemaVersion: 2,
         revision: Math.max(0, Number(value.revision) || 0),
         providers,
+        modelCapabilityOverrides: normalizeModelCapabilityOverrides(
+            value.modelCapabilityOverrides,
+            providers
+        ),
         additionalModels: arrayOf(value.additionalModels).map(
             normalizeAdditionalModel
         ),
@@ -414,6 +420,9 @@ function cloneSettings(settings: ModelHubSettings): ModelHubSettings {
     return {
         ...settings,
         providers: settings.providers.map((item) => cloneProvider(item)),
+        modelCapabilityOverrides: (settings.modelCapabilityOverrides ?? []).map(
+            (item) => ({ ...item, overrides: { ...item.overrides } })
+        ),
         additionalModels: settings.additionalModels.map((item) => ({
             ...item,
             modelCapabilities: [...item.modelCapabilities]

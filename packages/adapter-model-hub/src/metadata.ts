@@ -6,6 +6,7 @@ import type { Context } from 'koishi'
 import { ModelCapabilities } from 'koishi-plugin-chatluna/llm-core/platform/types'
 import type { ProviderModelEntry, ReasoningEffortLevel } from './types'
 import { nativeReasoningEfforts } from './adapters/reasoning-protocols'
+import { modelIdentityKey, modelNameForInference } from './model-identity'
 
 type ModelsDevModel = {
     id?: string
@@ -41,6 +42,8 @@ type ModelsDevCatalog =
 export class ModelMetadataStore {
     private _models = new Map<string, ModelsDevModel>()
     private _aliases = new Map<string, ModelsDevModel | undefined>()
+    private _normalizedModels = new Map<string, ModelsDevModel | undefined>()
+    private _normalizedAliases = new Map<string, ModelsDevModel | undefined>()
     private _timer?: ReturnType<typeof setInterval>
     private _refreshing?: Promise<void>
     private _disposed = false
@@ -160,7 +163,7 @@ export class ModelMetadataStore {
             },
             reasoningEfforts:
                 model.reasoningEfforts ??
-                (model.name.toLowerCase().startsWith('gpt-6')
+                (modelNameForInference(model.name).startsWith('gpt-6')
                     ? nativeReasoningEfforts(model.name)
                     : undefined) ??
                 reasoningEffortsFromMetadata(provider, metadata)
@@ -176,6 +179,8 @@ export class ModelMetadataStore {
         validateCatalog(catalog)
         this._models.clear()
         this._aliases.clear()
+        this._normalizedModels.clear()
+        this._normalizedAliases.clear()
         for (const [id, model] of Object.entries(modelsFromCatalog(catalog))) {
             const keys = new Set([
                 id,
@@ -184,9 +189,21 @@ export class ModelMetadataStore {
             for (const key of keys) {
                 const normalized = normalizeModelId(key)
                 this._models.set(normalized, model)
+                setUnambiguous(
+                    this._normalizedModels,
+                    modelIdentityKey(key),
+                    model
+                )
 
                 const alias = modelAlias(normalized)
-                if (alias !== normalized) this.setAlias(alias, model)
+                if (alias !== normalized) {
+                    this.setAlias(alias, model)
+                    setUnambiguous(
+                        this._normalizedAliases,
+                        modelIdentityKey(alias),
+                        model
+                    )
+                }
             }
         }
     }
@@ -201,24 +218,33 @@ export class ModelMetadataStore {
     }
 
     private find(provider: string, model: string) {
-        for (const candidate of metadataLookupCandidates(model)) {
-            const metadata = this.findCandidate(provider, candidate)
-            if (metadata) return metadata
+        // Try every exact ID before separator aliases, including reasoning bases.
+        const candidates = metadataLookupCandidates(model)
+        for (const normalized of [false, true]) {
+            for (const candidate of candidates) {
+                const metadata = this.findCandidate(
+                    provider,
+                    candidate,
+                    normalized
+                )
+                if (metadata) return metadata
+            }
         }
     }
 
-    private findCandidate(provider: string, model: string) {
+    private findCandidate(provider: string, model: string, normalized = false) {
+        const models = normalized ? this._normalizedModels : this._models
+        const aliases = normalized ? this._normalizedAliases : this._aliases
+        const key = normalized ? modelIdentityKey : normalizeModelId
         for (const prefix of providerPrefixes(provider)) {
-            const prefixed = this._models.get(
-                normalizeModelId(`${prefix}/${model}`)
-            )
+            const prefixed = models.get(key(`${prefix}/${model}`))
             if (prefixed) return prefixed
         }
 
-        const exact = this._models.get(normalizeModelId(model))
+        const exact = models.get(key(model))
         if (exact) return exact
 
-        const alias = this._aliases.get(normalizeModelId(model))
+        const alias = aliases.get(key(model))
         if (alias) return alias
     }
 
@@ -364,6 +390,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeModelId(value: string) {
     return value.trim().toLowerCase()
+}
+
+function setUnambiguous(
+    index: Map<string, ModelsDevModel | undefined>,
+    key: string,
+    model: ModelsDevModel
+) {
+    if (!index.has(key)) index.set(key, model)
+    else if (index.get(key) !== model) index.set(key, undefined)
 }
 
 function metadataLookupCandidates(model: string) {
